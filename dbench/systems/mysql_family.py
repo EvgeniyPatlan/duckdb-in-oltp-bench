@@ -31,6 +31,7 @@ NUMERIC_CODES = frozenset({
 })
 ER_QUERY_INTERRUPTED = 1317
 ER_MAX_EXECUTION_TIME = 3024
+ER_STATEMENT_TIMEOUT = 1969  # MariaDB max_statement_time
 CR_LOST = 2013
 CONNECTION_CODES = frozenset({2002, 2003, 2006, 2013})
 LOAD_SQL = (
@@ -53,7 +54,7 @@ def _code(exc: BaseException) -> int | None:
 def is_timeout_error(exc: BaseException, elapsed_s: float, timeout_s: float) -> bool:
     """The server's max_execution_time, our KILL QUERY, or a client read timeout."""
     code = _code(exc)
-    if code in (ER_MAX_EXECUTION_TIME, ER_QUERY_INTERRUPTED):
+    if code in (ER_MAX_EXECUTION_TIME, ER_QUERY_INTERRUPTED, ER_STATEMENT_TIMEOUT):
         return True
     return code == CR_LOST and elapsed_s >= timeout_s
 
@@ -187,6 +188,10 @@ class MySQLFamilyAdapter(ContainerServerAdapter):
         """Hook run just after the query finished (not timed); fills ``QueryOutcome.pushed``."""
         return "n/a"
 
+    def _timeout_sql(self, timeout_s: int) -> str:
+        """Session statement that makes the server stop a query after ``timeout_s``."""
+        return f"SET SESSION max_execution_time = {int(timeout_s * 1000)}"
+
     def execute(self, sql: str, timeout_s: int) -> QueryOutcome:
         started = time.perf_counter()
         try:
@@ -197,7 +202,7 @@ class MySQLFamilyAdapter(ContainerServerAdapter):
         keep_active = False
         try:
             with conn.cursor() as cur:
-                cur.execute(f"SET SESSION max_execution_time = {int(timeout_s * 1000)}")
+                cur.execute(self._timeout_sql(timeout_s))
                 ident = conn.thread_id()
                 self.active.add(ident, timeout_s)
                 token = self._query_begin(cur)
@@ -252,3 +257,58 @@ class MySQLFamilyAdapter(ContainerServerAdapter):
             return True
         finally:
             conn.close()
+
+
+class ConvertToDuckDBMixin:
+    """``load_convert`` for MySQL-family servers whose DuckDB engine is reached by
+    ``ALTER TABLE t ENGINE=DuckDB`` (Percona, MariaDB). Mix in before the adapter base."""
+
+    @staticmethod
+    def _staging_ddl() -> list[str]:
+        """InnoDB tables with the engine schema (primary keys, no foreign-key indexes), so
+        the converted tables equal the ``load_bulk`` ones; ALTER carries declared indexes
+        over to the DuckDB table."""
+        return split_statements(render_schema("mysql", "ENGINE=InnoDB", "engine"))
+
+    def load_convert(self, data: DatasetPaths) -> LoadOutcome:
+        """Load plain InnoDB row-store tables, then ``ALTER TABLE t ENGINE=DuckDB`` per
+        table and ``ANALYZE TABLE`` (as ``load_bulk``). ``elapsed_s`` is conversion plus analyze;
+        the staging load is ``extra.rowstore_load_s``."""
+        started = time.perf_counter()
+        try:
+            self._run_statements([f"DROP TABLE IF EXISTS {t}" for t in reversed(TABLES)])
+            self._run_statements(self._staging_ddl())
+            conn = self._connect(read_timeout=LOAD_TIMEOUT_S)
+        except Exception as exc:  # noqa: BLE001
+            return self._load_failure(exc, started)
+        try:
+            with conn.cursor() as cur:
+                return self._convert(cur, data, started)
+        except Exception as exc:  # noqa: BLE001
+            return self._load_failure(exc, started)
+        finally:
+            conn.close()
+
+    def _convert(self, cur, data: DatasetPaths, started: float) -> LoadOutcome:
+        self._load_parts(cur, data)
+        rowstore_s = time.perf_counter() - started
+        actual = self._count_rows(cur)
+        expected = expected_rows(data) if data is not None else actual
+        if actual != expected:
+            return LoadOutcome("error", rowstore_s, "row count does not match the manifest",
+                               {"kind": "row_count", "expected": expected, "actual": actual,
+                                "rowstore_load_s": rowstore_s})
+        convert_start = time.perf_counter()
+        for table in TABLES:
+            cur.execute(f"ALTER TABLE {table} ENGINE=DuckDB")
+        for table in TABLES:
+            cur.execute(f"ANALYZE TABLE {table}")
+            cur.fetchall()
+        converted_s = time.perf_counter() - convert_start
+        actual = self._count_rows(cur)
+        if actual != expected:
+            return LoadOutcome("error", converted_s, "row count changed during conversion",
+                               {"kind": "row_count", "expected": expected, "actual": actual,
+                                "rowstore_load_s": rowstore_s})
+        return LoadOutcome("ok", converted_s, None,
+                           {"rows": actual, "rowstore_load_s": rowstore_s})

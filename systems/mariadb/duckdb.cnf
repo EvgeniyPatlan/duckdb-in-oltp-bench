@@ -1,0 +1,49 @@
+# MariaDB 13.0.2 + DuckDB engine. Rendered by dbench/systems/mariadb.py (jinja2) from the container
+# limits and mounted read-only at /etc/my.cnf.d/dbench.cnf. Lines starting with '#' are the reason
+# for the setting below them.
+# Sizing formulas (mem_gb = container memory, cores = CPUs in the DB cpuset), the same ones the
+# Percona and AliSQL engines use (baseline_conf.py):
+#   duckdb_memory_limit     = 0.75 * mem_gb     (64 GB -> 48G)
+#   duckdb_max_threads      = cores             (16 cores -> 16)
+#   innodb_buffer_pool_size = mem_gb / 16       (-> 4G); InnoDB only holds catalog + staging
+#   tmp_table_size = max_heap_table_size = mem_gb / 16   (-> 4G)
+#   innodb_log_file_size    = mem_gb / 8        (-> 8G), MariaDB's name for the redo log size
+[mariadbd]
+# The DuckDB engine ships as a plugin library, not built in.
+plugin-load-add = ha_duckdb.so
+# The engine is gamma maturity; the server refuses to load it under the default 'stable'.
+plugin-maturity = gamma
+# Caps DuckDB (the engine that runs the queries) at 75% of the container, the share the InnoDB
+# baseline gives its buffer pool; the rest covers the server, connections and the OS.
+duckdb_memory_limit = {{ duck_memory }}
+# One DuckDB thread per core pinned to the database container.
+duckdb_max_threads = {{ cores }}
+# Explicit spill location on the datadir volume (created by the image entrypoint), the same
+# spill-location rule as every engine.
+duckdb_temp_directory = {{ spill_dir }}
+# Exact TPC-H DECIMAL results: the default (ON) maps DECIMAL to DOUBLE. AliSQL gets the same setting.
+duckdb_use_double_for_decimal = OFF
+# The InnoDB side only holds the catalog and row-store staging (the load_convert path); the data
+# lives in DuckDB, so a large pool would only take memory from DuckDB.
+innodb_buffer_pool_size = {{ buffer_pool }}
+# A redo log of mem_gb/8 keeps checkpoints from throttling the row-store staging load; same
+# capacity as the InnoDB baseline (MariaDB calls it innodb_log_file_size).
+innodb_log_file_size = {{ redo_capacity }}
+# Per-join memory comparable to Postgres work_mem=256MB, same as the InnoDB baseline.
+join_buffer_size = 256M
+# Per-sort memory comparable to Postgres work_mem=256MB, same as the InnoDB baseline.
+sort_buffer_size = 256M
+# Internal temporary tables stay in memory up to mem_gb/16, same as the InnoDB baseline.
+tmp_table_size = {{ temp_ram }}
+# Same cap for MEMORY-engine temporary tables, which use the smaller of the two sizes.
+max_heap_table_size = {{ temp_ram }}
+# Server-side LOAD DATA INFILE may read only the read-only dataset mount.
+secure_file_priv = /data
+# Bulk load is server-side from /data; client-side LOCAL loads stay disabled.
+local_infile = OFF
+# Headroom for the 32-stream throughput run plus probes and cancel connections.
+max_connections = 200
+# The DuckDB engine accepts only utf8mb4 tables.
+character-set-server = utf8mb4
+# utf8mb4 default collation for the bench database and its tables.
+collation-server = utf8mb4_general_ci
