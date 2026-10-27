@@ -89,7 +89,11 @@ class PerconaEngine(MySQLFamilyAdapter):
     def start(self, limits: Limits) -> None:
         self._limits = limits  # the env is built from the limits
         super().start(limits)
-        self._make_spill_dir()
+        try:
+            self._make_spill_dir()
+        except Exception:
+            self.stop()  # leave no running container behind a failed start
+            raise
 
     def _make_spill_dir(self) -> None:
         """DuckDB spills here (on the datadir volume); created after the server is up."""

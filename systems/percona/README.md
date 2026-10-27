@@ -40,8 +40,9 @@ Everything else, including the binary log, is the server default.
   auto-detects the thread count from the container's CPU set (the 16 pinned cores). Neither a
   status variable nor a system variable shows the detected count, so it is not observable and
   is not recorded.
-- **DuckDB version 1.5.3**, stated by the engine maintainer; the engine exposes no version at
-  runtime. `versions()` records `duckdb: 1.5.3`, `duckdb_source` with that wording, and
+- **DuckDB version 1.5.3**, source:
+  "stated by the engine maintainer; engine exposes no version at runtime".
+  `versions()` records `duckdb: 1.5.3`, that `duckdb_source`, and
   `engine: ducksdb-mysql-engine v0.2.3`. The plain-DuckDB image `dbench/duckdb:1.5.3` (system
   `duckdb-1.5.3`) allows an overhead comparison on the same DuckDB version.
 - `Ducksdb_pushdown_count` is a global counter; see Pushdown.

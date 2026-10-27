@@ -5,7 +5,12 @@ import pytest
 
 from dbench import dockerctl
 from dbench.config import Limits
-from dbench.systems.percona import PerconaEngine, container_command, container_env
+from dbench.systems.percona import (
+    DUCKDB_SOURCE,
+    PerconaEngine,
+    container_command,
+    container_env,
+)
 from dbench.systems.registry import get_adapter
 
 PLAN = Limits("0-15", "16-23", 64)
@@ -122,6 +127,18 @@ def test_load_convert_alters_each_table_to_duckdb(monkeypatch):
     assert all(s.endswith("ENGINE=DuckDB") for s in alters)
 
 
+def test_failed_spill_dir_stops_container(monkeypatch):
+    a = PerconaEngine(None)
+    stopped = []
+    monkeypatch.setattr("dbench.systems._common.ContainerServerAdapter.start",
+                        lambda self, limits: None)
+    monkeypatch.setattr(a, "_make_spill_dir", lambda: (_ for _ in ()).throw(RuntimeError("x")))
+    monkeypatch.setattr(a, "stop", lambda: stopped.append(1))
+    with pytest.raises(RuntimeError):
+        a.start(SMOKE)
+    assert stopped == [1]
+
+
 @pytest.mark.docker
 @pytest.mark.skipif(os.environ.get("DBENCH_DOCKER") != "1", reason="set DBENCH_DOCKER=1")
 def test_engine_starts_and_lists_duckdb():
@@ -145,7 +162,8 @@ def test_engine_starts_and_lists_duckdb():
         finally:
             conn.close()
         v = a.versions()
-        assert v["duckdb"] == "1.5.3" and "maintainer" in v["duckdb_source"]
+        assert v["duckdb"] == "1.5.3"
+        assert v["duckdb_source"] == DUCKDB_SOURCE
         code, _ = dockerctl._client().containers.get(a.container_name).exec_run(
             ["test", "-d", "/var/lib/mysql/duckdb_tmp"])
         assert code == 0
