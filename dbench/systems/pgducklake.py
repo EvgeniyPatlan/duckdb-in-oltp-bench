@@ -1,7 +1,7 @@
 """pg_ducklake on PostgreSQL 18: DuckLake tables (``CREATE TABLE ... USING ducklake``), stored as
 Parquet files on the data volume with the catalog in Postgres, analysed by DuckDB.
 
-The image is built from the v1.0.3 tag by ``scripts/build_pgducklake.sh`` (Docker Hub has no
+The image is built from the v1.0.3 tag by ``systems/pgducklake/build.sh`` (Docker Hub has no
 v1.0.3 image); settings come from ``systems/pgducklake/postgresql.conf``.
 """
 from __future__ import annotations
@@ -64,7 +64,10 @@ class PgDuckLake(PgDuckBase):
         return DUCKDB_VERSION_SQL
 
     def supports(self, measure: str) -> tuple[bool, str | None]:
-        return True, None  # DuckDB-native tables: conversion (M11) and pushdown (M12) apply
+        # M11 is freshness. The project documents heap-to-DuckLake CDC (pg_duckpipe, a separate
+        # project that is not in this image), so the measure applies; the mechanism is to be
+        # designed post-talk. M12 (pushdown) applies as DuckLake tables are DuckDB-native.
+        return True, None
 
     # DuckDB has no postgresql.conf settings in this extension: set them per session
     def _session_setup(self, conn) -> None:
@@ -97,6 +100,7 @@ class PgDuckLake(PgDuckBase):
             self._run_statements(split_statements(
                 render_schema(self.dialect, self.engine_clause, "engine")))
             conn = self._connect()
+            started = time.perf_counter()  # the staging timer starts after the DDL
         except Exception as exc:  # noqa: BLE001
             return self._load_failure(exc, started)
         try:
@@ -118,14 +122,18 @@ class PgDuckLake(PgDuckBase):
         for stmt in split_statements(render_schema(self.dialect, "", "engine")):
             conn.execute(stmt)
         PgDuckBase._load_parts(self, conn, data)  # plain COPY into the heap tables
-        rowstore_s = time.perf_counter() - started
+        loaded_s = time.perf_counter() - started
         expected = expected_rows(data) if data is not None else None
         staged = {t: conn.execute(f"SELECT COUNT(*) FROM {STAGING_SCHEMA}.{t}").fetchone()[0]
                   for t in TABLES}
         if expected is not None and staged != expected:
-            return LoadOutcome("error", rowstore_s, "row count does not match the manifest",
+            return LoadOutcome("error", loaded_s, "row count does not match the manifest",
                                {"kind": "row_count", "expected": expected, "actual": staged,
-                                "rowstore_load_s": rowstore_s})
+                                "rowstore_load_s": loaded_s})
+        vacuum_start = time.perf_counter()
+        for table in TABLES:  # as the Postgres load path: hint bits and freezing before reads
+            conn.execute(f"VACUUM (FREEZE, ANALYZE) {STAGING_SCHEMA}.{table}")
+        rowstore_s = loaded_s + (time.perf_counter() - vacuum_start)
         conn.execute("SET search_path = public")
         self._session_setup(conn)
         convert_start = time.perf_counter()

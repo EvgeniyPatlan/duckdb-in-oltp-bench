@@ -26,15 +26,25 @@ Rendered from the container limits (`duckdb_pg_settings(limits, "pgduckdb")` in
 | `duckdb.max_memory` | 0.5 x container GB = `32GB` | The rest of the container goes to `shared_buffers` and the page cache. |
 | `duckdb.threads` | cores in the DB cpuset = `16` | One DuckDB thread per core (default `-1`). |
 | `duckdb.temporary_directory` | `/var/lib/postgresql/duckdb_tmp` | Spill directory made explicit, on the data volume. |
+| `duckdb.threads_for_postgres_scan`, `duckdb.max_workers_per_postgres_scan` | cores = `16` | Heap-scan parallelism sized to the container (default 2), the analogue of the baseline's `max_parallel_workers_per_gather = cores`. |
 | `effective_cache_size`, `max_parallel_workers_per_gather`, `max_parallel_workers`, `max_worker_processes`, `work_mem`, `max_connections`, `max_wal_size`, `checkpoint_timeout` | as in the Postgres baseline | Same formulas as `systems/postgres/`. |
 
 Per session, every benchmark query runs after `SET duckdb.force_execution = true`, so DuckDB takes
 the query even where the planner would not choose it.
 
-Left at their defaults and worth knowing: `duckdb.max_workers_per_postgres_scan = 2` and
-`duckdb.threads_for_postgres_scan = 2` bound how many threads read one Postgres heap scan, which
-can limit scan parallelism regardless of `duckdb.threads`. They were not tuned (no tuning beyond
-the memory/thread formulas).
+DuckDB's memory limit was checked from DuckDB itself (`duckdb.query('SELECT
+current_setting(''memory_limit'')')`): `duckdb.max_memory = 4GB` reads `4.0 GiB`, so the `MB`/`GB`
+unit is binary and no conversion is needed; `duckdb.threads` reads back as set.
+
+## Sessions and concurrency
+
+Each Postgres backend holds its own DuckDB instance (and its cache). `execute()` and `pushdown()`
+therefore run on one persistent session connection per calling thread, set up once
+(`SET duckdb.force_execution`), so warm runs keep the backend's DuckDB state. The session is
+dropped and reopened after an error, a timeout, a restart or a crash. `duckdb.max_memory` and
+`duckdb.threads` apply per backend: with N concurrent streams the memory in use can reach N times
+the limit, so for the throughput run (Task 16) the per-backend memory will be the formula divided
+by the number of streams.
 
 ## Schema and loading
 

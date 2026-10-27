@@ -62,6 +62,11 @@ class PostgresFamilyAdapter(ContainerServerAdapter):
     engine_clause = ""
     version_key = "postgres"
     postgres_shm = True
+    _generation = 0
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._sessions = threading.local()
 
     def _connect(self, connect_timeout: float = PROBE_TIMEOUT_S):
         return psycopg.connect(
@@ -71,6 +76,49 @@ class PostgresFamilyAdapter(ContainerServerAdapter):
 
     def connect(self) -> Any:
         return self._connect()
+
+    # One persistent session connection per calling thread for execute()/pushdown(): DuckDB-based
+    # extensions keep one DuckDB instance per Postgres backend, so a fresh connection per query
+    # would start every run with an empty DuckDB cache.
+    def _session(self):
+        """This thread's session connection, opened (and set up once) on first use."""
+        local = self._sessions
+        gen = self._generation
+        held = getattr(local, "held", None)
+        if held is not None and held[0] == gen and not held[1].closed:
+            return held[1]
+        self._drop_session()
+        conn = self._connect()
+        try:
+            self._session_setup(conn)
+        except Exception:
+            conn.close()
+            raise
+        local.held = (gen, conn)
+        return conn
+
+    def _drop_session(self) -> None:
+        """Close this thread's session; the next ``_session()`` reconnects."""
+        held = getattr(self._sessions, "held", None)
+        self._sessions.held = None
+        if held is not None:
+            try:
+                held[1].close()
+            except Exception:  # noqa: BLE001 - already dead
+                pass
+
+    def _invalidate_sessions(self) -> None:
+        """Make every thread's session stale (server stopped or replaced)."""
+        self._drop_session()
+        self._generation += 1
+
+    def start(self, limits) -> None:
+        self._invalidate_sessions()
+        super().start(limits)
+
+    def stop(self) -> None:
+        self._invalidate_sessions()
+        super().stop()
 
     def alive(self) -> bool:
         try:
@@ -94,11 +142,14 @@ class PostgresFamilyAdapter(ContainerServerAdapter):
 
     # versions and DDL
     def versions(self) -> dict:
-        conn = self._connect()
         try:
-            version = conn.execute("SHOW server_version").fetchone()[0]
-        finally:
-            conn.close()
+            conn = self._connect()
+            try:
+                version = conn.execute("SHOW server_version").fetchone()[0]
+            finally:
+                conn.close()
+        except Exception:  # noqa: BLE001 - versions() must not fail on an unreachable server
+            version = "unknown"
         return {self.version_key: version, **self.image_info()}
 
     def _run_statements(self, statements: list[str]) -> None:
@@ -203,18 +254,19 @@ class PostgresFamilyAdapter(ContainerServerAdapter):
             conn.close()
 
     def execute(self, sql: str, timeout_s: int) -> QueryOutcome:
+        token: Any = None
+        keep = False
+        started = time.perf_counter()
         try:
-            conn = self._connect()
+            conn = self._session()
         except Exception as exc:  # noqa: BLE001
             return classify_connection_failure(self.crash_info, exc)
         pid = conn.info.backend_pid
         done, fired = threading.Event(), threading.Event()
         timer = threading.Timer(timeout_s + READ_MARGIN_S, self._watchdog, (pid, done, fired))
         timer.daemon = True
-        started = time.perf_counter()
         try:
             conn.execute(f"SET statement_timeout = {int(timeout_s * 1000)}")
-            self._session_setup(conn)
             token = self._query_begin(conn, sql)
             self.active.add(pid, timeout_s)
             timer.start()
@@ -224,6 +276,7 @@ class PostgresFamilyAdapter(ContainerServerAdapter):
             elapsed = time.perf_counter() - started
             desc = cur.description or []
             pushed = self._query_end(conn, token)
+            keep = True  # only a clean query keeps the session (and its DuckDB cache)
             return QueryOutcome(
                 "ok", elapsed, [tuple(r) for r in rows],
                 numeric_cols_from_oids([d.type_code for d in desc]), None, pushed,
@@ -231,27 +284,27 @@ class PostgresFamilyAdapter(ContainerServerAdapter):
             )
         except pgerrors.QueryCanceled as exc:
             elapsed = time.perf_counter() - started
-            return QueryOutcome("timeout", elapsed, None, set(), f"{type(exc).__name__}: {exc}")
+            return QueryOutcome("timeout", elapsed, None, set(), f"{type(exc).__name__}: {exc}",
+                                token or "n/a")
         except psycopg.OperationalError as exc:
             if fired.is_set():  # the watchdog terminated the backend
                 elapsed = time.perf_counter() - started
                 return QueryOutcome("timeout", elapsed, None, set(),
-                                    f"watchdog: {type(exc).__name__}: {exc}")
+                                    f"watchdog: {type(exc).__name__}: {exc}", token or "n/a")
             return classify_connection_failure(self.crash_info, exc)
         except psycopg.Error as exc:
             elapsed = time.perf_counter() - started
             if is_cancelled_by_deadline(exc, elapsed, timeout_s):
                 return QueryOutcome("timeout", elapsed, None, set(),
-                                    f"{type(exc).__name__}: {exc}")
-            return QueryOutcome("error", elapsed, None, set(), f"{type(exc).__name__}: {exc}")
+                                    f"{type(exc).__name__}: {exc}", token or "n/a")
+            return QueryOutcome("error", elapsed, None, set(), f"{type(exc).__name__}: {exc}",
+                                token or "n/a")
         finally:
             done.set()
             timer.cancel()
             self.active.remove(pid)
-            try:
-                conn.close()
-            except Exception:  # noqa: BLE001
-                pass
+            if not keep:
+                self._drop_session()
 
     def lingering_queries(self) -> int:
         conn = self._connect()

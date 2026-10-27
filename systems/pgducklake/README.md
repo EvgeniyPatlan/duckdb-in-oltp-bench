@@ -42,6 +42,15 @@ Everything else is at the extension's defaults, including the **background maint
 snapshots) and `data_inlining_row_limit = 10`, so the 5-row `region` table is stored inline in the
 catalog. Maintenance can use CPU during a run; it was not disabled (no tuning beyond the formulas).
 
+## Sessions and concurrency
+
+Each Postgres backend holds its own DuckDB instance (and its cache). `execute()` and `pushdown()`
+run on one persistent session connection per calling thread, with the DuckDB settings applied once
+when it opens; it is dropped and reopened after an error, a timeout, a restart or a crash. The
+settings apply per backend: with N concurrent streams the memory in use can reach N times the
+limit, so for the throughput run (Task 16) the per-backend memory will be the formula divided by
+the number of streams.
+
 ## Schema and loading
 
 - `bench_schema_kind = "engine"`: the TPC-H tables with `USING ducklake`, primary keys, no
@@ -57,9 +66,9 @@ catalog. Maintenance can use CPU during a run; it was not disabled (no tuning be
   the column type by position. Row counts are checked against the manifest, then `ANALYZE` per
   table (`VACUUM` is a no-op on DuckLake tables). Load time covers the inserts and the analyzes.
 - `load_convert` (M11): plain heap tables with the engine schema are loaded with `COPY` into a
-  staging schema, then `INSERT INTO ducklake_t SELECT * FROM heap_t` per table (DuckDB reads the
-  heap) and `ANALYZE`. `elapsed_s` is the conversion plus analyze; the staging load is
-  `extra.rowstore_load_s`. The staging schema is dropped afterwards.
+  staging schema, then `VACUUM (FREEZE, ANALYZE)` on the staging heap tables (as the Postgres load path), then
+  `INSERT INTO ducklake_t SELECT * FROM heap_t` per table (DuckDB reads the heap) and `ANALYZE`. `elapsed_s` is the conversion plus analyze; the staging load is
+  `extra.rowstore_load_s` (COPY plus the staging vacuum, timed after the DDL). The staging schema is dropped afterwards.
 
 ## Pushdown detection (M12)
 
@@ -81,3 +90,9 @@ as `timeout` once the deadline has passed. Nothing lingered afterwards. The clie
 
 `storage_bytes()` is `du -sb $PGDATA` after a `CHECKPOINT`: Parquet data, catalog and WAL. The 22
 DuckDB query texts run unchanged; failed queries, mismatches and fallbacks are results.
+
+## M11 (freshness)
+
+`supports("M11")` is `(True, None)`: the project documents heap-to-DuckLake change capture
+(pg_duckpipe, a separate project that is not in this image), so the measure applies. The freshness
+mechanism is to be designed post-talk; `load_convert` is a one-time copy, not a freshness path.

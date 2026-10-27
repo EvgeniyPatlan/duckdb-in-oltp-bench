@@ -61,26 +61,28 @@ class PgDuckBase(PostgresFamilyAdapter):
         return token
 
     def pushdown(self, sql: str) -> Pushed:
-        conn = self._connect()
+        """Classify on the persistent session, the one ``execute()`` runs on."""
         try:
-            self._session_setup(conn)
-            return self._explain_pushed(conn, sql)
-        finally:
-            conn.close()
+            return self._explain_pushed(self._session(), sql)
+        except Exception:  # noqa: BLE001 - detection must never raise
+            self._drop_session()
+            return "unknown"
 
     def _duckdb_version_sql(self) -> str:
         return DUCKDB_VERSION_SQL
 
     def versions(self) -> dict:
         info = super().versions()
-        conn = self._connect()
+        ext = duck = None
         try:
-            ext = conn.execute(EXTVERSION_SQL.format(ext=self.extension)).fetchone()
-            duck = conn.execute(self._duckdb_version_sql()).fetchone()
+            conn = self._connect()
+            try:
+                ext = conn.execute(EXTVERSION_SQL.format(ext=self.extension)).fetchone()
+                duck = conn.execute(self._duckdb_version_sql()).fetchone()
+            finally:
+                conn.close()
         except Exception:  # noqa: BLE001 - versions() must not fail on a missing function
-            ext = duck = None
-        finally:
-            conn.close()
+            pass
         return {**info, "extension": f"{self.extension} {ext[0] if ext else 'unknown'}",
                 "duckdb": str(duck[0]).removeprefix("v") if duck else "unknown",
                 "duckdb_source": self._duckdb_version_sql()}

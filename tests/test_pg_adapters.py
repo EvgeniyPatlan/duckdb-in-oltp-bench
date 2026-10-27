@@ -112,6 +112,7 @@ def test_pgduckdb_config_at_plan_limits():
         "work_mem": "256MB", "max_connections": "200", "max_wal_size": "16GB",
         "checkpoint_timeout": "30min", "duckdb.max_memory": "32GB", "duckdb.threads": "16",
         "duckdb.temporary_directory": "/var/lib/postgresql/duckdb_tmp",
+        "duckdb.max_workers_per_postgres_scan": "16", "duckdb.threads_for_postgres_scan": "16",
     }
     for key, value in expected.items():
         assert got[key] == value, key
@@ -180,6 +181,18 @@ def test_pgduckdb_live_settings_and_pushdown():
             conn.close()
         # connect() applies the per-session setup, so force_execution reads "on"
         assert got == ("2GB", "4GB", "4", "/var/lib/postgresql/duckdb_tmp", "on")
+        conn = a.connect()
+        try:
+            scan = conn.execute(
+                "SELECT current_setting('duckdb.max_workers_per_postgres_scan'), "
+                "current_setting('duckdb.threads_for_postgres_scan')").fetchone()
+            # DuckDB's own view: 'MB' is read as MiB, so 4GB is exactly 4.0 GiB
+            duck = conn.execute(
+                "SELECT * FROM duckdb.query('SELECT current_setting(''memory_limit'') AS m, "
+                "current_setting(''threads'') AS t')").fetchone()
+        finally:
+            conn.close()
+        assert scan == ("4", "4") and duck == ("4.0 GiB", 4)
         v = a.versions()
         assert v["duckdb"] == "1.4.3" and v["postgres"].startswith("18")
         a.execute("CREATE TABLE t AS SELECT g AS a FROM generate_series(1, 1000) g", 30)
@@ -202,8 +215,9 @@ def test_pgduckdb_heavy_pushed_query_times_out_and_server_recovers():
                         "WHERE (x.a + y.a + z.a) % 7 = 3", 5)
         assert out.status == "timeout", out
         a.cancel()
-        print("timeout error:", out.error, "elapsed", out.elapsed_s, "lingering",
-              a.lingering_queries())
+        assert out.error and "cancel" in out.error.lower()
+        assert out.pushed == "duckdb"
+        assert a.lingering_queries() == 0
         assert a.execute("SELECT 1", 10).rows == [(1,)]
     finally:
         a.remove_data()
@@ -314,8 +328,128 @@ def test_pgducklake_heavy_pushed_query_times_out_and_server_recovers():
                         "WHERE (x.a + y.a + z.a) % 7 = 3", 5)
         assert out.status == "timeout", out
         a.cancel()
-        print("timeout error:", out.error, "elapsed", out.elapsed_s, "lingering",
-              a.lingering_queries())
+        assert out.error and "cancel" in out.error.lower()
+        assert out.pushed == "duckdb"
+        assert a.lingering_queries() == 0
         assert a.execute("SELECT 1", 10).rows == [(1,)]
     finally:
         a.remove_data()
+
+
+class SessionConn:
+    """Fake psycopg connection that records statements and fails on 'BOOM*' / 'GONE*'."""
+
+    opened = 0
+
+    def __init__(self, log):
+        type(self).opened += 1
+        self.log, self.closed = log, False
+        self.info = type("Info", (), {"backend_pid": 100 + type(self).opened})()
+
+    def execute(self, sql, params=None):
+        from psycopg import OperationalError
+        from psycopg import errors as pgerrors
+        self.log.append(sql)
+        if sql.startswith("BOOM"):
+            raise pgerrors.QueryCanceled("canceling statement due to statement timeout")
+        if sql.startswith("GONE"):
+            raise OperationalError("server closed the connection")
+        if sql.startswith("BAD"):
+            raise pgerrors.UndefinedTable("relation does not exist")
+        cur = type("Cur", (), {})()
+        cur.description = [type("D", (), {"type_code": 23, "name": "n"})()]
+        cur.fetchall = lambda: [(1,)] if not sql.startswith("EXPLAIN") else [(x,) for x in
+                                                                          EXPLAIN_DUCKDB]
+        return cur
+
+    def close(self):
+        self.closed = True
+
+
+def session_adapter(monkeypatch):
+    SessionConn.opened = 0
+    log: list[str] = []
+    conns: list[SessionConn] = []
+
+    def connect(*a, **kw):
+        c = SessionConn(log)
+        conns.append(c)
+        return c
+
+    a = PgDuckDB(None)
+    monkeypatch.setattr(a, "_connect", connect)
+    monkeypatch.setattr(a, "crash_info", lambda: {"status": "running"})
+    return a, log, conns
+
+
+def test_consecutive_executes_reuse_one_session_and_set_it_up_once(monkeypatch):
+    a, log, conns = session_adapter(monkeypatch)
+    for _ in range(3):
+        out = a.execute("SELECT 1", 5)
+        assert out.status == "ok" and out.pushed == "duckdb"
+    assert len(conns) == 1
+    assert log.count("SET duckdb.force_execution = true") == 1
+    assert a.pushdown("SELECT 1") == "duckdb" and len(conns) == 1  # pushdown shares the session
+
+
+def test_timeout_error_and_lost_connection_force_a_reconnect(monkeypatch):
+    a, log, conns = session_adapter(monkeypatch)
+    assert a.execute("SELECT 1", 5).status == "ok"
+    out = a.execute("BOOM", 5)
+    assert out.status == "timeout" and out.pushed == "duckdb"  # the EXPLAIN token is kept
+    assert conns[0].closed
+    assert a.execute("SELECT 1", 5).status == "ok" and len(conns) == 2
+    out = a.execute("BAD", 5)
+    assert out.status == "error" and out.pushed == "duckdb" and conns[1].closed
+    assert a.execute("SELECT 1", 5).status == "ok" and len(conns) == 3
+    assert a.execute("GONE", 5).status in ("error", "crashed") and conns[2].closed
+    assert a.execute("SELECT 1", 5).status == "ok" and len(conns) == 4
+
+
+def test_restart_and_stop_drop_the_session(monkeypatch):
+    a, _, conns = session_adapter(monkeypatch)
+    a.execute("SELECT 1", 5)
+    monkeypatch.setattr("dbench.systems._common.dockerctl.stop", lambda name: None)
+    a.stop()
+    assert conns[0].closed
+    a.execute("SELECT 1", 5)
+    assert len(conns) == 2
+
+
+def test_versions_does_not_raise_when_the_server_is_unreachable(monkeypatch):
+    a = PgDuckDB(None)
+
+    def boom(*args, **kw):
+        raise OSError("refused")
+
+    monkeypatch.setattr(a, "_connect", boom)
+    v = a.versions()
+    assert v["postgres"] == "unknown" and v["duckdb"] == "unknown"
+
+
+def test_pgducklake_convert_vacuums_staging_before_inserting(monkeypatch):
+    from types import SimpleNamespace
+
+    from dbench.schema import TABLES
+    from dbench.systems import pgducklake
+
+    log: list[str] = []
+
+    class Conn:
+        def execute(self, sql, params=None):
+            log.append(sql)
+            return type("Cur", (), {"fetchone": lambda s: (5,), "fetchall": lambda s: []})()
+
+    a = PgDuckLake(None)
+    a._limits = SMOKE
+    monkeypatch.setattr(pgducklake, "expected_rows", lambda d: {t: 5 for t in TABLES})
+    out = a._convert(Conn(), SimpleNamespace(tables={t: [] for t in TABLES}), 0.0)
+    assert out.status == "ok" and "rowstore_load_s" in out.extra
+    first_insert = next(i for i, s in enumerate(log) if s.startswith("INSERT INTO public."))
+    for t in TABLES:
+        vac = log.index(f"VACUUM (FREEZE, ANALYZE) {pgducklake.STAGING_SCHEMA}.{t}")
+        assert vac < first_insert
+
+
+def test_pgducklake_m11_has_a_freshness_story():
+    assert PgDuckLake(None).supports("M11") == (True, None)
