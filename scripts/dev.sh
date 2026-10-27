@@ -15,7 +15,7 @@ if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
 fi
 
 args=(--rm -v "$ROOT:/w" -w /w -e HOME=/tmp
-      --user "$(id -u):$(id -g)")
+      -e "DBENCH_HOST_REPO=$ROOT" --user "$(id -u):$(id -g)")
 
 if [ -S /var/run/docker.sock ]; then
     args+=(-v /var/run/docker.sock:/var/run/docker.sock

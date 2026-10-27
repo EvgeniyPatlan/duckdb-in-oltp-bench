@@ -14,8 +14,8 @@ from docker.errors import NotFound
 
 from dbench import dockerctl
 from dbench.config import Limits
+from dbench.datagen import DatasetPaths
 from dbench.systems.base import (
-    DatasetPaths,
     LoadOutcome,
     QueryOutcome,
     SystemAdapter,
@@ -130,7 +130,7 @@ class DuckDBNative(SystemAdapter):
         }
         volumes: dict = {self.volume: {"bind": "/var/lib/duckdb", "mode": "rw"}}
         if self.data_dir:
-            volumes[str(self.data_dir)] = {"bind": DATA_MOUNT, "mode": "ro"}
+            volumes[dockerctl.host_path(self.data_dir)] = {"bind": DATA_MOUNT, "mode": "ro"}
         dockerctl.start(self.image, self.container_name, limits, env, volumes, {})
         dockerctl.wait_ready(self.alive, timeout_s=120)
 

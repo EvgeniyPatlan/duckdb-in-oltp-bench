@@ -9,12 +9,12 @@ from __future__ import annotations
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from dbench.config import Limits
 
-# Defined in dbench.datagen: paths of the generated TPC-H files for one scale factor.
-DatasetPaths = Any
+if TYPE_CHECKING:
+    from dbench.datagen import DatasetPaths
 
 Family = Literal["mysql", "mariadb", "alisql", "postgres", "duckdb", "villagesql"]
 QueryStatus = Literal["ok", "timeout", "error", "crashed"]

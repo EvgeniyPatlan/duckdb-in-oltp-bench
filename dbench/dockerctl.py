@@ -1,8 +1,10 @@
 """Container lifecycle with pinned cpusets and hard memory caps."""
 from __future__ import annotations
 
+import os
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Literal
 
 from docker.errors import NotFound
@@ -29,6 +31,22 @@ def parse_cpuset(spec: str) -> set[int]:
             raise ValueError(f"malformed cpuset: {spec!r} (descending range {part!r})")
         cpus.update(range(lo, hi + 1))
     return cpus
+
+
+DEV_MOUNT = Path("/w")
+
+
+def host_path(path: Path | str) -> str:
+    """Host-side path of ``path`` for docker bind mounts.
+
+    Inside scripts/dev.sh the repo is mounted at /w and DBENCH_HOST_REPO names its host
+    location; the daemon needs the host spelling of any bind-mount source.
+    """
+    p = Path(path).resolve()
+    repo = os.environ.get("DBENCH_HOST_REPO")
+    if repo and p.is_relative_to(DEV_MOUNT):
+        return str(Path(repo) / p.relative_to(DEV_MOUNT))
+    return str(p)
 
 
 def read_host_mem_gb() -> int:
