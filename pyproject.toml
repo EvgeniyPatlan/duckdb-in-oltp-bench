@@ -30,6 +30,7 @@ packages = ["dbench", "dbench.queries"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["docker: integration tests needing a docker daemon (set DBENCH_DOCKER=1)"]
 
 [tool.ruff]
 line-length = 100
