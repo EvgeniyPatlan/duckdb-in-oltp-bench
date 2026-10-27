@@ -23,7 +23,7 @@ dev = ["pytest", "ruff"]
 dbench = "dbench.cli:main"
 
 [tool.setuptools]
-packages = ["dbench", "dbench.queries"]
+packages = ["dbench", "dbench.queries", "dbench.systems", "dbench.measures"]
 
 [tool.setuptools.package-data]
 "dbench.queries" = ["tpch/*.sql"]
