@@ -116,13 +116,15 @@ class Server(socketserver.ThreadingTCPServer):
 
 def main():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    db = duckdb.connect(DB_PATH)
+    config = {}
     threads = os.environ.get("DBENCH_THREADS")
     if threads:
-        db.execute(f"SET threads = {int(threads)}")
+        config["threads"] = int(threads)
     mem = os.environ.get("DBENCH_MEMORY_LIMIT")
     if mem:
-        db.execute("SET memory_limit = ?", [mem])
+        config["memory_limit"] = mem
+    # Settings go in at open time: some snapshot builds fail to open without a memory limit.
+    db = duckdb.connect(DB_PATH, config=config)
     server = Server(("0.0.0.0", PORT), Handler)
     server.db = db
     server.serve_forever()

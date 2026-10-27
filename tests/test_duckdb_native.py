@@ -98,3 +98,17 @@ def test_create_schema_makes_all_tpch_tables():
         assert out.rows == [(8,)]
     finally:
         a.remove_data()
+
+
+@pytest.mark.docker
+@pytest.mark.skipif(os.environ.get("DBENCH_DOCKER") != "1", reason="set DBENCH_DOCKER=1")
+@pytest.mark.parametrize("version", ["1.4.3", "1.5.2-dev736"])
+def test_other_bundled_versions_answer(version):
+    a = DuckDBNative(version)
+    a.remove_data()
+    try:
+        a.start(Limits(db_cpuset="0-3", runner_cpuset="8-11", mem_gb=4))
+        assert a.versions()["duckdb"].lstrip("v") == version
+        assert a.execute("SELECT 1", 10).rows == [(1,)]
+    finally:
+        a.remove_data()

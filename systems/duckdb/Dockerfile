@@ -20,8 +20,8 @@ RUN set -eux; \
         git -C /src submodule update --init --depth 1 external/duckdb; \
         git -C /src/external/duckdb fetch --depth 1 origin "${DUCKDB_SOURCE_COMMIT}"; \
         git -C /src/external/duckdb checkout "${DUCKDB_SOURCE_COMMIT}"; \
-        OVERRIDE_GIT_DESCRIBE="${DUCKDB_GIT_DESCRIBE}" \
-            pip install --no-cache-dir /src; \
+        git -C /src -c user.name=build -c user.email=build@localhost commit --allow-empty -qm snapshot; \
+        pip install --no-cache-dir -C "cmake.define.OVERRIDE_GIT_DESCRIBE=${DUCKDB_GIT_DESCRIBE}" /src; \
         apt-get purge -y build-essential cmake ninja-build git; \
         apt-get autoremove -y; \
         rm -rf /src /var/lib/apt/lists/*; \
