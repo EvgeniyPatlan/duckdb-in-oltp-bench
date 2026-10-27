@@ -14,6 +14,7 @@ from dbench.config import QUERY_TIMEOUT_S
 SMOKE_DB_CPUSET = "0-7"
 SMOKE_RUNNER_CPUSET = "8-11"
 SMOKE_MEM_GB = 16
+DEFAULT_CAMPAIGN = Path(__file__).resolve().parents[1] / "campaigns" / "gate-sf10.yaml"
 
 
 def results_root() -> Path:
@@ -62,6 +63,22 @@ def build_parser() -> argparse.ArgumentParser:
     trackb.add_argument("--run-id")
     trackb.add_argument("--results", type=Path, help="default: $DBENCH_RESULTS or <repo>/results")
     trackb.add_argument("--data", type=Path, help="dataset parent (default: $DBENCH_DATA/tpch)")
+
+    camp = sub.add_parser("campaign", help="run a campaign file (resumes cells already recorded)")
+    camp.add_argument("file", type=Path)
+    camp.add_argument("--results", type=Path, help="default: $DBENCH_RESULTS or <repo>/results")
+
+    sub.add_parser("lock", help="write systems/versions.lock.json from the local images")
+
+    failed = sub.add_parser(
+        "mark-failed", help="record every planned cell of a system as failed")
+    failed.add_argument("--system", required=True)
+    failed.add_argument("--error", required=True, help="reason shown in the results")
+    failed.add_argument("--repro", required=True, help="steps to reproduce the failure")
+    failed.add_argument("--run-id", help="default: the campaign's run_id")
+    failed.add_argument("--campaign", type=Path, default=DEFAULT_CAMPAIGN,
+                        help="default: %(default)s")
+    failed.add_argument("--results", type=Path, help="default: $DBENCH_RESULTS or <repo>/results")
     return parser
 
 
@@ -170,6 +187,66 @@ def _power(args: argparse.Namespace) -> int:
     return 0 if counts.get("ok") == len(records) else 1
 
 
+def _status_table(root: Path, run_ids: list[str]) -> None:
+    from collections import Counter
+
+    from dbench.results import iter_records
+
+    for run_id in run_ids:
+        by_system: dict[str, Counter] = {}
+        for r in iter_records(root / run_id):
+            if r.run_id == run_id:
+                by_system.setdefault(r.system, Counter())[r.status] += 1
+        for system, counts in sorted(by_system.items()):
+            print(f"  {run_id} {system}: " + ", ".join(
+                f"{n} {s}" for s, n in sorted(counts.items())))
+
+
+def _campaign(args: argparse.Namespace) -> int:
+    from dbench.campaign import CampaignError, load_campaign, run_campaign
+    from dbench.lock import LockError
+
+    root = args.results or results_root()
+    try:
+        campaign = load_campaign(args.file)
+        summary = run_campaign(args.file, root)
+    except (CampaignError, LockError, ValueError) as exc:
+        print(f"campaign stopped: {exc}")
+        return 2
+    print(f"campaign {campaign.run_id}: {summary.written} records written, "
+          f"{summary.skipped} cells skipped (already recorded)")
+    _status_table(root, [campaign.run_id, *([campaign.trackb_run_id]
+                                            if campaign.track_b_enabled else [])])
+    return 0
+
+
+def _lock(args: argparse.Namespace) -> int:
+    from dbench import lock
+
+    try:
+        doc = lock.write_lock()
+    except lock.LockError as exc:
+        print(f"lock failed: {exc}")
+        return 2
+    for system, e in doc.items():
+        print(f"  {system}: {e['image']} {e['digest_kind']} {e['digest'][:19]}")
+    print(f"wrote {lock.LOCK_PATH}")
+    return 0
+
+
+def _mark_failed(args: argparse.Namespace) -> int:
+    from dbench.campaign import CampaignError, mark_failed
+
+    try:
+        n = mark_failed(args.campaign, args.results or results_root(), system=args.system,
+                        error=args.error, repro=args.repro, run_id=args.run_id)
+    except CampaignError as exc:
+        print(f"mark-failed: {exc}")
+        return 2
+    print(f"{args.system}: {n} cells recorded as failed")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -179,6 +256,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _power(args)
     if args.command == "trackb":
         return _trackb(args)
+    if args.command == "campaign":
+        return _campaign(args)
+    if args.command == "lock":
+        return _lock(args)
+    if args.command == "mark-failed":
+        return _mark_failed(args)
     return 0
 
 

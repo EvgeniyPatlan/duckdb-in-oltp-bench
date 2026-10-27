@@ -1,0 +1,132 @@
+{
+  "alisql": {
+    "build_inputs": {
+      "args": {
+        "ALISQL_SHA256": "9b3ca762483d14e4ee0206b543c1541df91efd02d7f1ba16fcd5a3c1d359fbf7",
+        "ALISQL_VERSION": "8.0.44-3",
+        "OPENSSL_RPM": "openssl-libs-1.0.2k-19.el7.x86_64.rpm",
+        "OPENSSL_RPM_SHA256": "8a907020f9b1697cb8971158b3a5279e5b54e5637f55dcce751f1610a2ed6452"
+      },
+      "from": [
+        "ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c",
+        "ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c"
+      ]
+    },
+    "digest": "sha256:27d7706915646a2ce13a68aec32982760b588b1eefde9b2af6cd37b798ac78a2",
+    "digest_kind": "local",
+    "duckdb_version": "1.5.2-dev736",
+    "image": "dbench/alisql:8.0.44-3",
+    "server_version": "AliSQL 8.0.44-3 (MySQL 8.0.44)"
+  },
+  "duckdb-1.4.3": {
+    "build_inputs": {
+      "args": {
+        "DUCKDB_VERSION": "1.4.3"
+      },
+      "from": [
+        "python:3.12-slim@sha256:12316debbfb86890f6b2d825820612741ba527ad5a44e3902759141d572bfe8f"
+      ],
+      "pip": "duckdb==1.4.3"
+    },
+    "digest": "sha256:0b1752821ad33d2b1dc9b22e042d4756b24fd4b293f4d90b36890dfe583c6d3b",
+    "digest_kind": "local",
+    "duckdb_version": "1.4.3",
+    "image": "dbench/duckdb:1.4.3",
+    "server_version": "DuckDB 1.4.3"
+  },
+  "duckdb-1.5.5": {
+    "build_inputs": {
+      "args": {
+        "DUCKDB_VERSION": "1.5.5"
+      },
+      "from": [
+        "python:3.12-slim@sha256:12316debbfb86890f6b2d825820612741ba527ad5a44e3902759141d572bfe8f"
+      ],
+      "pip": "duckdb==1.5.5"
+    },
+    "digest": "sha256:be66e5a302356c72c3a54a3fcf481cad9cf2da7031614cbab350077fa060a799",
+    "digest_kind": "local",
+    "duckdb_version": "1.5.5",
+    "image": "dbench/duckdb:1.5.5",
+    "server_version": "DuckDB 1.5.5"
+  },
+  "innodb": {
+    "build_inputs": {},
+    "digest": "sha256:8fb11c38b3551e22d50adbb688f027f8ff4ea2d2445aa277c1cc97b4af85ec54",
+    "digest_kind": "registry",
+    "duckdb_version": null,
+    "image": "mysql:9.7",
+    "server_version": "MySQL 9.7 (InnoDB)"
+  },
+  "mariadb": {
+    "build_inputs": {
+      "args": {
+        "MARIADB_VERSION": "13.0.2-1.el9"
+      },
+      "from": [
+        "rockylinux:9@sha256:d7be1c094cc5845ee815d4632fe377514ee6ebcf8efaed6892889657e5ddaaa6"
+      ]
+    },
+    "digest": "sha256:66f76535fc56ed22dfe07a38362cc52ab199adee955a11d8c1251d87b03a6772",
+    "digest_kind": "local",
+    "duckdb_version": "bundled; see versions in records",
+    "image": "dbench/mariadb-duckdb:13.0.2",
+    "server_version": "MariaDB 13.0.2 + MariaDB-duckdb-engine"
+  },
+  "percona": {
+    "build_inputs": {},
+    "digest": "sha256:5e4af8b2bede83db7b296be977a9c22fb30e8a05a565e3b3b0fe08fea9a96640",
+    "digest_kind": "registry",
+    "duckdb_version": "1.5.3",
+    "image": "perconalab/ducksdb-mysql-engine:9.7-duckdb-v0.2.3@sha256:5e4af8b2bede83db7b296be977a9c22fb30e8a05a565e3b3b0fe08fea9a96640",
+    "server_version": "Percona Server 9.7 + ducksdb-mysql-engine v0.2.3"
+  },
+  "pg_duckdb": {
+    "build_inputs": {},
+    "digest": "sha256:44c88eb9207971af1d7f9804a37429b1bb36f413cd8d7118c81e1288ddde85d1",
+    "digest_kind": "registry",
+    "duckdb_version": "bundled; see versions in records",
+    "image": "pgduckdb/pgduckdb:18-v1.1.1",
+    "server_version": "PostgreSQL 18 + pg_duckdb v1.1.1"
+  },
+  "pg_ducklake": {
+    "build_inputs": {
+      "COMMIT": "9fef142965aa4af3e9da17be7ce210ed90f12ed6",
+      "TAG": "v1.0.3",
+      "source": "github.com/relytcloud/pg_ducklake"
+    },
+    "digest": "sha256:cccef06e3dc158086c7420b964f8a6dac7530bf588a820c3b7c6c4aa7ee3aa06",
+    "digest_kind": "local",
+    "duckdb_version": "bundled; see versions in records",
+    "image": "dbench/pgducklake:18-v1.0.3",
+    "server_version": "PostgreSQL 18 + pg_ducklake v1.0.3"
+  },
+  "postgres": {
+    "build_inputs": {},
+    "digest": "sha256:edb0c08dc33befd0262ab3b5cf1c4f3f8cfd8b09e88c05b45adee29d6761ddb6",
+    "digest_kind": "registry",
+    "duckdb_version": null,
+    "image": "postgres:18",
+    "server_version": "PostgreSQL 18"
+  },
+  "villagesql": {
+    "build_inputs": {
+      "args": {
+        "DUCKDB_TAG": "v1.5.5",
+        "EXT_COMMIT": "a3cefdb04dd477b5ab25f5e56203cc5a66b01101",
+        "EXT_TAG": "0.0.3",
+        "SDK_SHA256": "3aa9338dfe203f9092e9d73cd4ef70e3fcbac968cbeca19f33d28a631b01e82c",
+        "SDK_VERSION": "0.0.7"
+      },
+      "from": [
+        "ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c",
+        "villagesql/server:mysql-8.4_0.0.7@sha256:a8326d3daeded00b147d47dc50d68a2ac4f8a750e51a7d1374e91aa7a97e88da"
+      ]
+    },
+    "digest": "sha256:0b04848bc66a1ef7207bbb73286078a4566d66d85e097025318a81ea0ae33c0f",
+    "digest_kind": "local",
+    "duckdb_version": "1.5.5",
+    "image": "dbench/villagesql:0.0.7-duckdb-0.0.3",
+    "server_version": "VillageSQL 0.0.7 (MySQL 8.4) + vsql_duckdb 0.0.3"
+  }
+}

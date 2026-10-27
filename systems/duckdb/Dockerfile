@@ -4,7 +4,7 @@
 #                         --build-arg DUCKDB_SOURCE_COMMIT=<duckdb/duckdb sha> \
 #                         --build-arg DUCKDB_PYTHON_TAG=v1.5.2 \
 #                         --build-arg DUCKDB_GIT_DESCRIBE=v1.5.1-736-g8a6622311 ...
-FROM python:3.12-slim
+FROM python:3.12-slim@sha256:12316debbfb86890f6b2d825820612741ba527ad5a44e3902759141d572bfe8f
 ARG DUCKDB_VERSION
 ARG DUCKDB_SOURCE_COMMIT=""
 ARG DUCKDB_PYTHON_TAG=""

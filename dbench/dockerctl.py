@@ -180,3 +180,9 @@ def image_digest(image: str) -> str:
     img = _client().images.get(image)
     digests = img.attrs.get("RepoDigests") or []
     return digests[0] if digests else img.id
+
+
+def host_resources() -> tuple[int, int]:
+    """(CPUs, RAM in whole GB) as the Docker daemon sees them (``docker info`` NCPU/MemTotal)."""
+    info = _client().info()
+    return int(info["NCPU"]), int(info["MemTotal"]) // (1024**3)
