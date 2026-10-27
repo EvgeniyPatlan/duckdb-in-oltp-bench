@@ -10,7 +10,11 @@ import pymysql
 from dbench import dockerctl
 from dbench.config import QUERY_TIMEOUT_S, Limits
 from dbench.systems import baseline_conf
-from dbench.systems._common import READ_MARGIN_S
+from dbench.systems._common import (
+    READ_MARGIN_S,
+    pushed_from_counts,
+    read_status_counter,
+)
 from dbench.systems.base import Pushed
 from dbench.systems.mysql_family import (
     DATABASE,
@@ -30,17 +34,11 @@ DUCKDB_SOURCE = "stated by the engine maintainer; engine exposes no version at r
 SPILL_DIR = "/var/lib/mysql/duckdb_tmp"
 
 
-def percona_settings(limits: Limits) -> dict:
-    """InnoDB-baseline formulas, except the buffer pool: it only holds catalog and staging."""
-    settings = baseline_conf.innodb_settings(limits)
-    settings["buffer_pool"] = baseline_conf.size(limits.mem_gb / 16, "G")
-    return settings
-
-
 def container_command(limits: Limits) -> list[str]:
     """The rendered mysqld arguments (comment and blank lines dropped)."""
     text = baseline_conf.render(
-        baseline_conf.SYSTEMS_DIR / "percona" / "mysqld-args.j2", percona_settings(limits))
+        baseline_conf.SYSTEMS_DIR / "percona" / "mysqld-args.j2",
+        baseline_conf.duckdb_engine_settings(limits, SPILL_DIR))
     return [ln.strip() for ln in text.splitlines() if ln.strip() and not ln.startswith("#")]
 
 
@@ -48,21 +46,10 @@ def container_env(limits: Limits) -> dict[str, str]:
     """Empty root password (as the other MySQL-family adapters) and DuckDB's memory cap."""
     return {
         "MYSQL_ROOT_PASSWORD": "",
-        "DUCKSDB_MEMORY_LIMIT": baseline_conf.size(0.75 * limits.mem_gb, "GB"),
+        "DUCKSDB_MEMORY_LIMIT": baseline_conf.duckdb_engine_settings(
+            limits, SPILL_DIR)["duck_memory_gb"],
         "DUCKSDB_TEMP_DIR": SPILL_DIR,
     }
-
-
-def pushed_from_counts(before: int | None, after: int | None) -> Pushed:
-    if before is None or after is None:
-        return "unknown"
-    return "duckdb" if after > before else "fallback"
-
-
-def read_counter(cur) -> int | None:
-    cur.execute(COUNTER_SQL)
-    row = cur.fetchone()
-    return int(row[1]) if row else None
 
 
 class PerconaEngine(ConvertToDuckDBMixin, MySQLFamilyAdapter):
@@ -132,13 +119,13 @@ class PerconaEngine(ConvertToDuckDBMixin, MySQLFamilyAdapter):
     # pushdown
     def _query_begin(self, cur) -> int | None:
         try:
-            return read_counter(cur)
+            return read_status_counter(cur, COUNTER_SQL)
         except Exception:  # noqa: BLE001 - detection must never fail a query
             return None
 
     def _query_end(self, cur, token: int | None) -> Pushed:
         try:
-            return pushed_from_counts(token, read_counter(cur))
+            return pushed_from_counts(token, read_status_counter(cur, COUNTER_SQL))
         except Exception:  # noqa: BLE001
             return "unknown"
 
@@ -146,10 +133,10 @@ class PerconaEngine(ConvertToDuckDBMixin, MySQLFamilyAdapter):
         conn = self._connect(read_timeout=QUERY_TIMEOUT_S + READ_MARGIN_S)
         try:
             with conn.cursor() as cur:
-                before = read_counter(cur)
+                before = read_status_counter(cur, COUNTER_SQL)
                 cur.execute(sql)
                 if cur.description:
                     cur.fetchall()
-                return pushed_from_counts(before, read_counter(cur))
+                return pushed_from_counts(before, read_status_counter(cur, COUNTER_SQL))
         finally:
             conn.close()

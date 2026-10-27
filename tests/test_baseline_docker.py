@@ -54,6 +54,18 @@ def test_query_types_timeout_and_recovery(adapter):
     assert adapter.execute("SELECT 1", 10).rows == [(1,)]
 
 
+def test_binary_logging_is_off(adapter):
+    if adapter.name != "innodb":
+        pytest.skip("MySQL-family only")
+    conn = adapter.connect()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT @@log_bin")
+        assert cur.fetchone() == (0,)
+    finally:
+        conn.close()
+
+
 def test_killed_container_is_crashed_and_restart_keeps_data(adapter):
     adapter.create_schema(1, "rowstore")
     adapter.execute("INSERT INTO region VALUES (1, 'EUROPE', 'x')", 30)

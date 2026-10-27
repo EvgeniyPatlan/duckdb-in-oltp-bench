@@ -167,6 +167,8 @@ def test_engine_starts_and_live_variables_match_config():
                         "@@duckdb_use_double_for_decimal, @@duckdb_temp_directory")
             assert cur.fetchone() == (6 << 30, 4, 512 << 20, "/data/", 0,
                                       "/var/lib/mysql/duckdb_tmp")
+            cur.execute("SELECT @@log_bin")
+            assert cur.fetchone() == (0,)
         finally:
             conn.close()
         v = a.versions()

@@ -46,7 +46,7 @@ Left at the default on purpose: `duckdb_require_primary_key=ON` (the schema decl
 `duckdb_checkpoint_threshold` (256 MiB), `duckdb_max_temp_directory_size=0` (per the engine source,
 `ha_duckdb.cc`, 0 means "90% of the available disk", i.e. DuckDB's own default, so spilling to the
 datadir volume is allowed and no cap is set),
-`duckdb_allow_run_in_duckdb=OFF`, and the binary log (MariaDB's is **off** by default). There is
+`duckdb_allow_run_in_duckdb=OFF`, and (set explicitly, `skip-log-bin`) the binary log: off on every MySQL-family server because replication is not under test and the default differs between families (MariaDB's is already off). There is
 no `innodb_parallel_read_threads` equivalent in MariaDB, so none is set. `temptable_max_ram` does
 not exist in MariaDB either.
 
@@ -105,5 +105,5 @@ record carries `extra.restarted_after_timeout = true` and `extra.lingering = n`.
 
 The per-query timeout is `SET SESSION max_statement_time` (MariaDB's name for
 `max_execution_time`, in seconds; MariaDB applies it to `SELECT`); `cancel()` is `KILL QUERY`.
-`storage_bytes()` is `du -sb` of the datadir excluding binlog files (none are written by default);
+`storage_bytes()` is `du -sb` of the datadir excluding binlog files (none are written: `skip-log-bin`; replication logs are excluded and the redo log is counted);
 it counts `duckdb.db` and its WAL plus the InnoDB catalog and redo log (`innodb_log_file_size`).

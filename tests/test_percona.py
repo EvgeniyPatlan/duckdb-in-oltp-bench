@@ -159,6 +159,8 @@ def test_engine_starts_and_lists_duckdb():
             cur.execute("SELECT @@innodb_buffer_pool_size, @@join_buffer_size, "
                         "@@secure_file_priv")
             assert cur.fetchone() == (512 << 20, 256 << 20, "/data/")
+            cur.execute("SELECT @@log_bin")
+            assert cur.fetchone() == (0,)
         finally:
             conn.close()
         v = a.versions()

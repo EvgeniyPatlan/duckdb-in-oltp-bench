@@ -12,7 +12,7 @@ from dataclasses import replace
 from dbench import dockerctl
 from dbench.config import QUERY_TIMEOUT_S, Limits
 from dbench.systems import baseline_conf
-from dbench.systems._common import READ_MARGIN_S
+from dbench.systems._common import READ_MARGIN_S, pushed_from_counts, read_status_counter
 from dbench.systems.base import Pushed, QueryOutcome
 from dbench.systems.mysql_family import ConvertToDuckDBMixin, MySQLFamilyAdapter
 
@@ -30,42 +30,16 @@ DUCKDB_SOURCE = ("AliSQL 8.0.44-3 release notes (bundled snapshot v1.5.2-dev736,
                  "such string in the mysqld binary); no DuckDB version is exposed at runtime")
 
 
-def alisql_settings(limits: Limits) -> dict:
-    """Same formulas as the Percona/MariaDB engines: the InnoDB side only holds catalog and
-    staging, so its pool is mem_gb/16; DuckDB gets the 0.75 * mem_gb share."""
-    base = baseline_conf.innodb_settings(limits)
-    return {
-        "duck_memory": baseline_conf.size(0.75 * limits.mem_gb, "G"),
-        "cores": base["read_threads"],
-        "spill_dir": SPILL_DIR,
-        "buffer_pool": baseline_conf.size(limits.mem_gb / 16, "G"),
-        "temp_ram": base["temp_ram"],
-        "redo_capacity": base["redo_capacity"],
-    }
-
-
 def render_config(limits: Limits) -> str:
     return baseline_conf.render(
-        baseline_conf.SYSTEMS_DIR / "alisql" / "my.cnf", alisql_settings(limits))
+        baseline_conf.SYSTEMS_DIR / "alisql" / "my.cnf",
+        baseline_conf.duckdb_engine_settings(limits, SPILL_DIR))
 
 
 def is_interrupt(error: str, elapsed_s: float | None, timeout_s: float) -> bool:
     """A DuckDB interrupt that arrives at the deadline is the server's max_execution_time."""
     return ("Interrupted" in error and any(c in error for c in INTERRUPT_CODES)
             and elapsed_s is not None and elapsed_s >= timeout_s - 1)
-
-
-def select_count(cur) -> int | None:
-    """Session ``Com_duckdb_select``: SELECTs the server handed to DuckDB on this connection."""
-    cur.execute(COUNTER_SQL)
-    row = cur.fetchone()
-    return int(row[1]) if row else None
-
-
-def pushed_from_counts(before: int | None, after: int | None) -> Pushed:
-    if before is None or after is None:
-        return "unknown"
-    return "duckdb" if after > before else "fallback"
 
 
 class AliSQLDuckDB(ConvertToDuckDBMixin, MySQLFamilyAdapter):
@@ -100,13 +74,13 @@ class AliSQLDuckDB(ConvertToDuckDBMixin, MySQLFamilyAdapter):
     # pushdown
     def _query_begin(self, cur) -> int | None:
         try:
-            return select_count(cur)
+            return read_status_counter(cur, COUNTER_SQL)
         except Exception:  # noqa: BLE001 - detection must never fail a query
             return None
 
     def _query_end(self, cur, token: int | None) -> Pushed:
         try:
-            return pushed_from_counts(token, select_count(cur))
+            return pushed_from_counts(token, read_status_counter(cur, COUNTER_SQL))
         except Exception:  # noqa: BLE001
             return "unknown"
 
@@ -115,7 +89,7 @@ class AliSQLDuckDB(ConvertToDuckDBMixin, MySQLFamilyAdapter):
         if out.status != "error" or not out.error:
             return out
         if MIXED_ENGINE_MESSAGE in out.error:
-            return replace(out, extra={"kind": "mixed_engine"})
+            return replace(out, extra={**out.extra, "kind": "mixed_engine"})
         if is_interrupt(out.error, out.elapsed_s, timeout_s):
             return replace(out, status="timeout")
         return out
@@ -126,10 +100,10 @@ class AliSQLDuckDB(ConvertToDuckDBMixin, MySQLFamilyAdapter):
         conn = self._connect(read_timeout=QUERY_TIMEOUT_S + READ_MARGIN_S)
         try:
             with conn.cursor() as cur:
-                before = select_count(cur)
+                before = read_status_counter(cur, COUNTER_SQL)
                 cur.execute(sql)
                 if cur.description:
                     cur.fetchall()
-                return pushed_from_counts(before, select_count(cur))
+                return pushed_from_counts(before, read_status_counter(cur, COUNTER_SQL))
         finally:
             conn.close()

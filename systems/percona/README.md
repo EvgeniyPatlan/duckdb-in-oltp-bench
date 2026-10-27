@@ -32,7 +32,7 @@ At 64 GB and 16 cores (mem_gb = container memory):
 | env `MYSQL_ROOT_PASSWORD` | empty | Passwordless root, as every MySQL-family adapter. |
 
 All formulas except the buffer pool are shared with the InnoDB baseline (`baseline_conf.py`).
-Everything else, including the binary log, is the server default.
+`--skip-log-bin`: binary logging is off on every MySQL-family server (on by default for MySQL, Percona and AliSQL, off for MariaDB); replication is not under test and the default differs between families. Everything else is the server default.
 
 ## Disclosed limitations
 
@@ -83,6 +83,6 @@ stops it (error 3024 after about 5 s) and the next query succeeds.
 ## Measurement notes
 
 Queries run with the session `max_execution_time` set to the per-query timeout; `cancel()` is
-`KILL QUERY`. `storage_bytes()` is `du -sb` of the datadir excluding `binlog.*`, so it counts the
+`KILL QUERY`. `storage_bytes()` is `du -sb` of the datadir excluding `binlog.*` (none are written, binary logging is off), so it counts the
 `.duckdb` file and its WAL plus the InnoDB catalog, redo log and tablespaces. Queries use the
 mechanical MySQL dialect translation shared with the InnoDB baseline.

@@ -144,7 +144,9 @@ def test_error_not_reported_as_fallback(monkeypatch):
 
 def test_mixed_engine_error_message_classified(monkeypatch):
     err = pymysql.err.OperationalError(
-        1235, f"{MIXED_ENGINE_MESSAGE} and other engines")
+        7501, "[DuckDB] Does not support mixed queries of duckdb engine and other engines in "
+              "SELECT Statement. The table `t` is a duckdb table. The table `i` is not a duckdb "
+              "table.")
     a = adapter_with(monkeypatch, FakeCursor(fail=err))
     out = a.execute("SELECT * FROM a, b", 10)
     assert out.status == "error"
@@ -158,6 +160,15 @@ def test_interrupt_at_the_deadline_is_a_timeout_but_early_interrupt_is_an_error(
     a = adapter_with(monkeypatch, FakeCursor(fail=err))
     assert a.execute("SELECT 1", 0).status == "timeout"  # deadline already reached
     assert a.execute("SELECT 1", 900).status == "error"  # interrupted long before it
+
+
+def test_mixed_engine_flag_keeps_existing_extra():
+    from dataclasses import replace
+
+    from dbench.systems.base import QueryOutcome
+    out = QueryOutcome("error", 1.0, None, set(), "x", extra={"a": 1})
+    assert replace(out, extra={**out.extra, "kind": "mixed_engine"}).extra == {
+        "a": 1, "kind": "mixed_engine"}
 
 
 def test_unmoved_select_counter_is_fallback_and_unreadable_is_unknown(monkeypatch):
@@ -197,6 +208,8 @@ def test_engine_starts_and_live_variables_match_config():
             cur.execute("SHOW ENGINES")
             engines = {r[0]: r[1] for r in cur.fetchall()}
             assert engines.get("DUCKDB") in ("YES", "DEFAULT")
+            cur.execute("SELECT @@log_bin")
+            assert cur.fetchone() == (0,)
             cur.execute("SELECT @@duckdb_mode, @@duckdb_memory_limit, @@duckdb_threads, "
                         "@@duckdb_use_double_for_decimal, @@duckdb_sql_normalization, "
                         "@@duckdb_require_primary_key, @@innodb_buffer_pool_size, "
@@ -232,7 +245,7 @@ def test_heavy_pushed_query_times_out_and_server_recovers():
                         "WHERE (x.a + y.a + z.a) % 7 = 3", 5)
         assert out.status == "timeout", out
         a.cancel()
-        a.lingering_queries()  # recorded in the report: whether the pushed query lingers
+        assert a.lingering_queries() == 0  # the interrupt really stops the pushed query
         assert a.execute("SELECT 1", 60).rows == [(1,)]
     finally:
         a.remove_data()

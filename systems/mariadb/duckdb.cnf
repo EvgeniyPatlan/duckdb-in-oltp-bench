@@ -9,6 +9,10 @@
 #   tmp_table_size = max_heap_table_size = mem_gb / 16   (-> 4G)
 #   innodb_log_file_size    = mem_gb / 8        (-> 8G), MariaDB's name for the redo log size
 [mariadbd]
+# Binary logging is off on every MySQL-family server (MySQL, Percona and AliSQL enable it by
+# default; MariaDB is already off, set explicitly): replication is not under test and the default
+# differs between families.
+skip-log-bin
 # The DuckDB engine ships as a plugin library, not built in.
 plugin-load-add = ha_duckdb.so
 # The engine is gamma maturity; the server refuses to load it under the default 'stable'.

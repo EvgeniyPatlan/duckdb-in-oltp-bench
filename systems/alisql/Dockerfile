@@ -28,8 +28,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=fetch /alisql /opt/alisql
 RUN ln -s libaio.so.1t64 /usr/lib/x86_64-linux-gnu/libaio.so.1
-ENV PATH=/opt/alisql/bin:$PATH \
-    LD_LIBRARY_PATH=/opt/alisql/lib/private
+ENV PATH=/opt/alisql/bin:$PATH
 RUN mkdir -p /var/lib/mysql /etc/alisql /var/run/mysqld
 COPY entrypoint.sh /entrypoint.sh
 VOLUME /var/lib/mysql

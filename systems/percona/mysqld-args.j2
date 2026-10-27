@@ -5,6 +5,9 @@
 # Sizing formulas (mem_gb = container memory, cores = CPUs in the DB cpuset):
 #   innodb_buffer_pool_size = mem_gb / 16       (64 GB -> 4G); InnoDB only holds catalog + staging
 #   everything else         = same formulas as the MySQL 9.7 InnoDB baseline (baseline_conf.py)
+# Binary logging is off on every MySQL-family server (MySQL, Percona and AliSQL enable it by
+# default, MariaDB does not): replication is not under test and the default differs between families.
+--skip-log-bin
 # The InnoDB side only holds the catalog and row-store staging; the data lives in DuckDB.
 --innodb_buffer_pool_size={{ buffer_pool }}
 # Same as the InnoDB baseline: only COUNT(*) without WHERE and CHECK TABLE use parallel read threads.

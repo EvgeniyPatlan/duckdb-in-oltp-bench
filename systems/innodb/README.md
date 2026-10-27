@@ -21,7 +21,7 @@ Rendered from the container limits (`dbench/systems/baseline_conf.py`); at 64 GB
 | `innodb_redo_log_capacity` | mem_gb/8 = `8G` | Keeps checkpoints from throttling bulk load at the 100MB default. |
 | `max_connections` | `200` | Headroom over the 32-stream throughput run plus probe and cancel connections. |
 
-Everything else, including the binary log, stays at the MySQL 9.7 default.
+`skip-log-bin`: binary logging is off on every MySQL-family server (it is on by default for MySQL, Percona and AliSQL, off for MariaDB); replication is not under test and the default differs between families. Everything else stays at the MySQL 9.7 default.
 
 ## Loading and measurement notes
 
@@ -34,8 +34,8 @@ Everything else, including the binary log, stays at the MySQL 9.7 default.
 - Queries run with the session `max_execution_time` set to the per-query timeout; `cancel()` is
   `KILL QUERY` from a second connection.
 - `storage_bytes()` is `du -sb` of the data directory. Storage rule for the MySQL family (every
-  MySQL-family adapter inherits it): replication logs (`binlog.*`) are excluded; the redo log and
-  tablespaces are counted.
+  MySQL-family adapter inherits it): replication logs (`binlog.*`) are excluded (none are written, as binary logging is off);
+  the redo log and tablespaces are counted.
 
 ## Schema
 

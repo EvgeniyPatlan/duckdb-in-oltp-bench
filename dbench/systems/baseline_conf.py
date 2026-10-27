@@ -31,6 +31,23 @@ def innodb_settings(limits: Limits) -> dict:
     }
 
 
+def duckdb_engine_settings(limits: Limits, spill_dir: str) -> dict:
+    """Formulas shared by every MySQL-family DuckDB engine (Percona, MariaDB, AliSQL): DuckDB gets
+    0.75 * mem_gb and one thread per core; the InnoDB side only holds catalog and staging, so its
+    pool is mem_gb/16; the rest equals the InnoDB baseline."""
+    base = innodb_settings(limits)
+    return {
+        "duck_memory": size(0.75 * limits.mem_gb, "G"),
+        "duck_memory_gb": size(0.75 * limits.mem_gb, "GB"),
+        "cores": base["read_threads"],
+        "read_threads": base["read_threads"],
+        "spill_dir": spill_dir,
+        "buffer_pool": size(limits.mem_gb / 16, "G"),
+        "temp_ram": base["temp_ram"],
+        "redo_capacity": base["redo_capacity"],
+    }
+
+
 def postgres_settings(limits: Limits) -> dict:
     return {
         "shared_buffers": size(0.25 * limits.mem_gb, "GB"),

@@ -21,6 +21,23 @@ NO_DUCKDB_COPY = "row-store baseline: no DuckDB copy"
 NO_DUCKDB_REASON = "row-store baseline: no DuckDB engine, nothing to convert or pushdown"
 
 
+def read_status_counter(cur, sql: str) -> int | None:
+    """Value of a ``SHOW ... STATUS LIKE '<name>'`` counter, or None when it is absent."""
+    cur.execute(sql)
+    row = cur.fetchone()
+    return int(row[1]) if row else None
+
+
+def pushed_from_counts(before: int | None, after: int | None, *, rises: bool = True) -> Pushed:
+    """Pushdown from a status counter around a query. ``rises=True``: the engine bumps the
+    counter for each pushed query (Percona, AliSQL); ``rises=False``: a pushed query leaves it
+    unchanged and the row path raises it (MariaDB ``Rows_read``)."""
+    if before is None or after is None:
+        return "unknown"
+    pushed = after > before if rises else after == before
+    return "duckdb" if pushed else "fallback"
+
+
 class ActiveQueries:
     """Server-side ids (thread id / backend pid) of running queries and their deadlines.
 

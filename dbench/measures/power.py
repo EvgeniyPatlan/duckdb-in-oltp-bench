@@ -88,7 +88,7 @@ def _measure(
     """One query: (status, value, error, extra, restart_needed)."""
     drop_caches()
     cold = adapter.execute(sql, timeout_s)
-    extra: dict = {"cold_s": cold.elapsed_s, "warm_s": [], "pushed": cold.pushed, **cold.extra}
+    extra: dict = {**cold.extra, "cold_s": cold.elapsed_s, "warm_s": [], "pushed": cold.pushed}
     if cold.status != "ok":
         status, info, restart = _diagnose(adapter, cold, extra)
         if info:

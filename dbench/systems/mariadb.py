@@ -8,7 +8,12 @@ from __future__ import annotations
 from dbench import dockerctl
 from dbench.config import QUERY_TIMEOUT_S, Limits
 from dbench.systems import baseline_conf
-from dbench.systems._common import PROBE_TIMEOUT_S, READ_MARGIN_S
+from dbench.systems._common import (
+    PROBE_TIMEOUT_S,
+    READ_MARGIN_S,
+    pushed_from_counts,
+    read_status_counter,
+)
 from dbench.systems.base import Pushed
 from dbench.systems.mysql_family import ConvertToDuckDBMixin, MySQLFamilyAdapter
 
@@ -19,43 +24,15 @@ ROWS_READ_SQL = "SHOW SESSION STATUS LIKE 'Rows_read'"
 VERSION_SQL = "SHOW GLOBAL STATUS LIKE 'Duckdb_version'"
 
 
-def mariadb_settings(limits: Limits) -> dict:
-    """Same formulas as the Percona/AliSQL engines: the InnoDB side only holds catalog and
-    staging, so its pool is mem_gb/16; DuckDB gets the 0.75 * mem_gb share."""
-    base = baseline_conf.innodb_settings(limits)
-    return {
-        "duck_memory": baseline_conf.size(0.75 * limits.mem_gb, "G"),
-        "cores": base["read_threads"],
-        "spill_dir": SPILL_DIR,
-        "buffer_pool": baseline_conf.size(limits.mem_gb / 16, "G"),
-        "temp_ram": base["temp_ram"],
-        "redo_capacity": base["redo_capacity"],
-    }
-
-
 def render_config(limits: Limits) -> str:
     return baseline_conf.render(
-        baseline_conf.SYSTEMS_DIR / "mariadb" / "duckdb.cnf", mariadb_settings(limits))
+        baseline_conf.SYSTEMS_DIR / "mariadb" / "duckdb.cnf",
+        baseline_conf.duckdb_engine_settings(limits, SPILL_DIR))
 
 
 def duckdb_version_from_status(value: str) -> str:
     """``Duckdb_version`` reads 'v1.5.5'."""
     return value.removeprefix("v")
-
-
-def rows_read(cur) -> int | None:
-    """Session ``Rows_read``: rows the server read through table handlers. A query handled by
-    the engine's select_handler never goes through the handler row API, so the counter does not
-    move; the row path (any fallback) raises it."""
-    cur.execute(ROWS_READ_SQL)
-    row = cur.fetchone()
-    return int(row[1]) if row else None
-
-
-def pushed_from_rows_read(before: int | None, after: int | None) -> Pushed:
-    if before is None or after is None:
-        return "unknown"
-    return "duckdb" if after == before else "fallback"
 
 
 class MariaDBDuckDB(ConvertToDuckDBMixin, MySQLFamilyAdapter):
@@ -98,13 +75,13 @@ class MariaDBDuckDB(ConvertToDuckDBMixin, MySQLFamilyAdapter):
     # pushdown
     def _query_begin(self, cur) -> int | None:
         try:
-            return rows_read(cur)
+            return read_status_counter(cur, ROWS_READ_SQL)
         except Exception:  # noqa: BLE001 - detection must never fail a query
             return None
 
     def _query_end(self, cur, token: int | None) -> Pushed:
         try:
-            return pushed_from_rows_read(token, rows_read(cur))
+            return pushed_from_counts(token, read_status_counter(cur, ROWS_READ_SQL), rises=False)
         except Exception:  # noqa: BLE001
             return "unknown"
 
@@ -112,10 +89,11 @@ class MariaDBDuckDB(ConvertToDuckDBMixin, MySQLFamilyAdapter):
         conn = self._connect(read_timeout=QUERY_TIMEOUT_S + READ_MARGIN_S)
         try:
             with conn.cursor() as cur:
-                before = rows_read(cur)
+                before = read_status_counter(cur, ROWS_READ_SQL)
                 cur.execute(sql)
                 if cur.description:
                     cur.fetchall()
-                return pushed_from_rows_read(before, rows_read(cur))
+                after = read_status_counter(cur, ROWS_READ_SQL)
+                return pushed_from_counts(before, after, rises=False)
         finally:
             conn.close()

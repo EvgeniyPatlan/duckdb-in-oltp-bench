@@ -53,7 +53,7 @@ Left at the default on purpose, all verified on the running server with `SHOW VA
 space, so spilling to the datadir volume is not capped and no value is set),
 `duckdb_dml_in_batch=ON`, `duckdb_checkpoint_threshold` (256 MiB), `duckdb_max_threads_per_query`
 (1000000, i.e. no per-query limit), `force_innodb_to_duckdb=OFF`, `duckdb_prefer_high_precision=OFF`,
-and the binary log (MySQL 8.0 enables it by default; see the storage note below).
+and nothing else except `skip-log-bin`: binary logging is off on every MySQL-family server (on by default for MySQL, Percona and AliSQL, off for MariaDB) because replication is not under test and the default differs between families.
 
 ## Verified facts (observed on the running server)
 
@@ -106,4 +106,4 @@ right after `cancel()` and 3 s later) and the next query ran at once.
 `storage_bytes()` is `du -sb` of the datadir excluding binlog files (`binlog.*`); it counts
 `duckdb.db` and its WAL plus the InnoDB catalog, tablespaces and the redo log
 (`innodb_redo_log_capacity`). Replication logs are excluded, the redo log is counted. The server
-runs with MySQL's default binary logging, so binlog files do exist and are excluded by name.
+runs with `skip-log-bin`, so no binlog files are written; the exclusion keeps the rule identical across the family.
