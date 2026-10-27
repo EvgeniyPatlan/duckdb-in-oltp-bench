@@ -85,8 +85,10 @@ test `test_heavy_pushed_query_times_out_and_server_recovers`). The server-side
 `timeout` only when the client read timeout (timeout + 30 s margin) fires; `KILL QUERY` is accepted
 but the DuckDB query **keeps running** in the server (observed still `Executing` 20 s after the
 kill), so later queries can overlap leftover work until it finishes. The server stays responsive
-(`SELECT 1` succeeds). A campaign that needs a clean slate after a timeout must restart the
-container. (Percona's engine honours its server-side limit: error 3024 after about 5 s.)
+(`SELECT 1` succeeds). The power run handles this for every adapter: after a timeout it calls `cancel()`, polls
+`lingering_queries()` (`information_schema.PROCESSLIST` rows of the bench user with COMMAND Query or Killed, excluding the probe; a KILLed
+pushed query stays listed as Killed while it keeps running) for up to 10 s and, if the query is still running, restarts the server. That query's
+record carries `extra.restarted_after_timeout = true` and `extra.lingering = n`. (Percona's engine honours its server-side limit: error 3024 after about 5 s.)
 
 ## Loading
 

@@ -202,6 +202,15 @@ class PostgresFamilyAdapter(ContainerServerAdapter):
             except Exception:  # noqa: BLE001
                 pass
 
+    def lingering_queries(self) -> int:
+        conn = self._connect()
+        try:
+            row = conn.execute("SELECT count(*) FROM pg_stat_activity WHERE state = 'active' "
+                               "AND pid <> pg_backend_pid() AND usename = %s", (USER,)).fetchone()
+            return int(row[0])
+        finally:
+            conn.close()
+
     def cancel(self) -> bool:
         """pg_cancel_backend, from a second connection, for queries past their deadline."""
         ids = self.active.pop_expired()

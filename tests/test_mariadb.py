@@ -232,6 +232,7 @@ def test_heavy_pushed_query_times_out_and_server_recovers():
                         "WHERE (x.a + y.a + z.a) % 7 = 3", 5)
         assert out.status == "timeout", out
         a.cancel()
+        assert a.lingering_queries() >= 1  # the pushed query survives max_statement_time and KILL
         assert a.execute("SELECT 1", 10).rows == [(1,)]
     finally:
         a.remove_data()

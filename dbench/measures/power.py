@@ -1,7 +1,14 @@
-"""M1: TPC-H power run (one cold run and WARM_RUNS warm runs per query)."""
+"""M1: TPC-H power run (one cold run and WARM_RUNS warm runs per query).
+
+After a timeout the adapter is asked to cancel the query, then ``lingering_queries()`` is polled
+for up to LINGER_WAIT_S. A query that is still running (cancel can fail, e.g. a pushed DuckDB
+query on MariaDB) would steal CPU from the next measurements, so the server is restarted; the
+record carries ``extra["restarted_after_timeout"]=True`` and ``extra["lingering"]=n``.
+"""
 from __future__ import annotations
 
 import statistics
+import time
 from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,6 +21,8 @@ from dbench.results import ResultRecord, write
 from dbench.systems.base import QueryOutcome, SystemAdapter
 
 QUERY_NUMBERS = range(1, 23)
+LINGER_WAIT_S = 10.0
+LINGER_POLL_S = 1.0
 
 
 def _utcnow() -> datetime:
@@ -27,8 +36,24 @@ def _probe(adapter: SystemAdapter) -> bool:
         return False
 
 
-def _diagnose(adapter: SystemAdapter, outcome: QueryOutcome) -> tuple[str, dict, bool]:
+def _lingering(adapter: SystemAdapter) -> int:
+    """Queries still running after cancel(), polled for up to LINGER_WAIT_S."""
+    deadline = time.monotonic() + LINGER_WAIT_S
+    count = 0
+    while True:
+        try:
+            count = adapter.lingering_queries()
+        except Exception:  # noqa: BLE001 - an unreachable server is handled by the probe
+            return 0
+        if count == 0 or time.monotonic() >= deadline:
+            return count
+        time.sleep(LINGER_POLL_S)
+
+
+def _diagnose(adapter: SystemAdapter, outcome: QueryOutcome,
+              extra: dict) -> tuple[str, dict, bool]:
     """Final status, container details and whether a restart is needed for a failed query.
+    A timeout that leaves a query running is flagged in ``extra`` and needs a restart.
 
     Nothing here restarts the server: the record is written first (see run_power).
     """
@@ -36,7 +61,11 @@ def _diagnose(adapter: SystemAdapter, outcome: QueryOutcome) -> tuple[str, dict,
         return "crashed", adapter.crash_info(), True
     if outcome.status == "timeout":
         adapter.cancel()
-        return "timeout", {}, not _probe(adapter)
+        lingering = _lingering(adapter)
+        if lingering:
+            extra["restarted_after_timeout"] = True
+            extra["lingering"] = lingering
+        return "timeout", {}, bool(lingering) or not _probe(adapter)
     if _probe(adapter):
         return outcome.status, {}, False
     info = adapter.crash_info()
@@ -61,7 +90,7 @@ def _measure(
     cold = adapter.execute(sql, timeout_s)
     extra: dict = {"cold_s": cold.elapsed_s, "warm_s": [], "pushed": cold.pushed}
     if cold.status != "ok":
-        status, info, restart = _diagnose(adapter, cold)
+        status, info, restart = _diagnose(adapter, cold, extra)
         if info:
             extra["container"] = info
         return status, None, cold.error, extra, restart
@@ -70,7 +99,7 @@ def _measure(
     for _ in range(warm_runs):
         warm = adapter.execute(sql, timeout_s)
         if warm.status != "ok":
-            status, info, restart = _diagnose(adapter, warm)
+            status, info, restart = _diagnose(adapter, warm, extra)
             if info:
                 extra["container"] = info
             return status, None, warm.error, extra, restart

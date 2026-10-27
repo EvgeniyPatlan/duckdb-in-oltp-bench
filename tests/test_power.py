@@ -117,3 +117,22 @@ def test_restart_failure_does_not_abort(tmp_path):
     assert all(r.status == "crashed" for r in recs)
     assert "restart_error" not in recs[0].extra
     assert "cannot start" in recs[1].extra["restart_error"]
+
+
+def test_timeout_with_lingering_query_restarts_and_flags(tmp_path, monkeypatch):
+    monkeypatch.setattr("dbench.measures.power.LINGER_WAIT_S", 0.05)
+    monkeypatch.setattr("dbench.measures.power.LINGER_POLL_S", 0.01)
+    a = FakeAdapter([timeout()], lingering=[1] * 100)
+    recs = power(a, tmp_path, [1, 2])
+    assert recs[0].status == "timeout" and a.cancels == 1 and a.restarts == 1
+    assert recs[0].extra["restarted_after_timeout"] is True
+    assert recs[0].extra["lingering"] == 1
+    assert "restarted_after_timeout" not in recs[1].extra
+
+
+def test_timeout_whose_query_stops_does_not_restart(tmp_path, monkeypatch):
+    monkeypatch.setattr("dbench.measures.power.LINGER_POLL_S", 0.01)
+    a = FakeAdapter([timeout()], lingering=[2, 0])
+    (rec,) = power(a, tmp_path, [1])
+    assert rec.status == "timeout" and a.restarts == 0
+    assert "restarted_after_timeout" not in rec.extra and "lingering" not in rec.extra

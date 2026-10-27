@@ -28,13 +28,15 @@ class FakeAdapter(SystemAdapter):
     config_dir = "fake"
 
     def __init__(self, outcomes: list[QueryOutcome], alive_after: list[bool] | None = None,
-                 restart_error: Exception | None = None, crash_status: str = "exited"):
+                 restart_error: Exception | None = None, crash_status: str = "exited",
+                 lingering: list[int] | None = None):
         """``outcomes`` are consumed one per execute(); ok() once exhausted.
         ``alive_after`` scripts successive alive() answers (True once exhausted)."""
         self._outcomes = list(outcomes)
         self._alive = list(alive_after or [])
         self._restart_error = restart_error
         self._crash_status = crash_status
+        self._lingering = list(lingering or [])
         self.executed: list[str] = []
         self.cancels = 0
         self.restarts = 0
@@ -51,6 +53,9 @@ class FakeAdapter(SystemAdapter):
     def alive(self) -> bool:
         self.alive_calls += 1
         return self._alive.pop(0) if self._alive else True
+
+    def lingering_queries(self) -> int:
+        return self._lingering.pop(0) if self._lingering else 0
 
     def restart(self) -> None:
         self.restarts += 1

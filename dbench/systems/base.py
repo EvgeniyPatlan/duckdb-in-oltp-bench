@@ -115,6 +115,11 @@ class SystemAdapter(ABC):
     def cancel(self) -> bool:
         """Try to abort the running query; True if a cancel was issued."""
 
+    def lingering_queries(self) -> int:
+        """Queries of the bench user still running on the server (excluding this probe).
+        Used after a timeout to detect a query that cancel() did not stop."""
+        return 0
+
     @abstractmethod
     def pushdown(self, sql: str) -> Pushed:
         """Whether DuckDB ran the query; "n/a" for systems that never use it."""

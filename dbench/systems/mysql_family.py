@@ -240,6 +240,18 @@ class MySQLFamilyAdapter(ContainerServerAdapter):
             except Exception:  # noqa: BLE001 - connection may already be dead
                 pass
 
+    def lingering_queries(self) -> int:
+        conn = self._connect(read_timeout=PROBE_TIMEOUT_S)
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM information_schema.PROCESSLIST "
+                            "WHERE USER = %s AND COMMAND IN ('Query', 'Killed') "
+                            "AND ID <> CONNECTION_ID()",
+                            (self.user,))
+                return int(cur.fetchone()[0])
+        finally:
+            conn.close()
+
     def cancel(self) -> bool:
         """KILL QUERY, from a second connection, for queries past their deadline."""
         ids = self.active.pop_expired()
