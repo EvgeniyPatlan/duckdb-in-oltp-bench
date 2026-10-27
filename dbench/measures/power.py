@@ -20,22 +20,71 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-def _recover(adapter: SystemAdapter, outcome: QueryOutcome) -> dict:
-    """Make the server usable again after a failed query; return crash details if any."""
-    info: dict = {}
+def _probe(adapter: SystemAdapter) -> bool:
+    try:
+        return adapter.alive()
+    except Exception:  # noqa: BLE001 - a probe that raises means not alive
+        return False
+
+
+def _diagnose(adapter: SystemAdapter, outcome: QueryOutcome) -> tuple[str, dict, bool]:
+    """Final status, container details and whether a restart is needed for a failed query.
+
+    Nothing here restarts the server: the record is written first (see run_power).
+    """
     if outcome.status == "crashed":
-        info = adapter.crash_info()
-        adapter.restart()
-        return info
+        return "crashed", adapter.crash_info(), True
     if outcome.status == "timeout":
         adapter.cancel()
-    if not adapter.alive():
-        adapter.restart()
-    return info
+        return "timeout", {}, not _probe(adapter)
+    if _probe(adapter):
+        return outcome.status, {}, False
+    info = adapter.crash_info()
+    status = "error" if info.get("status") == "running" else "crashed"
+    return status, info, True
 
 
 def _diff_rows(diffs: list[tuple]) -> list[list]:
     return [[pos, repr(a), repr(b)] for pos, a, b in diffs]
+
+
+def _measure(
+    adapter: SystemAdapter,
+    sql: str,
+    expected: list | None,
+    drop_caches: Callable[[], None],
+    timeout_s: int,
+    warm_runs: int,
+) -> tuple[str, float | None, str | None, dict, bool]:
+    """One query: (status, value, error, extra, restart_needed)."""
+    drop_caches()
+    cold = adapter.execute(sql, timeout_s)
+    extra: dict = {"cold_s": cold.elapsed_s, "warm_s": [], "pushed": cold.pushed}
+    if cold.status != "ok":
+        status, info, restart = _diagnose(adapter, cold)
+        if info:
+            extra["container"] = info
+        return status, None, cold.error, extra, restart
+
+    extra["checksum"] = checksum(cold.rows or [], cold.numeric_cols)
+    for _ in range(warm_runs):
+        warm = adapter.execute(sql, timeout_s)
+        if warm.status != "ok":
+            status, info, restart = _diagnose(adapter, warm)
+            if info:
+                extra["container"] = info
+            return status, None, warm.error, extra, restart
+        extra["warm_s"].append(warm.elapsed_s)
+
+    value = statistics.median(extra["warm_s"]) if extra["warm_s"] else cold.elapsed_s
+    status = "ok"
+    if expected is not None:
+        cmp = compare(expected, cold.rows or [], cold.numeric_cols)
+        if not cmp.match:
+            status = "wrong_result"
+            extra["row_count"] = [cmp.row_count_a, cmp.row_count_b]
+            extra["diffs"] = _diff_rows(cmp.diffs)
+    return status, value, None, extra, False
 
 
 def run_power(
@@ -52,43 +101,26 @@ def run_power(
     timeout_s: int = QUERY_TIMEOUT_S,
     warm_runs: int = WARM_RUNS,
 ) -> list[ResultRecord]:
-    """Run the queries, write one M1 record per query under ``root`` and return them."""
+    """Run the queries, write one M1 record per query under ``root`` and return them.
+
+    A record is written before any restart. A restart that raises never aborts the
+    run: the error is attached to the next record as ``extra["restart_error"]``.
+    """
     host_facts = host()
     versions = adapter.versions()
     records: list[ResultRecord] = []
+    restart_error: str | None = None
 
     for n in queries:
         started = clock().isoformat()
         sql = translate(load_query(n), adapter.dialect)
-        drop_caches()
-        cold = adapter.execute(sql, timeout_s)
-        extra: dict = {"cold_s": cold.elapsed_s, "warm_s": [], "pushed": cold.pushed}
-        status, value, error = "ok", None, cold.error
-
-        if cold.status != "ok":
-            status = cold.status
-            crash = _recover(adapter, cold)
-            if crash:
-                extra["container"] = crash
-        else:
-            extra["checksum"] = checksum(cold.rows or [], cold.numeric_cols)
-            for _ in range(warm_runs):
-                warm = adapter.execute(sql, timeout_s)
-                if warm.status != "ok":
-                    status, error = warm.status, warm.error
-                    crash = _recover(adapter, warm)
-                    if crash:
-                        extra["container"] = crash
-                    break
-                extra["warm_s"].append(warm.elapsed_s)
-            if status == "ok":
-                value = statistics.median(extra["warm_s"]) if extra["warm_s"] else cold.elapsed_s
-                if reference is not None and n in reference:
-                    cmp = compare(reference[n], cold.rows or [], cold.numeric_cols)
-                    if not cmp.match:
-                        status = "wrong_result"
-                        extra["row_count"] = [cmp.row_count_a, cmp.row_count_b]
-                        extra["diffs"] = _diff_rows(cmp.diffs)
+        expected = reference.get(n) if reference is not None else None
+        status, value, error, extra, restart = _measure(
+            adapter, sql, expected, drop_caches, timeout_s, warm_runs
+        )
+        if restart_error:
+            extra["restart_error"] = restart_error
+            restart_error = None
 
         rec = ResultRecord(
             system=adapter.name,
@@ -109,4 +141,10 @@ def run_power(
         )
         write(rec, root)
         records.append(rec)
+
+        if restart:
+            try:
+                adapter.restart()
+            except Exception as exc:  # noqa: BLE001 - keep the campaign going
+                restart_error = f"{type(exc).__name__}: {exc}"
     return records

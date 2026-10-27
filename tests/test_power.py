@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 
 from dbench.measures.power import run_power
 from dbench.results import iter_records
+from dbench.systems.base import QueryOutcome
 from tests.fakes import FakeAdapter, crashed, ok, timeout
 
 HOST = {"cpus": 4, "mem_gb": 8, "kernel": "k", "docker_version": "d"}
@@ -79,3 +80,40 @@ def test_matching_reference_is_ok(tmp_path):
     a = FakeAdapter([ok(rows=[(2,), (1,)])] * 4)
     (rec,) = power(a, tmp_path, [1], reference={1: [(1,), (2,)]})
     assert rec.status == "ok"
+
+
+def error() -> QueryOutcome:
+    return QueryOutcome("error", None, None, set(), "ConnectionResetError", "n/a")
+
+
+def test_error_with_dead_server_upgraded_to_crashed(tmp_path):
+    a = FakeAdapter([error()], alive_after=[False])
+    recs = power(a, tmp_path, [1, 2])
+    assert [r.status for r in recs] == ["crashed", "ok"]
+    assert recs[0].extra["container"]["ExitCode"] == 137
+    assert a.restarts == 1
+
+
+def test_error_with_running_container_stays_error(tmp_path):
+    a = FakeAdapter([error()], alive_after=[False], crash_status="running")
+    recs = power(a, tmp_path, [1, 2])
+    assert [r.status for r in recs] == ["error", "ok"]
+    assert a.restarts == 1
+
+
+def test_error_with_live_server_stays_error_without_restart(tmp_path):
+    a = FakeAdapter([error()], alive_after=[True])
+    recs = power(a, tmp_path, [1])
+    assert recs[0].status == "error" and a.restarts == 0
+
+
+def test_restart_failure_does_not_abort(tmp_path):
+    a = FakeAdapter([crashed()] * 22, restart_error=RuntimeError("cannot start"))
+    recs = run_power(
+        a, 1, "run1", tmp_path, None,
+        drop_caches=lambda: None, host=lambda: HOST,
+    )
+    assert len(recs) == 22 and len(list(iter_records(tmp_path))) == 22
+    assert all(r.status == "crashed" for r in recs)
+    assert "restart_error" not in recs[0].extra
+    assert "cannot start" in recs[1].extra["restart_error"]

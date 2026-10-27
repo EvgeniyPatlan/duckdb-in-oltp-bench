@@ -112,3 +112,79 @@ def test_other_bundled_versions_answer(version):
         assert a.execute("SELECT 1", 10).rows == [(1,)]
     finally:
         a.remove_data()
+
+
+def test_connection_failure_waits_for_docker_to_report_the_exit(monkeypatch):
+    from dbench import dockerctl
+
+    states = iter([{"status": "running"}, {"status": "running"},
+                   {"status": "exited", "ExitCode": 137, "OOMKilled": True}])
+    monkeypatch.setattr(dockerctl, "container_state", lambda name: next(states))
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    out = DuckDBNative("1.5.5")._connection_failure(ConnectionResetError("reset"))
+    assert out.status == "crashed"
+
+
+def test_connection_failure_with_running_container_is_error(monkeypatch):
+    from dbench import dockerctl
+
+    monkeypatch.setattr(dockerctl, "container_state", lambda name: {"status": "running"})
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    out = DuckDBNative("1.5.5")._connection_failure(ConnectionResetError("reset"))
+    assert out.status == "error"
+
+
+@pytest.mark.docker
+@pytest.mark.skipif(os.environ.get("DBENCH_DOCKER") != "1", reason="set DBENCH_DOCKER=1")
+def test_killed_container_is_crashed_with_exit_status():
+    import threading
+    import time as _time
+
+    from dbench import dockerctl
+
+    a = DuckDBNative("1.5.5")
+    a.remove_data()
+    a.start(Limits(db_cpuset="0-3", runner_cpuset="8-11", mem_gb=4))
+    try:
+        def kill():
+            _time.sleep(2)
+            dockerctl._client().containers.get(a.container_name).kill()
+
+        t = threading.Thread(target=kill)
+        t.start()
+        out = a.execute("SELECT sum(hash(i)) FROM range(10000000000) t(i)", 60)
+        t.join()
+        assert out.status == "crashed"
+        info = a.crash_info()
+        assert info["ExitCode"] == 137 and info["status"] != "running"
+    finally:
+        a.remove_data()
+
+
+@pytest.mark.docker
+@pytest.mark.skipif(os.environ.get("DBENCH_DOCKER") != "1", reason="set DBENCH_DOCKER=1")
+def test_cancel_after_timeout_spares_other_streams():
+    import threading
+
+    a = DuckDBNative("1.5.5")
+    a.remove_data()
+    a.start(Limits(db_cpuset="0-3", runner_cpuset="8-11", mem_gb=4))
+    try:
+        probe = "SELECT sum(hash(i)) FROM range({}) t(i)"
+        n = 200_000_000
+        t0 = a.execute(probe.format(n), 60).elapsed_s
+        n6 = int(n * 6 / t0)  # sized to run about 6 s alone
+        results = {}
+
+        def other():
+            results["other"] = a.execute(probe.format(n6), 60)
+
+        th = threading.Thread(target=other)
+        th.start()
+        slow = a.execute("SELECT sum(hash(i)) FROM range(10000000000) t(i)", 2)
+        assert slow.status == "timeout"
+        assert a.cancel() is True
+        th.join()
+        assert results["other"].status == "ok", results["other"].error
+    finally:
+        a.remove_data()

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import socket
+import time
 from datetime import date, datetime
 from datetime import time as dtime
 from decimal import Decimal
@@ -27,6 +28,8 @@ DATA_MOUNT = "/data"
 SOCKET_MARGIN_S = 30
 PROBE_TIMEOUT_S = 10
 LOAD_TIMEOUT_S = 24 * 3600
+EXIT_POLL_S = 5.0
+EXIT_POLL_INTERVAL_S = 0.25
 MEMORY_FRACTION = 0.8
 NO_ROW_STORE = "plain DuckDB reference has no row store"
 
@@ -116,7 +119,6 @@ class DuckDBNative(SystemAdapter):
         self.volume = f"dbench-{self.name}-data"
         self.data_dir = Path(data_dir) if data_dir else None
         self._limits: Limits | None = None
-        self._cancel_conn: DuckDBConnection | None = None
 
     # lifecycle
     def start(self, limits: Limits) -> None:
@@ -249,15 +251,23 @@ class DuckDBNative(SystemAdapter):
         return QueryOutcome("ok", resp["elapsed_s"], rows, numeric, None, "duckdb")
 
     def _connection_failure(self, exc: Exception) -> QueryOutcome:
+        """Classify a dropped connection. Docker can lag behind the kill, so give it
+        up to EXIT_POLL_S to report that the container stopped running."""
+        deadline = time.monotonic() + EXIT_POLL_S
         state = self.crash_info()
+        while state.get("status") == "running" and time.monotonic() < deadline:
+            time.sleep(EXIT_POLL_INTERVAL_S)
+            state = self.crash_info()
         status = "crashed" if state.get("status") != "running" else "error"
         return QueryOutcome(status, None, None, set(), f"{type(exc).__name__}: {exc}", "duckdb")
 
     def cancel(self) -> bool:
+        """Interrupt queries that are already past their deadline. Queries still within
+        their own timeout (other streams) are never touched."""
         try:
             conn = self.connect()
             try:
-                return conn.request({"cmd": "interrupt"}, PROBE_TIMEOUT_S)["status"] == "ok"
+                return conn.request({"cmd": "interrupt_expired"}, PROBE_TIMEOUT_S)["status"] == "ok"
             finally:
                 conn.close()
         except Exception:  # noqa: BLE001

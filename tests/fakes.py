@@ -27,11 +27,14 @@ class FakeAdapter(SystemAdapter):
     family = "duckdb"
     config_dir = "fake"
 
-    def __init__(self, outcomes: list[QueryOutcome], alive_after: list[bool] | None = None):
+    def __init__(self, outcomes: list[QueryOutcome], alive_after: list[bool] | None = None,
+                 restart_error: Exception | None = None, crash_status: str = "exited"):
         """``outcomes`` are consumed one per execute(); ok() once exhausted.
         ``alive_after`` scripts successive alive() answers (True once exhausted)."""
         self._outcomes = list(outcomes)
         self._alive = list(alive_after or [])
+        self._restart_error = restart_error
+        self._crash_status = crash_status
         self.executed: list[str] = []
         self.cancels = 0
         self.restarts = 0
@@ -51,9 +54,11 @@ class FakeAdapter(SystemAdapter):
 
     def restart(self) -> None:
         self.restarts += 1
+        if self._restart_error is not None:
+            raise self._restart_error
 
     def crash_info(self) -> dict:
-        return {"status": "exited", "ExitCode": 137, "OOMKilled": True, "logs": "tail"}
+        return {"status": self._crash_status, "ExitCode": 137, "OOMKilled": True, "logs": "tail"}
 
     def versions(self) -> dict:
         return {"fake": "1"}

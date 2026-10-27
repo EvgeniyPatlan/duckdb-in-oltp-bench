@@ -2,7 +2,7 @@
 
 Each TCP connection gets its own DuckDB cursor on the shared database.
 Request (one JSON object per line):  {"sql": "...", "timeout_s": 900}
-                                      {"cmd": "interrupt"}   (interrupt every running query)
+                                      {"cmd": "interrupt_expired"}  (only expired queries)
 Response: {"status": "ok"|"timeout"|"error", "elapsed_s": float, "columns":
           [{"name", "type"}], "rows": [[...]], "error": str|null}
 
@@ -23,7 +23,7 @@ import duckdb
 DB_PATH = os.environ.get("DBENCH_DB_PATH", "/var/lib/duckdb/tpch.duckdb")
 PORT = int(os.environ.get("DBENCH_PORT", "9999"))
 
-_active: set = set()
+_active: dict = {}  # cursor -> (deadline on the monotonic clock, timed-out event)
 _active_lock = threading.Lock()
 
 
@@ -52,7 +52,7 @@ def run_query(cur, sql, timeout_s):
 
     timer = threading.Timer(timeout_s, on_timeout)
     with _active_lock:
-        _active.add(cur)
+        _active[cur] = (time.monotonic() + timeout_s, timed_out)
     timer.start()
     start = time.perf_counter()
     try:
@@ -62,14 +62,14 @@ def run_query(cur, sql, timeout_s):
         elapsed = time.perf_counter() - start
     except Exception as exc:  # noqa: BLE001 - reported to the client
         elapsed = time.perf_counter() - start
-        status = "timeout" if timed_out.is_set() or isinstance(
-            exc, duckdb.InterruptException) else "error"
+        # Only a deadline interrupt is a timeout; any other interrupt is an error.
+        status = "timeout" if timed_out.is_set() else "error"
         return {"status": status, "elapsed_s": elapsed, "columns": [], "rows": [],
                 "error": f"{type(exc).__name__}: {exc}"}
     finally:
         timer.cancel()
         with _active_lock:
-            _active.discard(cur)
+            _active.pop(cur, None)
     return {
         "status": "ok", "elapsed_s": elapsed, "error": None,
         "columns": [{"name": d[0], "type": str(d[1])} for d in desc],
@@ -77,12 +77,15 @@ def run_query(cur, sql, timeout_s):
     }
 
 
-def interrupt_all():
+def interrupt_expired():
+    """Interrupt queries past their deadline; queries still within it are untouched."""
+    now = time.monotonic()
     with _active_lock:
-        cursors = list(_active)
-    for cur in cursors:
+        expired = [(c, ev) for c, (deadline, ev) in _active.items() if now >= deadline]
+    for cur, timed_out in expired:
+        timed_out.set()
         cur.interrupt()
-    return {"status": "ok", "interrupted": len(cursors)}
+    return {"status": "ok", "interrupted": len(expired)}
 
 
 class Handler(socketserver.StreamRequestHandler):
@@ -94,8 +97,8 @@ class Handler(socketserver.StreamRequestHandler):
                     continue
                 try:
                     req = json.loads(line)
-                    if req.get("cmd") == "interrupt":
-                        resp = interrupt_all()
+                    if req.get("cmd") == "interrupt_expired":
+                        resp = interrupt_expired()
                     else:
                         resp = run_query(cur, req["sql"], float(req.get("timeout_s", 900)))
                 except Exception as exc:  # noqa: BLE001 - malformed request
