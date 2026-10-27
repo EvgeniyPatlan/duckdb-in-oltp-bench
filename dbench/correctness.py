@@ -3,6 +3,14 @@
 Drivers return DECIMAL as Decimal, DOUBLE as float, CHAR as (possibly padded)
 str, DATE as date or midnight datetime, and so on. This module reduces those
 representation differences while still flagging real value differences.
+
+Tolerance rule: two cells in a numeric column are equal if both are exact
+integers (int, or an integral Decimal with exponent >= 0) and identical;
+otherwise, if at least one side is a float, a non-integral Decimal or a numeric
+string, they are equal when abs(a - b) <= max(abs_tol, rel_tol * max(|a|, |b|)),
+with defaults abs_tol = 1e-4 and rel_tol = 1e-6. Integers never get tolerance,
+so counts must match exactly. NULL equals only NULL. CHAR padding is ignored,
+and a midnight datetime equals the date of the same day.
 """
 from __future__ import annotations
 
@@ -42,7 +50,7 @@ def _to_float(v: Any) -> float | None:
 
 
 def _decimals(abs_tol: float) -> int:
-    return max(0, math.ceil(-math.log10(abs_tol))) if 0 < abs_tol < 1 else 0
+    return max(0, math.ceil(-math.log10(abs_tol) - 1e-9)) if 0 < abs_tol < 1 else 0
 
 
 def _normalize_temporal(v: date) -> str:
@@ -53,7 +61,7 @@ def _normalize_temporal(v: date) -> str:
     return v.isoformat()
 
 
-def normalize_value(v: Any, numeric: bool = False, abs_tol: float = 0.01) -> str:
+def normalize_value(v: Any, numeric: bool = False, abs_tol: float = 1e-4) -> str:
     """Canonical text for one cell. NULL becomes the literal ``\\N``."""
     if v is None:
         return NULL_TEXT
@@ -79,7 +87,7 @@ def checksum(
     rows: Iterable[Sequence],
     numeric_cols: set[int],
     rel_tol: float = 1e-6,
-    abs_tol: float = 0.01,
+    abs_tol: float = 1e-4,
 ) -> str:
     """Display-only SHA-256 of the normalized, sorted rows (not used to decide equality)."""
     lines = sorted(
@@ -118,10 +126,22 @@ def _numbers_equal(a: float, b: float, rel_tol: float, abs_tol: float) -> bool:
     return abs(a - b) <= max(abs_tol, rel_tol * max(abs(a), abs(b)))
 
 
+def _is_exact_int(v: Any) -> bool:
+    if isinstance(v, bool):
+        return False
+    if isinstance(v, int):
+        return True
+    if isinstance(v, Decimal):
+        return v.is_finite() and v == v.to_integral_value() and v.as_tuple().exponent >= 0
+    return False
+
+
 def _cells_equal(a: Any, b: Any, numeric: bool, rel_tol: float, abs_tol: float) -> bool:
     if a is None or b is None:
         return a is None and b is None
     if numeric:
+        if _is_exact_int(a) and _is_exact_int(b):
+            return int(a) == int(b)
         fa, fb = _to_float(a), _to_float(b)
         if fa is not None and fb is not None:
             return _numbers_equal(fa, fb, rel_tol, abs_tol)
@@ -143,7 +163,7 @@ def compare(
     rows_b: Iterable[Sequence],
     numeric_cols: set[int],
     rel_tol: float = 1e-6,
-    abs_tol: float = 0.01,
+    abs_tol: float = 1e-4,
 ) -> Comparison:
     """Order-independent comparison: sort both sides, then walk pairwise.
 

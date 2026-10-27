@@ -34,8 +34,8 @@ def test_null_vs_empty_not_equal():
 
 def test_negative_zero():
     assert normalize_value(-0.0, numeric=True) == normalize_value(0, numeric=True)
-    assert normalize_value(Decimal("-0.00"), numeric=True) == "0.00"
-    assert normalize_value(-0.001, numeric=True) == "0.00"
+    assert normalize_value(Decimal("-0.00"), numeric=True) == "0.0000"
+    assert normalize_value(-0.00001, numeric=True) == "0.0000"
     assert compare([(-0.0,)], [(Decimal("0.00"),)], {0}).match
 
 
@@ -91,3 +91,17 @@ def test_comparison_is_frozen():
     assert isinstance(res, Comparison)
     with pytest.raises(dataclasses.FrozenInstanceError):
         res.match = False  # type: ignore[misc]
+
+
+def test_large_int_exact():
+    assert not compare([(1_000_000,)], [(1_000_001,)], {0}).match
+    assert not compare([(Decimal("1000000"),)], [(1_000_001,)], {0}).match
+    assert compare([(Decimal("1000000"),)], [(1_000_000,)], {0}).match
+
+
+def test_int_vs_float_tolerant():
+    assert compare([(100,)], [(100.0000001,)], {0}).match
+
+
+def test_small_value_difference_detected():
+    assert not compare([(0.041,)], [(0.049,)], {0}).match
