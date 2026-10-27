@@ -47,6 +47,7 @@ class QueryOutcome:
     error: str | None = None
     pushed: Pushed = "n/a"
     columns: list[str] = field(default_factory=list)
+    extra: dict = field(default_factory=dict)  # adapter facts merged into the record's extra
 
 
 @dataclass(frozen=True)

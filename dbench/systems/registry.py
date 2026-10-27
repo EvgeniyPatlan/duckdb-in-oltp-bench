@@ -10,13 +10,14 @@ DUCKDB_PREFIX = "duckdb-"
 
 
 def _factories() -> dict[str, Callable[[Path | str | None], SystemAdapter]]:
+    from dbench.systems.alisql import AliSQLDuckDB
     from dbench.systems.innodb import InnoDB
     from dbench.systems.mariadb import MariaDBDuckDB
     from dbench.systems.percona import PerconaEngine
     from dbench.systems.postgres import Postgres
 
-    return {"innodb": InnoDB, "mariadb": MariaDBDuckDB, "percona": PerconaEngine,
-            "postgres": Postgres}
+    return {"alisql": AliSQLDuckDB, "innodb": InnoDB, "mariadb": MariaDBDuckDB,
+            "percona": PerconaEngine, "postgres": Postgres}
 
 
 def known_systems() -> list[str]:
