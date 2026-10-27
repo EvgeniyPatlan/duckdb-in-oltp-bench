@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from dbench import dockerctl
 from dbench.config import Limits
 from dbench.systems.percona import PerconaEngine, container_command, container_env
 from dbench.systems.registry import get_adapter
@@ -86,7 +87,8 @@ def test_registry_and_contract():
 
 
 def test_env_follows_ruled_formulas():
-    assert container_env(PLAN) == {"MYSQL_ROOT_PASSWORD": "", "DUCKSDB_MEMORY_LIMIT": "48GB"}
+    assert container_env(PLAN) == {"MYSQL_ROOT_PASSWORD": "", "DUCKSDB_MEMORY_LIMIT": "48GB",
+                                  "DUCKSDB_TEMP_DIR": "/var/lib/mysql/duckdb_tmp"}
     assert container_env(SMOKE)["DUCKSDB_MEMORY_LIMIT"] == "12GB"
 
 
@@ -114,6 +116,9 @@ def test_load_convert_alters_each_table_to_duckdb(monkeypatch):
     out = a.load_convert(None)
     alters = [s for s in cur.executed if s.startswith("ALTER TABLE")]
     assert out.status == "ok" and len(alters) == 8
+    analyzes = [i for i, s in enumerate(cur.executed) if s.startswith("ANALYZE TABLE")]
+    last_alter = max(i for i, s in enumerate(cur.executed) if s.startswith("ALTER TABLE"))
+    assert len(analyzes) == 8 and min(analyzes) > last_alter
     assert all(s.endswith("ENGINE=DuckDB") for s in alters)
 
 
@@ -132,8 +137,17 @@ def test_engine_starts_and_lists_duckdb():
             cur.execute("SHOW ENGINES")
             engines = {r[0]: r[1] for r in cur.fetchall()}
             assert engines.get("DuckDB") in ("YES", "DEFAULT")
+            cur = conn.cursor()
+            # 8 GB limit: pool 8/16 G = 512M; the server adds a trailing slash
+            cur.execute("SELECT @@innodb_buffer_pool_size, @@join_buffer_size, "
+                        "@@secure_file_priv")
+            assert cur.fetchone() == (512 << 20, 256 << 20, "/data/")
         finally:
             conn.close()
-        assert a.versions()["duckdb"]
+        v = a.versions()
+        assert v["duckdb"] == "1.5.3" and "maintainer" in v["duckdb_source"]
+        code, _ = dockerctl._client().containers.get(a.container_name).exec_run(
+            ["test", "-d", "/var/lib/mysql/duckdb_tmp"])
+        assert code == 0
     finally:
         a.remove_data()

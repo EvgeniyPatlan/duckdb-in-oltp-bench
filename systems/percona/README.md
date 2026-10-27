@@ -28,6 +28,7 @@ At 64 GB and 16 cores (mem_gb = container memory):
 | `join_buffer_size`, `sort_buffer_size` | `256M` | Same as the InnoDB baseline. |
 | `tmp_table_size`, `max_heap_table_size`, `temptable_max_ram` | mem_gb/16 = `4G` | Same as the InnoDB baseline. |
 | `innodb_redo_log_capacity` | mem_gb/8 = `8G` | Same as the InnoDB baseline. |
+| env `DUCKSDB_TEMP_DIR` | `/var/lib/mysql/duckdb_tmp` | Explicit spill location for DuckDB, on the datadir volume (created at start) instead of the engine default; same spill-location rule for all engines. |
 | env `MYSQL_ROOT_PASSWORD` | empty | Passwordless root, as every MySQL-family adapter. |
 
 All formulas except the buffer pool are shared with the InnoDB baseline (`baseline_conf.py`).
@@ -39,9 +40,10 @@ Everything else, including the binary log, is the server default.
   auto-detects the thread count from the container's CPU set (the 16 pinned cores). Neither a
   status variable nor a system variable shows the detected count, so it is not observable and
   is not recorded.
-- **DuckDB library version is not observable.** The server exposes no SQL function or status
-  variable for it; `versions()` records the engine version (`ducksdb-mysql-engine v0.2.3`) and
-  states that the DuckDB version is bundled and not exposed. The engine is statically linked.
+- **DuckDB version 1.5.3**, stated by the engine maintainer; the engine exposes no version at
+  runtime. `versions()` records `duckdb: 1.5.3`, `duckdb_source` with that wording, and
+  `engine: ducksdb-mysql-engine v0.2.3`. The plain-DuckDB image `dbench/duckdb:1.5.3` (system
+  `duckdb-1.5.3`) allows an overhead comparison on the same DuckDB version.
 - `Ducksdb_pushdown_count` is a global counter; see Pushdown.
 
 ## Schema
@@ -60,7 +62,7 @@ connect.
 - `load_convert`: drops and recreates the tables as InnoDB with the engine schema (primary keys,
   no foreign-key indexes, so the converted tables equal the bulk-loaded ones), loads them with
   `LOAD DATA INFILE` (timed as `extra.rowstore_load_s`), checks row counts, then runs
-  `ALTER TABLE t ENGINE=DuckDB` per table. `elapsed_s` is the conversion alone.
+  `ALTER TABLE t ENGINE=DuckDB` per table, then `ANALYZE TABLE` on all tables, as `load_bulk` does, so both paths end in the same state. `elapsed_s` is the conversion plus analyze, not the staging load.
 
 ## Pushdown
 

@@ -9,6 +9,7 @@ import time
 
 import pymysql
 
+from dbench import dockerctl
 from dbench.config import QUERY_TIMEOUT_S, Limits
 from dbench.datagen import DatasetPaths, expected_rows
 from dbench.schema import TABLES, render_schema, split_statements
@@ -23,7 +24,9 @@ ENGINE_VERSION = "ducksdb-mysql-engine v0.2.3"
 COUNTER = "Ducksdb_pushdown_count"
 COUNTER_SQL = f"SHOW GLOBAL STATUS LIKE '{COUNTER}'"
 ER_BAD_DB = 1049
-UNOBSERVABLE = "bundled in the engine; not exposed by the server"
+DUCKDB_VERSION = "1.5.3"
+DUCKDB_SOURCE = "stated by the engine maintainer; engine exposes no version at runtime"
+SPILL_DIR = "/var/lib/mysql/duckdb_tmp"
 
 
 def percona_settings(limits: Limits) -> dict:
@@ -45,6 +48,7 @@ def container_env(limits: Limits) -> dict[str, str]:
     return {
         "MYSQL_ROOT_PASSWORD": "",
         "DUCKSDB_MEMORY_LIMIT": baseline_conf._size(0.75 * limits.mem_gb, "GB"),
+        "DUCKSDB_TEMP_DIR": SPILL_DIR,
     }
 
 
@@ -85,6 +89,14 @@ class PerconaEngine(MySQLFamilyAdapter):
     def start(self, limits: Limits) -> None:
         self._limits = limits  # the env is built from the limits
         super().start(limits)
+        self._make_spill_dir()
+
+    def _make_spill_dir(self) -> None:
+        """DuckDB spills here (on the datadir volume); created after the server is up."""
+        c = dockerctl._client().containers.get(self.container_name)
+        code, out = c.exec_run(["mkdir", "-p", SPILL_DIR])
+        if code != 0:
+            raise RuntimeError(f"cannot create {SPILL_DIR}: {out.decode(errors='replace')}")
 
     def _connect(self, *, read_timeout, connect_timeout=10):
         """The image creates no database; make ``tpch`` on first contact."""
@@ -108,7 +120,8 @@ class PerconaEngine(MySQLFamilyAdapter):
 
     def versions(self) -> dict:
         info = super().versions()
-        return {**info, "engine": ENGINE_VERSION, "duckdb": UNOBSERVABLE,
+        return {**info, "engine": ENGINE_VERSION, "duckdb": DUCKDB_VERSION,
+                "duckdb_source": DUCKDB_SOURCE,
                 "duckdb_threads": "auto-detected; no setting or status variable exposes it"}
 
     # pushdown
@@ -146,8 +159,8 @@ class PerconaEngine(MySQLFamilyAdapter):
 
     def load_convert(self, data: DatasetPaths) -> LoadOutcome:
         """Load plain InnoDB row-store tables, then ``ALTER TABLE t ENGINE=DuckDB`` per
-        table. ``elapsed_s`` is the conversion only; the staging load is
-        ``extra.rowstore_load_s``."""
+        table and ``ANALYZE TABLE`` (as ``load_bulk``). ``elapsed_s`` is conversion plus analyze;
+        the staging load is ``extra.rowstore_load_s``."""
         started = time.perf_counter()
         try:
             self._run_statements([f"DROP TABLE IF EXISTS {t}" for t in reversed(TABLES)])
@@ -175,6 +188,9 @@ class PerconaEngine(MySQLFamilyAdapter):
         convert_start = time.perf_counter()
         for table in TABLES:
             cur.execute(f"ALTER TABLE {table} ENGINE=DuckDB")
+        for table in TABLES:
+            cur.execute(f"ANALYZE TABLE {table}")
+            cur.fetchall()
         converted_s = time.perf_counter() - convert_start
         actual = self._count_rows(cur)
         if actual != expected:
