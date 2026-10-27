@@ -46,6 +46,7 @@ class QueryOutcome:
     numeric_cols: set[int] = field(default_factory=set)
     error: str | None = None
     pushed: Pushed = "n/a"
+    columns: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -90,6 +91,10 @@ class SystemAdapter(ABC):
     @abstractmethod
     def versions(self) -> dict: ...
 
+    def remove_data(self) -> None:
+        """Stop the server and delete its data volume."""
+        raise NotImplementedError(f"{type(self).__name__} does not implement remove_data()")
+
     @abstractmethod
     def create_schema(self, sf: int, kind: Literal["engine", "rowstore"]) -> None: ...
 
@@ -109,7 +114,8 @@ class SystemAdapter(ABC):
         """Try to abort the running query; True if a cancel was issued."""
 
     @abstractmethod
-    def pushdown(self, sql: str) -> Literal["duckdb", "fallback", "unknown"]: ...
+    def pushdown(self, sql: str) -> Pushed:
+        """Whether DuckDB ran the query; "n/a" for systems that never use it."""
 
     # storage and capability
     @abstractmethod

@@ -135,6 +135,15 @@ def load_paths(root: Path) -> DatasetPaths:
     return _build_paths(Path(root), doc["sf"], doc["files"])
 
 
+def expected_rows(paths: DatasetPaths) -> dict[str, int]:
+    """Rows per table, summed over the CSV parts listed in the manifest."""
+    totals: dict[str, int] = {}
+    for entry in _read_manifest(paths.root)["files"]:
+        if entry["format"] == "csv":
+            totals[entry["table"]] = totals.get(entry["table"], 0) + entry["rows"]
+    return totals
+
+
 def verify(paths: DatasetPaths) -> bool:
     """True when every manifest file exists with its recorded size and SHA-256."""
     try:

@@ -164,3 +164,17 @@ def container_state(name: str) -> dict:
         "ExitCode": st["ExitCode"],
         "logs": c.logs(tail=200).decode("utf-8", "replace"),
     }
+
+
+def container_ip(name: str) -> str:
+    """IP of a running container on its first attached network."""
+    c = _client().containers.get(name)
+    nets = c.attrs["NetworkSettings"]["Networks"]
+    return next(n["IPAddress"] for n in nets.values() if n["IPAddress"])
+
+
+def image_digest(image: str) -> str:
+    """Resolved registry digest of a local image (its id when it has none)."""
+    img = _client().images.get(image)
+    digests = img.attrs.get("RepoDigests") or []
+    return digests[0] if digests else img.id

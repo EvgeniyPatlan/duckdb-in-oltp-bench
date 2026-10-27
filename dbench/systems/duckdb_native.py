@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import socket
-import time
 from datetime import date, datetime
 from datetime import time as dtime
 from decimal import Decimal
@@ -15,6 +14,7 @@ from docker.errors import NotFound
 from dbench import dockerctl
 from dbench.config import Limits
 from dbench.datagen import DatasetPaths
+from dbench.systems._crash import classify_connection_failure
 from dbench.systems.base import (
     LoadOutcome,
     QueryOutcome,
@@ -28,8 +28,6 @@ DATA_MOUNT = "/data"
 SOCKET_MARGIN_S = 30
 PROBE_TIMEOUT_S = 10
 LOAD_TIMEOUT_S = 24 * 3600
-EXIT_POLL_S = 5.0
-EXIT_POLL_INTERVAL_S = 0.25
 MEMORY_FRACTION = 0.8
 NO_ROW_STORE = "plain DuckDB reference has no row store"
 
@@ -151,9 +149,7 @@ class DuckDBNative(SystemAdapter):
         self.start(self._limits)
 
     def _host(self) -> str:
-        c = dockerctl._client().containers.get(self.container_name)
-        nets = c.attrs["NetworkSettings"]["Networks"]
-        return next(n["IPAddress"] for n in nets.values() if n["IPAddress"])
+        return dockerctl.container_ip(self.container_name)
 
     def connect(self) -> DuckDBConnection:
         return DuckDBConnection(self._host())
@@ -248,18 +244,11 @@ class DuckDBNative(SystemAdapter):
                                 resp["error"], "duckdb")
         rows = [tuple(decode(v) for v in row) for row in resp["rows"]]
         numeric = numeric_cols_from_types([c["type"] for c in resp["columns"]])
-        return QueryOutcome("ok", resp["elapsed_s"], rows, numeric, None, "duckdb")
+        return QueryOutcome("ok", resp["elapsed_s"], rows, numeric, None, "duckdb",
+                            [c["name"] for c in resp["columns"]])
 
     def _connection_failure(self, exc: Exception) -> QueryOutcome:
-        """Classify a dropped connection. Docker can lag behind the kill, so give it
-        up to EXIT_POLL_S to report that the container stopped running."""
-        deadline = time.monotonic() + EXIT_POLL_S
-        state = self.crash_info()
-        while state.get("status") == "running" and time.monotonic() < deadline:
-            time.sleep(EXIT_POLL_INTERVAL_S)
-            state = self.crash_info()
-        status = "crashed" if state.get("status") != "running" else "error"
-        return QueryOutcome(status, None, None, set(), f"{type(exc).__name__}: {exc}", "duckdb")
+        return classify_connection_failure(self.crash_info, exc, "duckdb")
 
     def cancel(self) -> bool:
         """Interrupt queries that are already past their deadline. Queries still within

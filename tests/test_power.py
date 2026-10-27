@@ -70,7 +70,7 @@ def test_warm_failure_marks_query_and_stops(tmp_path):
 
 def test_wrong_result_marked(tmp_path):
     a = FakeAdapter([ok(rows=[(1,), (2,)])] * 4)
-    (rec,) = power(a, tmp_path, [1], reference={1: [(1,), (3,)]})
+    (rec,) = power(a, tmp_path, [1], reference={1: {'rows': [(1,), (3,)], 'numeric_cols': {0}}})
     assert rec.status == "wrong_result"
     assert rec.value is not None
     assert rec.extra["diffs"] and rec.extra["row_count"] == [2, 2]
@@ -78,7 +78,7 @@ def test_wrong_result_marked(tmp_path):
 
 def test_matching_reference_is_ok(tmp_path):
     a = FakeAdapter([ok(rows=[(2,), (1,)])] * 4)
-    (rec,) = power(a, tmp_path, [1], reference={1: [(1,), (2,)]})
+    (rec,) = power(a, tmp_path, [1], reference={1: {'rows': [(1,), (2,)], 'numeric_cols': set()}})
     assert rec.status == "ok"
 
 

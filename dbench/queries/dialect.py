@@ -37,13 +37,14 @@ _MYSQL_RULES: tuple[Rule, ...] = (
     Rule(
         re.compile(rf"(date '[0-9-]+')\s*\+\s*interval '([0-9]+)' {_UNIT}", re.I),
         _upper_unit("DATE_ADD({0}, INTERVAL {1} {2})"),
-        "date + interval 'N' unit -> DATE_ADD (classic TPC-H Q4/Q5/Q6/Q10/Q12/Q14/Q20 text; "
-        "DuckDB's exported text is already folded, kept for other query sources)",
+        "date + interval 'N' unit -> DATE_ADD (classic TPC-H text; "
+        "inert on the DuckDB 1.5.5 export, which is already folded; kept for other sources)",
     ),
     Rule(
         re.compile(rf"(date '[0-9-]+')\s*-\s*interval '([0-9]+)' {_UNIT}", re.I),
         _upper_unit("DATE_SUB({0}, INTERVAL {1} {2})"),
-        "date - interval 'N' unit -> DATE_SUB (classic TPC-H Q1/Q16 text)",
+        "date - interval 'N' unit -> DATE_SUB (classic TPC-H text; "
+        "inert on the DuckDB 1.5.5 export)",
     ),
     Rule(
         re.compile(rf"interval '([0-9]+)' {_UNIT}", re.I),
@@ -53,7 +54,8 @@ _MYSQL_RULES: tuple[Rule, ...] = (
     Rule(
         re.compile(r"'([^']*)'::date", re.I),
         r"DATE '\1'",
-        "'x'::date -> DATE 'x' (PostgreSQL-style cast not accepted by MySQL)",
+        "'x'::date -> DATE 'x' (PostgreSQL-style cast not accepted by MySQL; inert on the "
+        "DuckDB 1.5.5 export)",
     ),
     Rule(
         re.compile(r"(count\(o_orderkey\))(\s+FROM\b)", re.I),

@@ -87,3 +87,13 @@ def test_rules_are_listed_with_comments():
     for rule in RULES["mysql"]:
         assert isinstance(rule.pattern, re.Pattern)
         assert rule.comment
+
+
+def test_q13_real_mysql_translation():
+    out = translate(load_query(13), "mysql")
+    assert "AS c_count" in out
+    assert "c_orders (" not in out
+
+
+def test_only_q13_differs_for_mysql():
+    assert {n for n in ALL if dialect_diff(n, "mysql")} == {13}

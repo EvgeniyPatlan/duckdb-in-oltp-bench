@@ -51,7 +51,7 @@ def _diff_rows(diffs: list[tuple]) -> list[list]:
 def _measure(
     adapter: SystemAdapter,
     sql: str,
-    expected: list | None,
+    expected: dict | None,
     drop_caches: Callable[[], None],
     timeout_s: int,
     warm_runs: int,
@@ -79,7 +79,8 @@ def _measure(
     value = statistics.median(extra["warm_s"]) if extra["warm_s"] else cold.elapsed_s
     status = "ok"
     if expected is not None:
-        cmp = compare(expected, cold.rows or [], cold.numeric_cols)
+        numeric = set(expected.get("numeric_cols", ())) | cold.numeric_cols
+        cmp = compare(expected["rows"], cold.rows or [], numeric)
         if not cmp.match:
             status = "wrong_result"
             extra["row_count"] = [cmp.row_count_a, cmp.row_count_b]
@@ -92,7 +93,7 @@ def run_power(
     sf: int,
     run_id: str,
     root: Path,
-    reference: dict[int, list] | None = None,
+    reference: dict[int, dict] | None = None,
     *,
     queries: Iterable[int] = QUERY_NUMBERS,
     drop_caches: Callable[[], None] = dockerctl.drop_caches,
@@ -103,6 +104,8 @@ def run_power(
 ) -> list[ResultRecord]:
     """Run the queries, write one M1 record per query under ``root`` and return them.
 
+    ``reference`` maps a query number to ``{rows, numeric_cols, ...}`` (see
+    ``dbench.reference``); results are compared with the union of both numeric columns.
     A record is written before any restart. A restart that raises never aborts the
     run: the error is attached to the next record as ``extra["restart_error"]``.
     """
