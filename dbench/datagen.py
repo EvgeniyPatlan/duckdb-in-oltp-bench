@@ -22,12 +22,15 @@ from dbench import dockerctl
 
 TABLES = ("region", "nation", "part", "supplier", "partsupp", "customer", "orders", "lineitem")
 MANIFEST = "manifest.json"
-PART_BYTES = 2 * 10**9
-# Approximate pipe-delimited CSV bytes per scale factor, used to pick the part count.
+PART_BYTES = 2 * 10**9          # hard cap per CSV part when splitting is active
+PART_TARGET_BYTES = int(1.8e9)  # size parts to this, leaving margin under the cap
+SPLIT_FROM_SF = 100
+# Pipe-delimited CSV bytes per scale factor, rounded up from the measured SF1 files
+# (lineitem 771865717, orders 173452161, partsupp 118184616, ...).
 CSV_BYTES_PER_SF = {
-    "region": 0, "nation": 0, "supplier": 1_500_000, "part": 24_000_000,
-    "customer": 24_000_000, "partsupp": 118_000_000, "orders": 170_000_000,
-    "lineitem": 725_000_000,
+    "region": 400, "nation": 2_300, "supplier": 1_430_000, "part": 24_800_000,
+    "customer": 24_600_000, "partsupp": 118_300_000, "orders": 173_600_000,
+    "lineitem": 772_000_000,
 }
 # Deterministic order used to cut row ranges into parts.
 ORDER_BY = {
@@ -63,9 +66,17 @@ def dataset_dir_name(sf: float) -> str:
     return f"sf{sf:g}"
 
 
-def part_count(table: str, sf: float) -> int:
-    """Number of files a table is split into so each stays within PART_BYTES."""
-    return max(1, math.ceil(CSV_BYTES_PER_SF[table] * sf / PART_BYTES))
+def part_count(table: str, sf: float, part_bytes: int | None = None) -> int:
+    """Number of files a table is split into.
+
+    By default tables are split only from SF100, to PART_TARGET_BYTES per part. An explicit
+    ``part_bytes`` forces splitting at any scale factor (used to exercise multi-part output).
+    """
+    if part_bytes is None:
+        if sf < SPLIT_FROM_SF:
+            return 1
+        part_bytes = PART_TARGET_BYTES
+    return max(1, math.ceil(CSV_BYTES_PER_SF[table] * sf / part_bytes))
 
 
 def _sha256(path: Path) -> str:
@@ -189,10 +200,10 @@ def _ensure_image(image: str) -> None:
     )
 
 
-def _run_generator(sf: float, work: Path, image: str) -> dict:
+def _run_generator(sf: float, work: Path, image: str, part_bytes: int | None) -> dict:
     """Run dbgen in a one-shot container writing into ``work``; return its JSON report."""
     _ensure_image(image)
-    parts = {t: part_count(t, sf) for t in TABLES}
+    parts = {t: part_count(t, sf, part_bytes) for t in TABLES}
     cmd = [
         "docker", "run", "--rm", "--entrypoint", "python",
         "--user", f"{os.getuid()}:{os.getgid()}", "-e", "HOME=/tmp",
@@ -210,8 +221,26 @@ def _run_generator(sf: float, work: Path, image: str) -> dict:
     return json.loads(line.removeprefix("DBENCH_RESULT "))
 
 
-def generate(sf: float, out: Path | str | None = None, image: str = DEFAULT_IMAGE) -> DatasetPaths:
-    """Generate TPC-H at ``sf`` under ``<out>/sf<N>``; reuse it when its manifest verifies."""
+def _check_part_sizes(files: list[tuple[Path, str, str, int]]) -> None:
+    for path, table, fmt, _ in files:
+        if fmt == "csv" and path.stat().st_size > PART_BYTES:
+            raise RuntimeError(
+                f"{table} part {path.name} is {path.stat().st_size} bytes and exceeds "
+                f"the {PART_BYTES} byte part cap; recalibrate CSV_BYTES_PER_SF"
+            )
+
+
+def generate(
+    sf: float,
+    out: Path | str | None = None,
+    image: str = DEFAULT_IMAGE,
+    part_bytes: int | None = None,
+) -> DatasetPaths:
+    """Generate TPC-H at ``sf`` under ``<out>/sf<N>``; reuse it when its manifest verifies.
+
+    Splitting into parts (and the part cap check) is active from SF100, or at any scale
+    factor when ``part_bytes`` is given.
+    """
     out = Path(out) if out else default_out()
     root = out / dataset_dir_name(sf)
     if (root / MANIFEST).is_file():
@@ -222,11 +251,13 @@ def generate(sf: float, out: Path | str | None = None, image: str = DEFAULT_IMAG
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True)
     try:
-        report = _run_generator(sf, work, image)
+        report = _run_generator(sf, work, image, part_bytes)
         files = [
             (work / Path(f["path"]).relative_to("/out"), f["table"], f["format"], f["rows"])
             for f in report["files"]
         ]
+        if part_bytes is not None or sf >= SPLIT_FROM_SF:
+            _check_part_sizes(files)
         write_manifest(work, sf, report["duckdb_version"], files)
         shutil.rmtree(root, ignore_errors=True)
         work.replace(root)
