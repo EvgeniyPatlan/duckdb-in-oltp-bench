@@ -17,10 +17,13 @@ def _factories() -> dict[str, Callable[[Path | str | None], SystemAdapter]]:
     from dbench.systems.pgduckdb import PgDuckDB
     from dbench.systems.pgducklake import PgDuckLake
     from dbench.systems.postgres import Postgres
+    from dbench.systems.trackb import MariaDBTrackB, PgDuckDBTrackB
+    from dbench.systems.villagesql import VillageSQL
 
     return {"alisql": AliSQLDuckDB, "innodb": InnoDB, "mariadb": MariaDBDuckDB,
-            "percona": PerconaEngine, "pg_duckdb": PgDuckDB, "pg_ducklake": PgDuckLake,
-            "postgres": Postgres}
+            "mariadb-trackb": MariaDBTrackB, "percona": PerconaEngine, "pg_duckdb": PgDuckDB,
+            "pg_duckdb-trackb": PgDuckDBTrackB, "pg_ducklake": PgDuckLake, "postgres": Postgres,
+            "villagesql": VillageSQL}
 
 
 def known_systems() -> list[str]:

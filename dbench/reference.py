@@ -9,7 +9,7 @@ from __future__ import annotations
 import datetime as dt
 import decimal
 import json
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 
 from dbench.config import QUERY_TIMEOUT_S
@@ -86,15 +86,18 @@ def build_reference(
     root: Path,
     queries: Iterable[int] = range(1, 23),
     timeout_s: int = QUERY_TIMEOUT_S,
+    query_text: Callable[[int], str] | None = None,
 ) -> dict[int, dict]:
     """Run each query once on ``adapter`` (cached ones are reused). Queries that do
-    not finish ``ok`` are left out of the result and not cached."""
+    not finish ``ok`` are left out of the result and not cached. ``query_text(n)`` replaces the
+    default ``translate(load_query(n), adapter.dialect)`` (Track B reads Parquet)."""
+    text = query_text or (lambda n: translate(load_query(n), adapter.dialect))
     out: dict[int, dict] = {}
     for n in queries:
         path = _file(root, run_id, n)
         entry = _read(path, adapter.name, sf)
         if entry is None:
-            res = adapter.execute(translate(load_query(n), adapter.dialect), timeout_s)
+            res = adapter.execute(text(n), timeout_s)
             if res.status != "ok":
                 continue
             entry = {"rows": list(res.rows or []), "numeric_cols": set(res.numeric_cols),

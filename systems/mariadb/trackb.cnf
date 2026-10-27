@@ -1,0 +1,4 @@
+# Track B only (appended to duckdb.cnf by dbench/systems/trackb.py; Track A never sets it).
+# run_in_duckdb() is the engine's raw DuckDB entry point and is refused by default; the Track B
+# queries are DuckDB SQL over Parquet and reach DuckDB only through it.
+duckdb_allow_run_in_duckdb = ON

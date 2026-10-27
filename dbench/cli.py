@@ -51,6 +51,17 @@ def build_parser() -> argparse.ArgumentParser:
     power.add_argument("--run-id")
     power.add_argument("--results", type=Path, help="default: $DBENCH_RESULTS or <repo>/results")
     power.add_argument("--data", type=Path, help="dataset parent (default: $DBENCH_DATA/tpch)")
+
+    trackb = sub.add_parser(
+        "trackb", help="Track B: TPC-H over Parquet through each system's raw DuckDB entry point")
+    trackb.add_argument("--sf", type=_sf, required=True)
+    trackb.add_argument("--systems", nargs="+", metavar="SYSTEM",
+                        help="default: duckdb-1.5.5 villagesql pg_duckdb-trackb mariadb-trackb")
+    trackb.add_argument("--timeout", type=int, default=QUERY_TIMEOUT_S,
+                        help="per-query timeout in seconds (default: %(default)s)")
+    trackb.add_argument("--run-id")
+    trackb.add_argument("--results", type=Path, help="default: $DBENCH_RESULTS or <repo>/results")
+    trackb.add_argument("--data", type=Path, help="dataset parent (default: $DBENCH_DATA/tpch)")
     return parser
 
 
@@ -100,10 +111,9 @@ def _reference(args, paths, limits, root: Path, run_id: str) -> dict:
     return ref
 
 
-def _power(args: argparse.Namespace) -> int:
+def _dataset(args: argparse.Namespace):
+    """The verified dataset of ``--sf`` (exits with the datagen command when it is missing)."""
     from dbench import datagen
-    from dbench.config import Limits
-    from dbench.measures.power import run_power
 
     out = args.data or datagen.default_out()
     root = out / datagen.dataset_dir_name(args.sf)
@@ -112,6 +122,35 @@ def _power(args: argparse.Namespace) -> int:
         raise SystemExit(
             f"dataset missing or corrupt at {root}; run: dbench datagen --sf {args.sf}"
         )
+    return paths
+
+
+def _trackb(args: argparse.Namespace) -> int:
+    from dbench.config import Limits
+    from dbench.measures.villagesql import TRACK_B_SYSTEMS, run_track_b
+
+    paths = _dataset(args)
+    run_id = args.run_id or datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    limits = Limits(SMOKE_DB_CPUSET, SMOKE_RUNNER_CPUSET, SMOKE_MEM_GB)
+    records = run_track_b(args.sf, run_id, args.results or results_root(),
+                          args.systems or TRACK_B_SYSTEMS, data=paths, limits=limits,
+                          timeout_s=args.timeout)
+    for r in records:
+        match = ""
+        if r.status in ("ok", "wrong_result") and r.extra.get("compared"):
+            match = " match" if r.status == "ok" else " MISMATCH"
+        detail = r.error or r.reason or ""
+        note = f" ({detail[:200]})" if detail else ""
+        print(f"  {r.system} {r.item}: {r.status}{match}{note}")
+    print(f"run {run_id}: {len(records)} Track B records")
+    return 0
+
+
+def _power(args: argparse.Namespace) -> int:
+    from dbench.config import Limits
+    from dbench.measures.power import run_power
+
+    paths = _dataset(args)
     run_id = args.run_id or datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     results = args.results or results_root()
     limits = Limits(SMOKE_DB_CPUSET, SMOKE_RUNNER_CPUSET, SMOKE_MEM_GB)
@@ -138,6 +177,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _datagen(args)
     if args.command == "power":
         return _power(args)
+    if args.command == "trackb":
+        return _trackb(args)
     return 0
 
 

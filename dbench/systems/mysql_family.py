@@ -192,6 +192,20 @@ class MySQLFamilyAdapter(ContainerServerAdapter):
         """Session statement that makes the server stop a query after ``timeout_s``."""
         return f"SET SESSION max_execution_time = {int(timeout_s * 1000)}"
 
+    def _statement(self, sql: str) -> str:
+        """The statement sent to the server for ``sql`` (identity; Track B wraps raw DuckDB SQL)."""
+        return sql
+
+    def _decode(self, rows: list[tuple], desc) -> tuple[list[tuple], list[str], set[int]]:
+        """(rows, column names, numeric column indexes) from the raw fetch; runs after the timed
+        region, so any client-side parsing (Track B's JSON) is not counted."""
+        return rows, [d[0] for d in desc], numeric_cols_from_codes([d[1] for d in desc])
+
+    def _classify_error(self, exc: BaseException, elapsed_s: float,
+                        timeout_s: float) -> QueryOutcome | None:
+        """Adapter-specific failure classification; None falls through to the shared rules."""
+        return None
+
     def execute(self, sql: str, timeout_s: int) -> QueryOutcome:
         started = time.perf_counter()
         try:
@@ -207,17 +221,18 @@ class MySQLFamilyAdapter(ContainerServerAdapter):
                 self.active.add(ident, timeout_s)
                 token = self._query_begin(cur)
                 started = time.perf_counter()
-                cur.execute(sql)
-                rows = list(cur.fetchall()) if cur.description else []
-                elapsed = time.perf_counter() - started
+                cur.execute(self._statement(sql))
                 desc = cur.description or ()
+                raw = list(cur.fetchall()) if desc else []
+                elapsed = time.perf_counter() - started
                 pushed = self._query_end(cur, token)
-            return QueryOutcome(
-                "ok", elapsed, rows, numeric_cols_from_codes([d[1] for d in desc]), None,
-                pushed, [d[0] for d in desc],
-            )
+            rows, columns, numeric = self._decode(raw, desc)
+            return QueryOutcome("ok", elapsed, rows, numeric, None, pushed, columns)
         except Exception as exc:  # noqa: BLE001 - classified below
             elapsed = time.perf_counter() - started
+            special = self._classify_error(exc, elapsed, timeout_s)
+            if special is not None:
+                return special
             if is_timeout_error(exc, elapsed, timeout_s):
                 if _code(exc) == CR_LOST:
                     # A lost connection past the deadline is a timeout only if the server

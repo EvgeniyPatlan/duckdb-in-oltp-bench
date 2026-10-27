@@ -78,3 +78,11 @@ cancel, so no restart is needed. The client watchdog (`pg_cancel_backend`, then
 `storage_bytes()` is `du -sb $PGDATA` after a `CHECKPOINT` (WAL counted, as for the baseline).
 The 22 DuckDB query texts run unchanged. Failed queries, mismatches and fallbacks are results; no
 query is rewritten.
+
+## Track B variant (`pg_duckdb-trackb`)
+
+Track B runs the canonical DuckDB text over Parquet (`dbench/queries/trackb.py`) through the raw
+entry point: `SELECT * FROM duckdb.query($dbq$<sql>$dbq$)`. Same image and `postgresql.conf` as
+above; no tables are loaded and nothing about Track A changes. The DuckDB behind it is the bundled
+1.4.3, not the 1.5.5 of the other Track B systems. See `systems/villagesql/README.md` for why
+Track B exists.

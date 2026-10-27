@@ -4,6 +4,9 @@ After a timeout the adapter is asked to cancel the query, then ``lingering_queri
 for up to LINGER_WAIT_S. A query that is still running (cancel can fail, e.g. a pushed DuckDB
 query on MariaDB) would steal CPU from the next measurements, so the server is restarted; the
 record carries ``extra["restarted_after_timeout"]=True`` and ``extra["lingering"]=n``.
+A ``cancel()`` that reports False (the server cannot reach the query, as with VillageSQL's
+``duckdb_query()``, which ``KILL`` does not touch) forces the restart too, whatever the processlist
+shows, and is flagged ``extra["cancel_unavailable"]=True``.
 """
 from __future__ import annotations
 
@@ -60,12 +63,15 @@ def _diagnose(adapter: SystemAdapter, outcome: QueryOutcome,
     if outcome.status == "crashed":
         return "crashed", adapter.crash_info(), True
     if outcome.status == "timeout":
-        adapter.cancel()
+        cancelled = adapter.cancel()
         lingering = _lingering(adapter)
         if lingering:
-            extra["restarted_after_timeout"] = True
             extra["lingering"] = lingering
-        return "timeout", {}, bool(lingering) or not _probe(adapter)
+        if not cancelled:
+            extra["cancel_unavailable"] = True
+        if lingering or not cancelled:
+            extra["restarted_after_timeout"] = True
+        return "timeout", {}, bool(lingering) or not cancelled or not _probe(adapter)
     if _probe(adapter):
         return outcome.status, {}, False
     info = adapter.crash_info()
@@ -131,6 +137,8 @@ def run_power(
     host: Callable[[], dict] = hostinfo.host_info,
     timeout_s: int = QUERY_TIMEOUT_S,
     warm_runs: int = WARM_RUNS,
+    query_text: Callable[[int], str] | None = None,
+    extra_queries: Iterable[tuple[str, str, dict | None]] = (),
 ) -> list[ResultRecord]:
     """Run the queries, write one M1 record per query under ``root`` and return them.
 
@@ -138,16 +146,24 @@ def run_power(
     ``dbench.reference``); results are compared with the union of both numeric columns.
     A record is written before any restart. A restart that raises never aborts the
     run: the error is attached to the next record as ``extra["restart_error"]``.
+
+    ``query_text(n)`` replaces the default ``translate(load_query(n), adapter.dialect)`` (Track B
+    substitutes Parquet readers for the table names). ``extra_queries`` are further
+    ``(item, sql, expected)`` entries measured after the numbered queries, with the same
+    cold/warm, timeout and restart handling.
     """
     host_facts = host()
     versions = adapter.versions()
     records: list[ResultRecord] = []
     restart_error: str | None = None
 
-    for n in queries:
+    text = query_text or (lambda n: translate(load_query(n), adapter.dialect))
+    work = [(f"q{n:02d}", text(n), reference.get(n) if reference is not None else None)
+            for n in queries]
+    work.extend(extra_queries)
+
+    for item, sql, expected in work:
         started = clock().isoformat()
-        sql = translate(load_query(n), adapter.dialect)
-        expected = reference.get(n) if reference is not None else None
         status, value, error, extra, restart = _measure(
             adapter, sql, expected, drop_caches, timeout_s, warm_runs
         )
@@ -160,7 +176,7 @@ def run_power(
             track=adapter.track,
             measure="M1",
             sf=sf,
-            item=f"q{n:02d}",
+            item=item,
             status=status,
             value=value,
             unit="s",

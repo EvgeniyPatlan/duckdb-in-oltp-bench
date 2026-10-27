@@ -107,3 +107,13 @@ The per-query timeout is `SET SESSION max_statement_time` (MariaDB's name for
 `max_execution_time`, in seconds; MariaDB applies it to `SELECT`); `cancel()` is `KILL QUERY`.
 `storage_bytes()` is `du -sb` of the datadir excluding binlog files (none are written: `skip-log-bin`; replication logs are excluded and the redo log is counted);
 it counts `duckdb.db` and its WAL plus the InnoDB catalog and redo log (`innodb_log_file_size`).
+
+## Track B variant (`mariadb-trackb`)
+
+Track B runs the canonical DuckDB text over Parquet (`dbench/queries/trackb.py`) through
+`SELECT run_in_duckdb('<sql>')`. The function does return the query's rows, as text: a line of
+column names, a line of DuckDB type names, `[ Rows: N]`, then the tab-separated rows (NULL is the
+word `NULL`); the adapter parses it and takes numeric columns from the type line. It is refused
+unless the server runs with `duckdb_allow_run_in_duckdb = ON`; `trackb.cnf` appends that one
+setting to the rendered config for Track B only (Track A never sets it). Everything else is the
+Track A image and settings. See `systems/villagesql/README.md` for why Track B exists.

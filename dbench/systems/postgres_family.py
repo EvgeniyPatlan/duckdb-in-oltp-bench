@@ -229,6 +229,10 @@ class PostgresFamilyAdapter(ContainerServerAdapter):
         """Hook run just after the query finished (not timed); fills ``QueryOutcome.pushed``."""
         return "n/a"
 
+    def _statement(self, sql: str) -> str:
+        """The statement sent to the server for ``sql`` (identity; Track B wraps raw DuckDB SQL)."""
+        return sql
+
     def _explain_pushed(self, conn, sql: str) -> Pushed:
         """Plan-only ``EXPLAIN`` (never runs the query), classified by ``pushed_from_explain``."""
         try:
@@ -271,7 +275,7 @@ class PostgresFamilyAdapter(ContainerServerAdapter):
             self.active.add(pid, timeout_s)
             timer.start()
             started = time.perf_counter()
-            cur = conn.execute(sql)
+            cur = conn.execute(self._statement(sql))
             rows = cur.fetchall() if cur.description else []
             elapsed = time.perf_counter() - started
             desc = cur.description or []
