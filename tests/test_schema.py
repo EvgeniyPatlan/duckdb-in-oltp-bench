@@ -53,3 +53,10 @@ def test_unknown_inputs_rejected():
 def test_primary_keys_can_be_disabled_for_engines_without_them():
     sql = render_schema("postgres", "USING ducklake", "engine", primary_keys=False)
     assert "PRIMARY KEY" not in sql
+
+
+def test_single_shared_template():
+    from importlib import resources
+    names = {p.name for p in resources.files("dbench.schema").iterdir() if p.name.endswith(".j2")}
+    assert names == {"tpch.sql.j2"}
+    assert render_schema("mysql", "", "rowstore") == render_schema("postgres", "", "rowstore")

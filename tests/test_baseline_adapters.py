@@ -92,3 +92,132 @@ def test_reference_builds_and_caches(tmp_path):
     assert b.executed == [] and again[1]["rows"] == rows
     assert cached_reference("fake", 1, "r1", tmp_path, [1, 2]) is not None
     assert cached_reference("fake", 1, "r1", tmp_path, [1, 2, 3]) is None
+
+
+# --- fix round 1 -----------------------------------------------------------------------
+import threading  # noqa: E402
+
+import psycopg  # noqa: E402
+import pymysql  # noqa: E402
+
+from dbench import datagen  # noqa: E402
+from dbench.systems import postgres_family  # noqa: E402
+from dbench.systems.mysql_family import MySQLFamilyAdapter  # noqa: E402
+
+
+def test_mysql_family_default_storage_excludes_binlog():
+    assert "--exclude='binlog.*'" in MySQLFamilyAdapter.du_command
+    assert "--exclude='binlog.*'" in InnoDB.du_command
+
+
+class _Cur:
+    description = None
+
+    def __init__(self, fail):
+        self.fail = fail
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def execute(self, sql):
+        if not sql.startswith("SET"):
+            raise self.fail
+
+
+class _MyConn:
+    def __init__(self, fail):
+        self.fail = fail
+
+    def cursor(self):
+        return _Cur(self.fail)
+
+    def thread_id(self):
+        return 7
+
+    def close(self):
+        pass
+
+
+@pytest.mark.parametrize("state,expected", [("exited", "crashed"), ("running", "timeout")])
+def test_mysql_lost_connection_after_deadline_checks_container(monkeypatch, state, expected):
+    a = InnoDB(None)
+    monkeypatch.setattr(a, "_connect", lambda **kw: _MyConn(
+        pymysql.err.OperationalError(2013, "Lost connection (timed out)")))
+    monkeypatch.setattr(a, "crash_info", lambda: {"status": state})
+    monkeypatch.setattr("dbench.systems.mysql_family.time.perf_counter", iter(
+        [0.0, 0.0, 100.0, 100.0]).__next__)
+    monkeypatch.setattr("dbench.systems._crash.EXIT_POLL_S", 0.0)
+    assert a.execute("SELECT 1", 10).status == expected
+
+
+class _PgState:
+    def __init__(self):
+        self.released = threading.Event()
+        self.calls: list[str] = []
+
+
+class _PgConn:
+    """Fake server that ignores statement_timeout and honours only terminate."""
+
+    def __init__(self, st, pid):
+        self.st = st
+        self.info = type("I", (), {"backend_pid": pid})()
+
+    def execute(self, sql, params=None):
+        if "pg_cancel_backend" in sql:
+            self.st.calls.append("cancel")
+            return self
+        if "pg_terminate_backend" in sql:
+            self.st.calls.append("terminate")
+            self.st.released.set()
+            return self
+        if sql.startswith("SET"):
+            return self
+        self.st.released.wait(10)
+        raise psycopg.OperationalError("terminating connection due to administrator command")
+
+    def close(self):
+        pass
+
+
+def test_postgres_watchdog_cancels_then_terminates_and_records_timeout(monkeypatch):
+    st = _PgState()
+    pids = iter(range(100, 200))
+    a = Postgres(None)
+    monkeypatch.setattr(a, "_connect", lambda *x, **k: _PgConn(st, next(pids)))
+    monkeypatch.setattr(a, "crash_info", lambda: {"status": "running"})
+    monkeypatch.setattr(postgres_family, "READ_MARGIN_S", 0.2)
+    monkeypatch.setattr(postgres_family, "WATCHDOG_GRACE_S", 0.2)
+    out = a.execute("SELECT pg_sleep(60)", 0)
+    assert out.status == "timeout"
+    assert st.calls == ["cancel", "terminate"]
+
+
+def test_postgres_load_vacuums_freezes_each_table_instead_of_analyze(tmp_path):
+    csv = tmp_path / "csv"
+    files = []
+    for t in datagen.TABLES:
+        (csv / t).mkdir(parents=True)
+        f = csv / t / f"{t}.0.csv"
+        f.write_text("1\n")
+        files.append((f, t, "csv", 1))
+    paths = datagen.write_manifest(tmp_path, 1, "x", files)
+
+    stmts: list[str] = []
+
+    class C:
+        def execute(self, sql, params=None):
+            stmts.append(sql)
+            return self
+
+        def fetchone(self):
+            return (1,)
+
+    out = Postgres(tmp_path)._load(C(), paths, 0.0)
+    assert out.status == "ok"
+    vac = [s for s in stmts if s.startswith("VACUUM")]
+    assert vac == [f"VACUUM (FREEZE, ANALYZE) {t}" for t in datagen.TABLES]
+    assert "ANALYZE" not in stmts

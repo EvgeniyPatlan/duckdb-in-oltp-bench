@@ -71,6 +71,9 @@ class MySQLFamilyAdapter(ContainerServerAdapter):
     engine_clause = ""
     version_key = "mysql"
     user = "root"
+    datadir = "/var/lib/mysql"
+    # Replication logs (binlog) are excluded from storage; redo log and tablespaces count.
+    du_command = "du -sb --exclude='binlog.*' /var/lib/mysql"
 
     def _connect(self, *, read_timeout: float | None, connect_timeout: float = PROBE_TIMEOUT_S):
         return pymysql.connect(
@@ -193,6 +196,12 @@ class MySQLFamilyAdapter(ContainerServerAdapter):
         except Exception as exc:  # noqa: BLE001 - classified below
             elapsed = time.perf_counter() - started
             if is_timeout_error(exc, elapsed, timeout_s):
+                if _code(exc) == CR_LOST:
+                    # A lost connection past the deadline is a timeout only if the server
+                    # is still there; a dead container is a crash.
+                    lost = classify_connection_failure(self.crash_info, exc)
+                    if lost.status == "crashed":
+                        return lost
                 # Leave the id registered: a client-side read timeout leaves the query
                 # running, and cancel() kills it once the deadline has passed.
                 keep_active = _code(exc) == CR_LOST

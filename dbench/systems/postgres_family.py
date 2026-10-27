@@ -6,6 +6,7 @@ Engine-specific adapters override the class attributes and hooks: ``image``,
 """
 from __future__ import annotations
 
+import threading
 import time
 from typing import Any, Literal
 
@@ -16,12 +17,14 @@ from dbench.datagen import DatasetPaths, expected_rows
 from dbench.schema import TABLES, render_schema, split_statements
 from dbench.systems._common import (
     PROBE_TIMEOUT_S,
+    READ_MARGIN_S,
     ContainerServerAdapter,
     container_data_path,
 )
 from dbench.systems._crash import classify_connection_failure
 from dbench.systems.base import LoadOutcome, QueryOutcome
 
+WATCHDOG_GRACE_S = 10
 PORT = 5432
 DATABASE = "tpch"
 USER = "postgres"
@@ -95,8 +98,8 @@ class PostgresFamilyAdapter(ContainerServerAdapter):
 
     # loading
     def load_bulk(self, data: DatasetPaths) -> LoadOutcome:
-        """COPY per part, row-count check against the manifest, then ANALYZE; the load
-        time covers the copies and the analyze."""
+        """COPY per part, row-count check against the manifest, then VACUUM (FREEZE,
+        ANALYZE) per table; the load time covers the copies and the vacuums."""
         started = time.perf_counter()
         try:
             conn = self._connect()
@@ -122,7 +125,9 @@ class PostgresFamilyAdapter(ContainerServerAdapter):
             return LoadOutcome("error", loaded_s, "row count does not match the manifest",
                                {"kind": "row_count", "expected": expected, "actual": actual})
         analyze_start = time.perf_counter()
-        conn.execute("ANALYZE")
+        for table in TABLES:
+            # Freezing sets hint bits and freezes tuples now, so cold runs do not pay for it.
+            conn.execute(f"VACUUM (FREEZE, ANALYZE) {table}")
         elapsed = loaded_s + (time.perf_counter() - analyze_start)
         return LoadOutcome("ok", elapsed, None, {"rows": actual})
 
@@ -135,16 +140,37 @@ class PostgresFamilyAdapter(ContainerServerAdapter):
         return LoadOutcome("error", elapsed, f"{type(exc).__name__}: {exc}")
 
     # queries
+    def _watchdog(self, pid: int, done: threading.Event, fired: threading.Event) -> None:
+        """Client-side deadline for servers that ignore statement_timeout: cancel the
+        backend, and terminate it if it is still busy after WATCHDOG_GRACE_S."""
+        fired.set()
+        try:
+            conn = self._connect()
+        except Exception:  # noqa: BLE001 - nothing more we can do
+            return
+        try:
+            conn.execute("SELECT pg_cancel_backend(%s)", (pid,))
+            if not done.wait(WATCHDOG_GRACE_S):
+                conn.execute("SELECT pg_terminate_backend(%s)", (pid,))
+        except psycopg.Error:
+            pass
+        finally:
+            conn.close()
+
     def execute(self, sql: str, timeout_s: int) -> QueryOutcome:
         try:
             conn = self._connect()
         except Exception as exc:  # noqa: BLE001
             return classify_connection_failure(self.crash_info, exc)
         pid = conn.info.backend_pid
+        done, fired = threading.Event(), threading.Event()
+        timer = threading.Timer(timeout_s + READ_MARGIN_S, self._watchdog, (pid, done, fired))
+        timer.daemon = True
         started = time.perf_counter()
         try:
             conn.execute(f"SET statement_timeout = {int(timeout_s * 1000)}")
             self.active.add(pid, timeout_s)
+            timer.start()
             started = time.perf_counter()
             cur = conn.execute(sql)
             rows = cur.fetchall() if cur.description else []
@@ -159,11 +185,17 @@ class PostgresFamilyAdapter(ContainerServerAdapter):
             elapsed = time.perf_counter() - started
             return QueryOutcome("timeout", elapsed, None, set(), f"{type(exc).__name__}: {exc}")
         except psycopg.OperationalError as exc:
+            if fired.is_set():  # the watchdog terminated the backend
+                elapsed = time.perf_counter() - started
+                return QueryOutcome("timeout", elapsed, None, set(),
+                                    f"watchdog: {type(exc).__name__}: {exc}")
             return classify_connection_failure(self.crash_info, exc)
         except psycopg.Error as exc:
             elapsed = time.perf_counter() - started
             return QueryOutcome("error", elapsed, None, set(), f"{type(exc).__name__}: {exc}")
         finally:
+            done.set()
+            timer.cancel()
             self.active.remove(pid)
             try:
                 conn.close()

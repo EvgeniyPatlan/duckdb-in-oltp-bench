@@ -7,7 +7,8 @@ from typing import Literal
 from jinja2 import Environment, StrictUndefined
 
 TABLES = ("region", "nation", "part", "supplier", "partsupp", "customer", "orders", "lineitem")
-_TEMPLATES = {"mysql": "tpch_mysql.sql.j2", "postgres": "tpch_postgres.sql.j2"}
+DIALECTS = ("mysql", "postgres")
+TEMPLATE = "tpch.sql.j2"
 
 
 def render_schema(
@@ -24,14 +25,14 @@ def render_schema(
     foreign-key column; ``kind="engine"`` adds none. ``primary_keys=False`` is for
     engines that cannot declare them (the adapter documents why).
     """
-    if dialect not in _TEMPLATES:
-        raise ValueError(f"unknown dialect {dialect!r}; expected one of {sorted(_TEMPLATES)}")
+    if dialect not in DIALECTS:
+        raise ValueError(f"unknown dialect {dialect!r}; expected one of {list(DIALECTS)}")
     if kind not in ("engine", "rowstore"):
         raise ValueError(f"unknown schema kind {kind!r}")
-    text = (resources.files("dbench.schema") / _TEMPLATES[dialect]).read_text(encoding="utf-8")
+    text = (resources.files("dbench.schema") / TEMPLATE).read_text(encoding="utf-8")
     env = Environment(undefined=StrictUndefined, keep_trailing_newline=True)
     return env.from_string(text).render(
-        engine_clause=engine_clause.strip(), fk_indexes=kind == "rowstore",
+        dialect=dialect, engine_clause=engine_clause.strip(), fk_indexes=kind == "rowstore",
         primary_keys=primary_keys,
     )
 

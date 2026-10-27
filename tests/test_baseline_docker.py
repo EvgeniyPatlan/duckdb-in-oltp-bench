@@ -1,7 +1,7 @@
 import os
-from pathlib import Path
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 
@@ -63,3 +63,33 @@ def test_killed_container_is_crashed_and_restart_keeps_data(adapter):
     assert adapter.crash_info()["ExitCode"] == 137
     adapter.restart()
     assert adapter.execute("SELECT COUNT(*) FROM region", 30).rows == [(1,)]
+
+
+def test_rendered_settings_took_effect(adapter):
+    """LIMITS: 4 GB, 4 cores."""
+    mib = 2**20
+    conn = adapter.connect()
+    try:
+        if adapter.name == "innodb":
+            cur = conn.cursor()
+            got = {}
+            for var in ("innodb_buffer_pool_size", "join_buffer_size", "sort_buffer_size",
+                        "tmp_table_size", "max_heap_table_size", "temptable_max_ram",
+                        "innodb_redo_log_capacity", "innodb_parallel_read_threads"):
+                cur.execute(f"SELECT @@{var}")
+                got[var] = int(cur.fetchone()[0])
+            assert got == {
+                "innodb_buffer_pool_size": 3072 * mib, "join_buffer_size": 256 * mib,
+                "sort_buffer_size": 256 * mib, "tmp_table_size": 256 * mib,
+                "max_heap_table_size": 256 * mib, "temptable_max_ram": 256 * mib,
+                "innodb_redo_log_capacity": 512 * mib, "innodb_parallel_read_threads": 4,
+            }
+        else:
+            got = {k: conn.execute(f"SHOW {k}").fetchone()[0]
+                   for k in ("shared_buffers", "work_mem", "max_wal_size", "checkpoint_timeout",
+                             "effective_cache_size", "max_parallel_workers_per_gather")}
+            assert got == {"shared_buffers": "1GB", "work_mem": "256MB", "max_wal_size": "1GB",
+                           "checkpoint_timeout": "30min", "effective_cache_size": "3GB",
+                           "max_parallel_workers_per_gather": "4"}
+    finally:
+        conn.close()

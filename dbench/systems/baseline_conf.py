@@ -26,6 +26,8 @@ def innodb_settings(limits: Limits) -> dict:
     return {
         "buffer_pool": _size(0.75 * limits.mem_gb, "G"),
         "read_threads": _cores(limits),
+        "temp_ram": _size(limits.mem_gb / 16, "G"),
+        "redo_capacity": _size(limits.mem_gb / 8, "G"),
     }
 
 
@@ -34,6 +36,7 @@ def postgres_settings(limits: Limits) -> dict:
         "shared_buffers": _size(0.25 * limits.mem_gb, "GB"),
         "effective_cache_size": _size(0.75 * limits.mem_gb, "GB"),
         "workers": _cores(limits),
+        "max_wal_size": _size(limits.mem_gb / 4, "GB"),
     }
 
 

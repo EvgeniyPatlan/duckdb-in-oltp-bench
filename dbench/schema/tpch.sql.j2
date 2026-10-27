@@ -1,4 +1,6 @@
-{# TPC-H schema. Types follow the spec; strings are VARCHAR like the DuckDB reference. #}
+{# TPC-H schema shared by all dialects. Types follow the spec; strings are VARCHAR like the
+   DuckDB reference. `dialect` (mysql|postgres) is available for real differences; the DDL
+   needs none today. #}
 {% macro pk(cols) %}{% if primary_keys %},
     PRIMARY KEY ({{ cols }}){% endif %}{% endmacro -%}
 {% macro tail() %}){% if engine_clause %} {{ engine_clause }}{% endif %};{% endmacro -%}
