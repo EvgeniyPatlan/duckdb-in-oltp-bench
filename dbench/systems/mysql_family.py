@@ -21,7 +21,7 @@ from dbench.systems._common import (
     container_data_path,
 )
 from dbench.systems._crash import classify_connection_failure
-from dbench.systems.base import LoadOutcome, QueryOutcome
+from dbench.systems.base import LoadOutcome, Pushed, QueryOutcome
 
 PORT = 3306
 DATABASE = "tpch"
@@ -141,17 +141,25 @@ class MySQLFamilyAdapter(ContainerServerAdapter):
         finally:
             conn.close()
 
-    def _load(self, cur, data: DatasetPaths, started: float) -> LoadOutcome:
+    def _load_parts(self, cur, data: DatasetPaths) -> None:
         for table in TABLES:
             for part in data.tables[table]:
                 path = container_data_path(self.data_dir, part)
                 cur.execute(LOAD_SQL.format(path=path, table=table))
-        loaded_s = time.perf_counter() - started
-        expected = expected_rows(data)
+
+    @staticmethod
+    def _count_rows(cur) -> dict[str, int]:
         actual = {}
         for table in TABLES:
             cur.execute(f"SELECT COUNT(*) FROM {table}")
             actual[table] = cur.fetchone()[0]
+        return actual
+
+    def _load(self, cur, data: DatasetPaths, started: float) -> LoadOutcome:
+        self._load_parts(cur, data)
+        loaded_s = time.perf_counter() - started
+        expected = expected_rows(data)
+        actual = self._count_rows(cur)
         if actual != expected:
             return LoadOutcome("error", loaded_s, "row count does not match the manifest",
                                {"kind": "row_count", "expected": expected, "actual": actual})
@@ -171,6 +179,14 @@ class MySQLFamilyAdapter(ContainerServerAdapter):
         return LoadOutcome("error", elapsed, f"{type(exc).__name__}: {exc}")
 
     # queries
+    def _query_begin(self, cur) -> Any:
+        """Hook run on the query's connection just before it executes (not timed)."""
+        return None
+
+    def _query_end(self, cur, token: Any) -> Pushed:
+        """Hook run just after the query finished (not timed); fills ``QueryOutcome.pushed``."""
+        return "n/a"
+
     def execute(self, sql: str, timeout_s: int) -> QueryOutcome:
         started = time.perf_counter()
         try:
@@ -184,14 +200,16 @@ class MySQLFamilyAdapter(ContainerServerAdapter):
                 cur.execute(f"SET SESSION max_execution_time = {int(timeout_s * 1000)}")
                 ident = conn.thread_id()
                 self.active.add(ident, timeout_s)
+                token = self._query_begin(cur)
                 started = time.perf_counter()
                 cur.execute(sql)
                 rows = list(cur.fetchall()) if cur.description else []
                 elapsed = time.perf_counter() - started
                 desc = cur.description or ()
+                pushed = self._query_end(cur, token)
             return QueryOutcome(
                 "ok", elapsed, rows, numeric_cols_from_codes([d[1] for d in desc]), None,
-                "n/a", [d[0] for d in desc],
+                pushed, [d[0] for d in desc],
             )
         except Exception as exc:  # noqa: BLE001 - classified below
             elapsed = time.perf_counter() - started

@@ -1,0 +1,29 @@
+# mysqld command-line arguments for perconalab/ducksdb-mysql-engine, one per line; lines starting
+# with '#' are the reason for the argument below them. Rendered by dbench/systems/percona.py from
+# the container limits. The image entrypoint runs mysqld with --no-defaults, so a my.cnf is
+# ignored and every setting is passed here. Environment (see percona.py): DUCKSDB_MEMORY_LIMIT.
+# Sizing formulas (mem_gb = container memory, cores = CPUs in the DB cpuset):
+#   innodb_buffer_pool_size = mem_gb / 16       (64 GB -> 4G); InnoDB only holds catalog + staging
+#   everything else         = same formulas as the MySQL 9.7 InnoDB baseline (baseline_conf.py)
+# The InnoDB side only holds the catalog and row-store staging; the data lives in DuckDB.
+--innodb_buffer_pool_size={{ buffer_pool }}
+# Same as the InnoDB baseline: only COUNT(*) without WHERE and CHECK TABLE use parallel read threads.
+--innodb_parallel_read_threads={{ read_threads }}
+# Server-side LOAD DATA INFILE may read only the read-only dataset mount.
+--secure_file_priv=/data
+# Bulk load is server-side from /data; client-side LOCAL loads stay disabled.
+--local_infile=OFF
+# Headroom for the 32-stream throughput run plus probes and cancel connections.
+--max_connections=200
+# Per-join memory comparable to Postgres work_mem=256MB, same as the InnoDB baseline.
+--join_buffer_size=256M
+# Per-sort memory comparable to Postgres work_mem=256MB, same as the InnoDB baseline.
+--sort_buffer_size=256M
+# Internal temporary tables stay in memory up to mem_gb/16, same as the InnoDB baseline.
+--tmp_table_size={{ temp_ram }}
+# Same cap for MEMORY-engine temporary tables, which use the smaller of the two sizes.
+--max_heap_table_size={{ temp_ram }}
+# RAM the TempTable engine may use before spilling, equal to the caps above.
+--temptable_max_ram={{ temp_ram }}
+# A redo log of mem_gb/8 keeps checkpoints from throttling the row-store staging load.
+--innodb_redo_log_capacity={{ redo_capacity }}
