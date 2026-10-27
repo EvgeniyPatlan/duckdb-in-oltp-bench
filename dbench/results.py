@@ -5,6 +5,7 @@ Layout: <root>/<run_id>/<system>/<measure>-sf<sf>-<item>.json
 from __future__ import annotations
 
 import json
+import os
 import re
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field, fields
@@ -67,10 +68,17 @@ def _path(root: Path, system: str, measure: str, sf: int, item: str, run_id: str
 def write(rec: ResultRecord, root: Path) -> Path:
     path = _path(root, rec.system, rec.measure, rec.sf, rec.item, rec.run_id)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(asdict(rec), sort_keys=True, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(asdict(rec), fh, sort_keys=True, indent=2, ensure_ascii=False)
+            fh.write("\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     return path
 
 

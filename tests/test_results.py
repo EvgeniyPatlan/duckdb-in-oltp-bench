@@ -82,3 +82,24 @@ def test_iter_skips_non_json_and_underscore_dirs(tmp_path: Path):
     ref.mkdir(parents=True)
     (ref / "M1-sf1-q01.json").write_text("{}")
     assert len(list(iter_records(tmp_path))) == 1
+
+
+def test_write_is_atomic(tmp_path: Path, monkeypatch):
+    import json as _json
+
+    def boom(obj, fh, **kw):
+        fh.write('{"partial": ')
+        raise RuntimeError("killed")
+
+    monkeypatch.setattr(_json, "dump", boom)
+    with pytest.raises(RuntimeError):
+        write(make(), tmp_path)
+    assert not exists(tmp_path, "duckdb", "M1", 1, "q07", "r1")
+    assert not (tmp_path / "r1" / "duckdb" / "M1-sf1-q07.json").exists()
+    assert list((tmp_path / "r1" / "duckdb").iterdir()) == []
+
+
+def test_iter_ignores_tmp_files(tmp_path: Path):
+    p = write(make(), tmp_path)
+    (p.parent / "M1-sf1-q02.json.tmp").write_text('{"partial": ')
+    assert len(list(iter_records(tmp_path))) == 1
