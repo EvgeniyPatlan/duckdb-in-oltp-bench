@@ -70,7 +70,7 @@ def _loaded_adapter(name: str, paths, limits, sf):
     adapter.remove_data()
     adapter.start(limits)
     try:
-        adapter.create_schema(sf, "engine" if adapter.family == "duckdb" else "rowstore")
+        adapter.create_schema(sf, adapter.bench_schema_kind)
         load = adapter.load_bulk(paths)
         if load.status != "ok":
             raise SystemExit(f"bulk load of {name} failed: {load.error} {load.extra}")

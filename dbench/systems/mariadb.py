@@ -88,7 +88,8 @@ class MariaDBDuckDB(ConvertToDuckDBMixin, MySQLFamilyAdapter):
         try:
             with conn.cursor() as cur:
                 cur.execute(VERSION_SQL)
-                duck = duckdb_version_from_status(cur.fetchone()[1])
+                row = cur.fetchone()
+                duck = duckdb_version_from_status(row[1]) if row else "unknown"
         finally:
             conn.close()
         return {**info, "engine": "MariaDB-duckdb-engine 13.0.2-1.el9 (gamma)", "duckdb": duck,

@@ -63,6 +63,8 @@ class SystemAdapter(ABC):
     dialect: str
     family: Family
     config_dir: str  # directory under systems/ holding this system's config and README
+    # Schema the benchmark creates: "engine" (PKs only) or "rowstore" (PKs + FK indexes).
+    bench_schema_kind: Literal["engine", "rowstore"] = "engine"
 
     # lifecycle
     @abstractmethod

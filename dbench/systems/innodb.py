@@ -12,6 +12,7 @@ CONF_TARGET = "/etc/mysql/conf.d/dbench.cnf"
 class InnoDB(MySQLFamilyAdapter):
     name = "innodb"
     config_dir = "innodb"
+    bench_schema_kind = "rowstore"
     image = "mysql:9.7"
     engine_clause = "ENGINE=InnoDB"
     # Started as mysql so the image entrypoint does not try to chown the read-only /data

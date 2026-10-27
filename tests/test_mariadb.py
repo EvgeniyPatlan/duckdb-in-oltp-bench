@@ -185,3 +185,53 @@ def test_timeout_uses_mariadb_statement_time_and_error_code():
     a = MariaDBDuckDB(None)
     assert a._timeout_sql(900) == "SET SESSION max_statement_time = 900"
     assert is_timeout_error(pymysql.err.OperationalError(1969, "interrupted"), 1.0, 900)
+
+
+def test_bench_schema_kind_per_adapter():
+    kinds = {n: get_adapter(n, None).bench_schema_kind
+             for n in ("percona", "mariadb", "innodb", "postgres", "duckdb-1.5.5")}
+    assert kinds == {"percona": "engine", "mariadb": "engine", "innodb": "rowstore",
+                     "postgres": "rowstore", "duckdb-1.5.5": "engine"}
+
+
+def test_base_timeout_sql_is_max_execution_time_in_ms():
+    for name in ("innodb", "percona"):
+        a = get_adapter(name, None)
+        assert a._timeout_sql(900) == "SET SESSION max_execution_time = 900000"
+
+
+def test_config_disables_query_cache():
+    got = settings(render_config(PLAN))
+    assert got["query_cache_type"] == "OFF" and got["query_cache_size"] == "0"
+
+
+def test_versions_survive_missing_duckdb_version(monkeypatch):
+    class Cur(FakeCursor):
+        def execute(self, sql):
+            self.executed.append(sql)
+            self._row = ("13.0.2-MariaDB",) if "VERSION()" in sql else None
+
+    cur = Cur([])
+    a = MariaDBDuckDB(None)
+    monkeypatch.setattr(a, "_connect", lambda **kw: FakeConn(cur))
+    assert a.versions()["duckdb"] == "unknown"
+
+
+@pytest.mark.docker
+@pytest.mark.skipif(os.environ.get("DBENCH_DOCKER") != "1", reason="set DBENCH_DOCKER=1")
+def test_heavy_pushed_query_times_out_and_server_recovers():
+    empty = Path(__file__).resolve().parents[1] / ".rendered" / "empty-data"
+    empty.mkdir(parents=True, exist_ok=True)
+    a = MariaDBDuckDB(empty)
+    a.remove_data()
+    a.start(Limits("0-3", "8-11", 8))
+    try:
+        a.execute("CREATE TABLE heavy (a INT NOT NULL, PRIMARY KEY (a)) ENGINE=DuckDB", 30)
+        assert a.execute("INSERT INTO heavy SELECT seq FROM seq_1_to_3000000", 120).status == "ok"
+        out = a.execute("SELECT COUNT(*) FROM heavy x, heavy y, heavy z "
+                        "WHERE (x.a + y.a + z.a) % 7 = 3", 5)
+        assert out.status == "timeout", out
+        a.cancel()
+        assert a.execute("SELECT 1", 10).rows == [(1,)]
+    finally:
+        a.remove_data()

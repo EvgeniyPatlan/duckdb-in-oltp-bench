@@ -169,3 +169,28 @@ def test_engine_starts_and_lists_duckdb():
         assert code == 0
     finally:
         a.remove_data()
+
+
+@pytest.mark.docker
+@pytest.mark.skipif(os.environ.get("DBENCH_DOCKER") != "1", reason="set DBENCH_DOCKER=1")
+def test_heavy_pushed_query_times_out_and_server_recovers():
+    empty = Path(__file__).resolve().parents[1] / ".rendered" / "empty-data"
+    empty.mkdir(parents=True, exist_ok=True)
+    a = PerconaEngine(empty)
+    a.remove_data()
+    a.start(Limits("0-3", "8-11", 8))
+    try:
+        a.execute("CREATE TABLE heavy (a INT NOT NULL, PRIMARY KEY (a)) ENGINE=DuckDB", 30)
+        a.execute("CREATE TABLE seed (a INT NOT NULL, PRIMARY KEY (a)) ENGINE=InnoDB", 30)
+        assert a.execute("INSERT INTO seed VALUES (1)", 30).status == "ok"
+        for _ in range(21):  # doubling: 2^21 = 2M rows
+            out = a.execute("INSERT INTO seed SELECT a + (SELECT MAX(a) FROM seed) FROM seed", 120)
+            assert out.status == "ok", out
+        assert a.execute("INSERT INTO heavy SELECT a FROM seed", 120).status == "ok"
+        out = a.execute("SELECT COUNT(*) FROM heavy x, heavy y, heavy z "
+                        "WHERE (x.a + y.a + z.a) % 7 = 3", 5)
+        assert out.status == "timeout", out
+        a.cancel()
+        assert a.execute("SELECT 1", 10).rows == [(1,)]
+    finally:
+        a.remove_data()

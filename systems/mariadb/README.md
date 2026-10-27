@@ -36,13 +36,16 @@ At 64 GB and 16 cores (mem_gb = container memory):
 | `innodb_log_file_size` | mem_gb/8 = `8G` | MariaDB's name for the redo log size; equals the InnoDB baseline's `innodb_redo_log_capacity`. |
 | `join_buffer_size`, `sort_buffer_size` | `256M` | Same as the InnoDB baseline. |
 | `tmp_table_size`, `max_heap_table_size` | mem_gb/16 = `4G` | Same as the InnoDB baseline. |
+| `query_cache_type`, `query_cache_size` | `OFF`, `0` | MySQL 9.7 has no query cache; switched off explicitly for parity. |
 | `secure_file_priv` | `/data` | Server-side `LOAD DATA INFILE` may read only the dataset mount. |
 | `local_infile` | `OFF` | Loading is server-side. |
 | `max_connections` | `200` | Headroom for the 32-stream throughput run plus probes. |
 | `character-set-server`, `collation-server` | `utf8mb4`, `utf8mb4_general_ci` | The engine accepts only utf8mb4. |
 
 Left at the default on purpose: `duckdb_require_primary_key=ON` (the schema declares primary keys),
-`duckdb_checkpoint_threshold` (256 MiB), `duckdb_max_temp_directory_size=0`,
+`duckdb_checkpoint_threshold` (256 MiB), `duckdb_max_temp_directory_size=0` (per the engine source,
+`ha_duckdb.cc`, 0 means "90% of the available disk", i.e. DuckDB's own default, so spilling to the
+datadir volume is allowed and no cap is set),
 `duckdb_allow_run_in_duckdb=OFF`, and the binary log (MariaDB's is **off** by default). There is
 no `innodb_parallel_read_threads` equivalent in MariaDB, so none is set. `temptable_max_ram` does
 not exist in MariaDB either.
@@ -74,11 +77,23 @@ and so on) are not handled by the row path either in this build: they fail with
 `ERROR 1031: Storage engine DUCKDB ... doesn't have this option`, which the harness records as
 an error, never a rewrite.
 
+## Timeouts on pushed queries (engine property, not worked around)
+
+Tested with a heavy pushed query (3-way cross join of a 3M-row DuckDB table, 5 s limit, docker
+test `test_heavy_pushed_query_times_out_and_server_recovers`). The server-side
+`max_statement_time` does **not** stop a pushed query on this engine. The harness records a
+`timeout` only when the client read timeout (timeout + 30 s margin) fires; `KILL QUERY` is accepted
+but the DuckDB query **keeps running** in the server (observed still `Executing` 20 s after the
+kill), so later queries can overlap leftover work until it finishes. The server stays responsive
+(`SELECT 1` succeeds). A campaign that needs a clean slate after a timeout must restart the
+container. (Percona's engine honours its server-side limit: error 3024 after about 5 s.)
+
 ## Loading
 
 - `load_bulk`: engine schema with `ENGINE=DuckDB`, `LOAD DATA INFILE` per CSV part, row-count check
   against the manifest, then `ANALYZE TABLE` on all tables. Same procedure as every MySQL-family
-  adapter. MariaDB's `run_in_duckdb('COPY ...')` would load faster but bypasses SQL and needs
+  adapter. The benchmark creates the "engine" schema (primary keys only, no foreign-key indexes) for
+  this adapter (`bench_schema_kind = "engine"`). MariaDB's `run_in_duckdb('COPY ...')` would load faster but bypasses SQL and needs
   `duckdb_allow_run_in_duckdb`; it is **not** used.
 - `load_convert`: InnoDB staging with the engine schema (primary keys only), timed as
   `extra.rowstore_load_s`; then `ALTER TABLE t ENGINE=DuckDB` per table and `ANALYZE TABLE`, all

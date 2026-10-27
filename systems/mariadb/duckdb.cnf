@@ -37,6 +37,11 @@ sort_buffer_size = 256M
 tmp_table_size = {{ temp_ram }}
 # Same cap for MEMORY-engine temporary tables, which use the smaller of the two sizes.
 max_heap_table_size = {{ temp_ram }}
+# MySQL 9.7 has no query cache, so MariaDB's is switched off for parity (it is off by default in
+# recent releases, set explicitly so the result does not depend on that).
+query_cache_type = OFF
+# Zero-size query cache, same reason.
+query_cache_size = 0
 # Server-side LOAD DATA INFILE may read only the read-only dataset mount.
 secure_file_priv = /data
 # Bulk load is server-side from /data; client-side LOCAL loads stay disabled.

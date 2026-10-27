@@ -74,6 +74,12 @@ the same for an arbitrary statement. The counter is server-wide, so the delta is
 one query only while a single stream runs (the power run); under concurrent streams it can be
 ambiguous.
 
+## Timeouts on pushed queries
+
+Tested with a heavy pushed query (3-way cross join of a 2M-row DuckDB table, 5 s limit, docker test
+`test_heavy_pushed_query_times_out_and_server_recovers`): the server-side `max_execution_time`
+stops it (error 3024 after about 5 s) and the next query succeeds.
+
 ## Measurement notes
 
 Queries run with the session `max_execution_time` set to the per-query timeout; `cancel()` is

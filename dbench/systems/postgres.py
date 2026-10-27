@@ -10,6 +10,7 @@ CONF_TARGET = "/etc/postgresql/postgresql.conf"
 
 
 class Postgres(PostgresFamilyAdapter):
+    bench_schema_kind = "rowstore"
     name = "postgres"
     config_dir = "postgres"
     image = "postgres:18"
