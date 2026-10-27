@@ -15,6 +15,9 @@ class InnoDB(MySQLFamilyAdapter):
     image = "mysql:9.7"
     datadir = "/var/lib/mysql"
     engine_clause = "ENGINE=InnoDB"
+    # Started as mysql so the image entrypoint does not try to chown the read-only /data
+    # (secure_file_priv) mount.
+    container_user = "mysql"
     # Binlog files are a logging artifact, not table storage, so they are not counted.
     du_command = "du -sb --exclude='binlog.*' /var/lib/mysql"
 

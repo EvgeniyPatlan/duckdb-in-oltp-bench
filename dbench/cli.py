@@ -74,6 +74,7 @@ def _loaded_adapter(name: str, paths, limits, sf):
         load = adapter.load_bulk(paths)
         if load.status != "ok":
             raise SystemExit(f"bulk load of {name} failed: {load.error} {load.extra}")
+        print(f"loaded {name} at SF{sf}: {load.elapsed_s:.1f}s (incl. analyze)")
     except BaseException:
         adapter.remove_data()
         raise

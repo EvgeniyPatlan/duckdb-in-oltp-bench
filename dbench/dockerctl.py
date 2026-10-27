@@ -106,6 +106,7 @@ def start(
     *,
     role: Literal["db", "runner"] = "db",
     postgres: bool = False,
+    user: str | None = None,
 ) -> Container:
     stop(name)
     return _client().containers.run(
@@ -117,6 +118,7 @@ def start(
         environment=env,
         volumes=volumes,
         ports=ports,
+        user=user,
         **run_args(limits, role, postgres=postgres),
     )
 

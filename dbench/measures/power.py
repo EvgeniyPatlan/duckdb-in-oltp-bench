@@ -80,6 +80,7 @@ def _measure(
     status = "ok"
     if expected is not None:
         numeric = set(expected.get("numeric_cols", ())) | cold.numeric_cols
+        extra["compared"] = True
         cmp = compare(expected["rows"], cold.rows or [], numeric)
         if not cmp.match:
             status = "wrong_result"

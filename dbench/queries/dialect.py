@@ -60,14 +60,14 @@ _MYSQL_RULES: tuple[Rule, ...] = (
     Rule(
         re.compile(r"(count\(o_orderkey\))(\s+FROM\b)", re.I),
         r"\1 AS c_count\2",
-        "Q13: name the aggregate in the inner select, since MySQL has no "
-        "derived-table column list (see next rule)",
+        "Q13: name the aggregate in the inner select so the column-list rule below can "
+        "drop the list; MySQL 9.7 accepts the untranslated query, kept for MariaDB",
     ),
     Rule(
         re.compile(r"(\)\s+AS\s+c_orders)\s*\([^)]*\)", re.I),
         r"\1",
-        "Q13: drop the derived-table column list '(c_custkey, c_count)', a syntax "
-        "error in MySQL and MariaDB",
+        "Q13: drop the derived-table column list '(c_custkey, c_count)'; MySQL 9.7 accepts "
+        "it (supported since 8.0.19), kept for MariaDB, not yet verified there",
     ),
 )
 

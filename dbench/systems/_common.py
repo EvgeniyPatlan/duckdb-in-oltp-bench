@@ -67,6 +67,7 @@ class ContainerServerAdapter(SystemAdapter):
     datadir: str  # where the data volume is mounted in the container
     du_command: str  # shell command printing the datadir size in bytes (first field)
     postgres_shm = False
+    container_user: str | None = None  # None: the image's default user
 
     def __init__(self, data_dir: Path | str | None = None, rendered_dir: Path | None = None):
         """``data_dir``: host path mounted read-only at /data (bulk load input)."""
@@ -96,8 +97,21 @@ class ContainerServerAdapter(SystemAdapter):
         if self.data_dir:
             volumes[dockerctl.host_path(self.data_dir)] = {"bind": DATA_MOUNT, "mode": "ro"}
         dockerctl.start(self.image, self.container_name, limits, self.container_env(), volumes,
-                        {}, self.container_command(limits), postgres=self.postgres_shm)
-        dockerctl.wait_ready(self.alive, timeout_s=READY_TIMEOUT_S)
+                        {}, self.container_command(limits), postgres=self.postgres_shm,
+                        user=self.container_user)
+        self._wait_ready()
+
+    def _wait_ready(self) -> None:
+        """Wait until the server answers; fail at once if its container has exited."""
+        deadline = time.monotonic() + READY_TIMEOUT_S
+        while not self.alive():
+            state = self.crash_info()
+            if state.get("status") not in ("running", "created", "restarting"):
+                tail = str(state.get("logs", ""))[-2000:]
+                raise RuntimeError(f"{self.name} container exited during startup: {tail}")
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"{self.name} not ready after {READY_TIMEOUT_S}s")
+            time.sleep(1.0)
 
     def stop(self) -> None:
         dockerctl.stop(self.container_name)
