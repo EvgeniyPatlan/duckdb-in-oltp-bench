@@ -8,6 +8,7 @@ from jinja2 import Environment, StrictUndefined
 from dbench import dockerctl
 from dbench.config import Limits
 
+DUCKDB_PG_SPILL_DIR = "/var/lib/postgresql/duckdb_tmp"  # on the data volume
 SYSTEMS_DIR = Path(__file__).resolve().parents[2] / "systems"
 
 
@@ -55,6 +56,24 @@ def postgres_settings(limits: Limits) -> dict:
         "workers": cores(limits),
         "max_wal_size": size(limits.mem_gb / 4, "GB"),
     }
+
+
+def duckdb_pg_settings(limits: Limits, mode: str) -> dict:
+    """Formulas shared by pg_duckdb and pg_ducklake: the Postgres baseline plus the DuckDB memory
+    and threads. ``mode`` "pgducklake" (DuckDB-native tables): DuckDB gets 0.75 * mem_gb and
+    shared_buffers drops to mem_gb/16, since only catalog/heap staging uses it. ``mode``
+    "pgduckdb" (DuckDB scanning Postgres heap pages): shared_buffers stays at the baseline
+    0.25 * mem_gb and DuckDB gets 0.5 * mem_gb."""
+    base = postgres_settings(limits)
+    if mode == "pgducklake":
+        shared, duck = limits.mem_gb / 16, 0.75 * limits.mem_gb
+    elif mode == "pgduckdb":
+        shared, duck = 0.25 * limits.mem_gb, 0.5 * limits.mem_gb
+    else:
+        raise ValueError(f"unknown mode {mode!r}")
+    return {**base, "shared_buffers": size(shared, "GB"), "duck_memory": size(duck, "GB"),
+            "duck_memory_mib": int(duck * 1024),
+            "duck_threads": cores(limits), "spill_dir": DUCKDB_PG_SPILL_DIR}
 
 
 def render(template: Path, settings: dict) -> str:
