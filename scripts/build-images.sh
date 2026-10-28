@@ -7,16 +7,19 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-if ! docker buildx version >/dev/null 2>&1; then
-    echo "error: 'docker buildx' is not available; install the Docker buildx plugin" \
-         "(docker-buildx-plugin) and run this script again." >&2
-    exit 1
-fi
-
 # Builds write large temporary files. Keep them beside the data (the big disk), not in /tmp on
 # the root disk. An explicit TMPDIR wins; otherwise use <parent of $DBENCH_DATA>/tmp.
 if [ -z "${TMPDIR:-}" ] && [ -n "${DBENCH_DATA:-}" ]; then
-    TMPDIR="$(dirname "${DBENCH_DATA%/}")/tmp"
+    data_real="$(realpath -m "$DBENCH_DATA")"
+    data_parent="$(dirname "$data_real")"
+    case "$data_parent" in
+        / | /tmp | /tmp/*)
+            echo "error: DBENCH_DATA=$DBENCH_DATA resolves to $data_real, whose parent" \
+                 "$data_parent is the root disk or /tmp; put the data under a big disk" \
+                 "(e.g. /srv/dbench/data) or set TMPDIR explicitly." >&2
+            exit 1 ;;
+    esac
+    TMPDIR="$data_parent/tmp"
 fi
 if [ -n "${TMPDIR:-}" ]; then
     mkdir -p "$TMPDIR"
@@ -25,6 +28,12 @@ if [ -n "${TMPDIR:-}" ]; then
 else
     echo "warning: TMPDIR and DBENCH_DATA are unset; builds will use /tmp (root disk)" >&2
 fi
+if ! docker buildx version >/dev/null 2>&1; then
+    echo "error: 'docker buildx' is not available; install the Docker buildx plugin" \
+         "(docker-buildx-plugin) and run this script again." >&2
+    exit 1
+fi
+
 DUCKDB="$ROOT/systems/duckdb"
 
 build_duckdb() { # version [extra build args...]
