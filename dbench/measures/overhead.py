@@ -147,17 +147,27 @@ def _geomean(base: ResultRecord, items: list[ResultRecord]) -> ResultRecord:
     return _summary(base, GEOMEAN_ITEM, used, len(items), extra, empty)
 
 
-def _common_queries(by_system: dict[str, list[ResultRecord]]) -> list[str]:
-    """Queries with an ok ratio on every system of ``by_system``."""
-    sets = [{r.item for r in items if r.status == "ok"} for items in by_system.values()]
-    return sorted(set.intersection(*sets)) if sets else []
+def _common_queries(by_system: dict[str, list[ResultRecord]]) -> tuple[list[str], list[str]]:
+    """Queries with an ok ratio on every system that has at least one, and the systems left out.
+
+    A system with no ok ratio at all (no plain run at its version, or it failed everything)
+    would otherwise empty the common set for every other system; it is excluded and named.
+    """
+    ok = {s: {r.item for r in items if r.status == "ok"} for s, items in by_system.items()}
+    excluded = sorted(s for s, items in ok.items() if not items)
+    sets = [items for items in ok.values() if items]
+    return (sorted(set.intersection(*sets)) if sets else []), excluded
 
 
-def _geomean_common(base: ResultRecord, items: list[ResultRecord],
-                    common: list[str]) -> ResultRecord:
+def _geomean_common(base: ResultRecord, items: list[ResultRecord], common: list[str],
+                    systems_excluded: list[str]) -> ResultRecord:
+    extra: dict = {"queries": common, "systems_excluded": systems_excluded}
+    if base.system in systems_excluded:
+        return _summary(base, COMMON_ITEM, [], len(common), extra,
+                        "no ok ratio on this system, so it is outside the common query set")
     used = [r for r in items if r.status == "ok" and r.item in common]
     reason = "no query has an ok ratio on every Track A system of the run"
-    return _summary(base, COMMON_ITEM, used, len(common), {"queries": common}, reason)
+    return _summary(base, COMMON_ITEM, used, len(common), extra, reason)
 
 
 def compute_overhead(records: Iterable[ResultRecord],
@@ -175,8 +185,9 @@ def compute_overhead(records: Iterable[ResultRecord],
     out: list[ResultRecord] = []
     for (_, sf), items in per_system.items():
         same_sf = {s: i for (s, f), i in per_system.items() if f == sf}
-        common = _common_queries(same_sf)
-        out += [*items, _geomean(items[0], items), _geomean_common(items[0], items, common)]
+        common, left_out = _common_queries(same_sf)
+        out += [*items, _geomean(items[0], items),
+                _geomean_common(items[0], items, common, left_out)]
     return out
 
 

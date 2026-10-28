@@ -162,7 +162,9 @@ Two summary items per system:
   b") when the ok ratios come from more than one DuckDB version.
 - `geomean_common`: geometric mean over the queries where every Track A system of the run has an ok
   ratio (`extra.queries` lists them), so all systems are scored on the same queries. `n/a` with a
-  reason when no query is common. Compare systems on this item, not on `geomean`.
+  reason when no query is common. A system with no ok ratio at all (no plain run at its version,
+  or every query failed) is left out of the common set, listed in `extra.systems_excluded`, and
+  gets `n/a` for this item. Compare systems on this item, not on `geomean`.
 
 A campaign computes M7 when it ends. Recompute from the stored M1 records at any time (M7
 records of the run are replaced; nothing else is touched):

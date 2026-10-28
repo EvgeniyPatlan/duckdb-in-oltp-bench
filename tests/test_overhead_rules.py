@@ -158,3 +158,20 @@ def test_build_images_refuses_root_parent(tmp_path):
     if "buildx" in out.stderr and "not available" in out.stderr:
         pytest.skip("docker buildx check comes first on this machine")
     assert out.returncode != 0 and "DBENCH_DATA" in out.stderr
+
+
+def test_system_without_any_ratio_does_not_empty_common_set():
+    recs = plain(("q01", "q02")) + [
+        m1("percona", "q01", 2.0, version="1.5.5"),
+        m1("percona", "q02", 2.0, version="1.5.5"),
+        m1("alisql", "q01", 4.0, version="1.5.5"),
+        m1("alisql", "q02", 4.0, version="1.5.5"),
+        m1("pg_ducklake", "q01", 3.0, version="9.9.9"),   # no plain run at 9.9.9
+        m1("pg_ducklake", "q02", None, version="1.5.5", status="timeout")]
+    out = compute_overhead(recs)
+    pe, dl = by_item(out, "percona"), by_item(out, "pg_ducklake")
+    assert pe["geomean_common"].status == "ok"
+    assert pe["geomean_common"].extra["queries"] == ["q01", "q02"]
+    assert pe["geomean_common"].extra["systems_excluded"] == ["pg_ducklake"]
+    assert dl["geomean_common"].status == "n/a"
+    assert "no ok ratio" in dl["geomean_common"].reason
