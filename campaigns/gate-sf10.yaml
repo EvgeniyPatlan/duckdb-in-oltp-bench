@@ -7,6 +7,8 @@ systems:
   - duckdb-1.5.5    # plain DuckDB, also the reference
   - duckdb-2.0.0    # newest DuckDB release
   - duckdb-1.4.3
+  - duckdb-1.5.3        # M7: the DuckDB inside Percona and pg_ducklake
+  - duckdb-1.5.2-dev736 # M7: the DuckDB inside AliSQL
   - alisql
   - mariadb
   - percona
@@ -26,6 +28,9 @@ overrides:
   # and no M8; M5 stays because it builds the probe reference for each dialect.
   innodb: {measures: [M1, M2, M3, M5]}
   postgres: {measures: [M1, M2, M3, M5]}
+  # Plain DuckDB at the versions bundled by integrations: M1 only, for the overhead ratio (M7).
+  duckdb-1.5.3: {measures: [M1]}
+  duckdb-1.5.2-dev736: {measures: [M1]}
 track_b:
   enabled: true
   systems: [duckdb-1.5.5, villagesql, pg_duckdb-trackb, mariadb-trackb]
