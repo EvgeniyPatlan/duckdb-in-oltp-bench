@@ -9,6 +9,11 @@ publication; see [Results site](#results-site)).
 
 No results are published yet, so this README makes no claims about which system is faster.
 
+**Disclosure:** the author maintains one of the systems under test (Percona's DuckDB engine for
+MySQL). The [fairness rules](#fairness-rules) below, the pinned versions and the published
+configuration of every system are how this benchmark guards against that bias; setup problems
+can be reported as described [below](#reporting-a-problem-with-a-systems-setup).
+
 ## What is compared, and why
 
 Several projects now put DuckDB inside a transactional database so that analytical queries can run
