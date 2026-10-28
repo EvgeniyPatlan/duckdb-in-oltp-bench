@@ -11,6 +11,7 @@ from dbench import dockerctl
 from dbench.config import QUERY_TIMEOUT_S, Limits
 from dbench.systems import baseline_conf
 from dbench.systems._common import (
+    PROBE_TIMEOUT_S,
     READ_MARGIN_S,
     pushed_from_counts,
     read_status_counter,
@@ -23,14 +24,15 @@ from dbench.systems.mysql_family import (
     MySQLFamilyAdapter,
 )
 
-IMAGE = ("perconalab/ducksdb-mysql-engine:9.7-duckdb-v0.2.3"
-         "@sha256:5e4af8b2bede83db7b296be977a9c22fb30e8a05a565e3b3b0fe08fea9a96640")
-ENGINE_VERSION = "ducksdb-mysql-engine v0.2.3"
+IMAGE = ("perconalab/ducksdb-mysql-engine:9.7-duckdb-v0.2.4"
+         "@sha256:222a06f9b717eefded72e21681e2c45f343cafc1b66655ffcf9c90745117a566")
+ENGINE_VERSION = "ducksdb-mysql-engine v0.2.4"
 COUNTER = "Ducksdb_pushdown_count"
 COUNTER_SQL = f"SHOW GLOBAL STATUS LIKE '{COUNTER}'"
 ER_BAD_DB = 1049
-DUCKDB_VERSION = "1.5.3"
-DUCKDB_SOURCE = "stated by the engine maintainer; engine exposes no version at runtime"
+DUCKDB_VERSION = "2.0.0"  # the release v0.2.4 is built on; the records read it from the server
+DUCKDB_SOURCE = "status variables Ducksdb_duckdb_version and Ducksdb_duckdb_source_id"
+VERSION_SQL = "SHOW GLOBAL STATUS LIKE 'Ducksdb_duckdb%'"
 SPILL_DIR = "/var/lib/mysql/duckdb_tmp"
 
 
@@ -115,9 +117,24 @@ class PerconaEngine(ConvertToDuckDBMixin, MySQLFamilyAdapter):
 
     def versions(self) -> dict:
         info = super().versions()
-        return {**info, "engine": ENGINE_VERSION, "duckdb": DUCKDB_VERSION,
+        duck, source_id = self._duckdb_status()
+        return {**info, "engine": ENGINE_VERSION, "duckdb": duck, "duckdb_source_id": source_id,
                 "duckdb_source": DUCKDB_SOURCE,
                 "duckdb_threads": "auto-detected; no setting or status variable exposes it"}
+
+    def _duckdb_status(self) -> tuple[str, str | None]:
+        """(version, source id) of the embedded DuckDB, as the server reports them; the version
+        is ``"unknown"`` when the status variables are missing."""
+        conn = self._connect(read_timeout=PROBE_TIMEOUT_S)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(VERSION_SQL)
+                rows = dict(cur.fetchall() or ())
+        finally:
+            conn.close()
+        version = rows.get("Ducksdb_duckdb_version")
+        return (version.removeprefix("v") if version else "unknown",
+                rows.get("Ducksdb_duckdb_source_id"))
 
     # pushdown
     def _query_begin(self, cur) -> int | None:

@@ -1,6 +1,6 @@
-# MySQL 9.7.0 + Percona ducksdb-mysql-engine v0.2.3 (`ENGINE=DuckDB`)
+# MySQL 9.7.0 + Percona ducksdb-mysql-engine v0.2.4 (`ENGINE=DuckDB`)
 
-Image `perconalab/ducksdb-mysql-engine:9.7-duckdb-v0.2.3`, pinned by digest
+Image `perconalab/ducksdb-mysql-engine:9.7-duckdb-v0.2.4`, pinned by digest
 `sha256:5e4af8b2bede83db7b296be977a9c22fb30e8a05a565e3b3b0fe08fea9a96640` (the image reference
 in `dbench/systems/percona.py` carries it; the resolved digest is also recorded in every result as
 `versions.image_digest`). Track A. The dataset is mounted read-only at `/data`.
@@ -36,15 +36,17 @@ All formulas except the buffer pool are shared with the InnoDB baseline (`baseli
 
 ## Disclosed limitations
 
-- **DuckDB threads: no setting.** The v0.2.3 engine exposes no DuckDB thread-count knob, so DuckDB
+- **DuckDB threads: no setting.** The v0.2.4 engine exposes no DuckDB thread-count knob, so DuckDB
   auto-detects the thread count from the container's CPU set (the 16 pinned cores). Neither a
   status variable nor a system variable shows the detected count, so it is not observable and
   is not recorded.
-- **DuckDB version 1.5.3**, source:
-  "stated by the engine maintainer; engine exposes no version at runtime".
-  `versions()` records `duckdb: 1.5.3`, that `duckdb_source`, and
-  `engine: ducksdb-mysql-engine v0.2.3`. The plain-DuckDB image `dbench/duckdb:1.5.3` (system
-  `duckdb-1.5.3`) allows an overhead comparison on the same DuckDB version.
+- **DuckDB version 2.0.0**, read from the server: `versions()` records the status variables
+  `Ducksdb_duckdb_version` (`v2.0.0`) and `Ducksdb_duckdb_source_id` (`d54cbbe3df`, the same
+  source id as the official DuckDB 2.0.0 release), and `engine: ducksdb-mysql-engine v0.2.4`.
+  The plain-DuckDB image `dbench/duckdb:2.0.0` (system `duckdb-2.0.0`) allows an overhead
+  comparison on the same DuckDB version. (Earlier engine releases exposed no version, and
+  v0.2.3 turned out to be built on an unreleased DuckDB snapshot rather than the stated 1.5.3;
+  that is why the version is now read at runtime.)
 - `Ducksdb_pushdown_count` is a global counter; see Pushdown.
 
 ## Schema

@@ -7,7 +7,7 @@ systems:
   - duckdb-1.5.5    # plain DuckDB, also the reference
   - duckdb-2.0.0    # newest DuckDB release
   - duckdb-1.4.3
-  - duckdb-1.5.3        # M7: the DuckDB inside Percona and pg_ducklake
+  - duckdb-1.5.3        # M7: the DuckDB inside pg_ducklake
   - duckdb-1.5.2-dev736 # M7: the DuckDB inside AliSQL
   - alisql
   - mariadb

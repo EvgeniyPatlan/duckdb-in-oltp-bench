@@ -68,7 +68,7 @@ page. Scale factors 1, 10, 100 and 300 are supported; the conference campaign us
 ## Fairness rules
 
 - **Newest releases, one cutoff.** Every system runs its newest release as of the same cutoff
-  date (2026-10-28); a system that changes version moves the cutoff for all of them, and every
+  date (2026-10-29); a system that changes version moves the cutoff for all of them, and every
   system is checked again for a newer release. Plain DuckDB runs its newest release and also the
   exact versions bundled by the integrations, so each integration's overhead (M7) is measured
   against the DuckDB it actually contains.

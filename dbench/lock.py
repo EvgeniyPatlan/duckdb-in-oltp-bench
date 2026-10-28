@@ -68,7 +68,7 @@ def _versions(system: str) -> tuple[str, str | None]:
     table = {
         "innodb": ("MySQL 9.7 (InnoDB)", None),
         "postgres": ("PostgreSQL 18", None),
-        "percona": ("MySQL 9.7.0 + Percona ducksdb-mysql-engine v0.2.3", percona.DUCKDB_VERSION),
+        "percona": ("MySQL 9.7.0 + Percona ducksdb-mysql-engine v0.2.4", percona.DUCKDB_VERSION),
         "mariadb": ("MariaDB 13.0.2 + MariaDB-duckdb-engine", "bundled; see versions in records"),
         "alisql": ("AliSQL 8.0.44-3 (MySQL 8.0.44)", alisql.DUCKDB_VERSION),
         "pg_duckdb": ("PostgreSQL 18 + pg_duckdb v1.1.1", "bundled; see versions in records"),

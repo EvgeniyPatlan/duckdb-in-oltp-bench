@@ -88,7 +88,7 @@ def test_registry_and_contract():
         "percona", "A", "mysql", "mysql", "percona")
     assert a.engine_clause == "ENGINE=DuckDB"
     assert a.supports("M11") == (True, None)
-    assert "@sha256:" in a.image and "9.7-duckdb-v0.2.3" in a.image
+    assert "@sha256:" in a.image and "9.7-duckdb-v0.2.4" in a.image
 
 
 def test_env_follows_ruled_formulas():
@@ -164,7 +164,7 @@ def test_engine_starts_and_lists_duckdb():
         finally:
             conn.close()
         v = a.versions()
-        assert v["duckdb"] == "1.5.3"
+        assert v["duckdb"] == "2.0.0" and v["duckdb_source_id"]
         assert v["duckdb_source"] == DUCKDB_SOURCE
         code, _ = dockerctl._client().containers.get(a.container_name).exec_run(
             ["test", "-d", "/var/lib/mysql/duckdb_tmp"])
@@ -196,3 +196,43 @@ def test_heavy_pushed_query_times_out_and_server_recovers():
         assert a.execute("SELECT 1", 10).rows == [(1,)]
     finally:
         a.remove_data()
+
+
+class StatusCursor:
+    def __init__(self, rows):
+        self.rows, self.executed = rows, []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, sql):
+        self.executed.append(sql)
+
+    def fetchall(self):
+        return self.rows
+
+    def fetchone(self):
+        return ("9.7.0",)
+
+
+def test_versions_read_the_embedded_duckdb_from_status(monkeypatch):
+    from dbench.systems.mysql_family import MySQLFamilyAdapter
+    monkeypatch.setattr(MySQLFamilyAdapter, "versions", lambda self: {"mysql": "9.7.0"})
+    cur = StatusCursor([("Ducksdb_duckdb_source_id", "d54cbbe3df"),
+                        ("Ducksdb_duckdb_version", "v2.0.0")])
+    a = PerconaEngine(None)
+    monkeypatch.setattr(a, "_connect", lambda **kw: FakeConn(cur))
+    v = a.versions()
+    assert (v["duckdb"], v["duckdb_source_id"]) == ("2.0.0", "d54cbbe3df")
+    assert v["engine"] == "ducksdb-mysql-engine v0.2.4"
+
+
+def test_versions_survive_missing_status_variables(monkeypatch):
+    from dbench.systems.mysql_family import MySQLFamilyAdapter
+    monkeypatch.setattr(MySQLFamilyAdapter, "versions", lambda self: {"mysql": "9.7.0"})
+    a = PerconaEngine(None)
+    monkeypatch.setattr(a, "_connect", lambda **kw: FakeConn(StatusCursor([])))
+    assert a.versions()["duckdb"] == "unknown"
