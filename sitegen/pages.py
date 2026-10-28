@@ -92,8 +92,8 @@ def _facts(recs: list[ResultRecord]) -> dict:
     for r in recs:
         tally = by_measure.setdefault(r.measure, {})
         tally[r.status] = tally.get(r.status, 0) + 1
-    reasons = sorted({f"{r.measure} {r.item} ({r.status}): {r.reason or r.error}"
-                      for r in recs if r.status not in ("ok",) and (r.reason or r.error)})
+    reasons = sorted({f"{r.measure} {r.item} ({r.status}): {aggregate.message(r)}"
+                      for r in recs if r.status != "ok" and aggregate.message(r)})
     return {"counts": by_measure, "reasons": reasons[:12], "more": max(0, len(reasons) - 12)}
 
 

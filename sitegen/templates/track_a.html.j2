@@ -24,7 +24,8 @@
 </div>
 <h2>SQL compatibility</h2>
 <p class="note">A fixed probe suite of statements an OLTP application would try. The row-store baselines build the expected results, so only
-  the integrations are shown.</p>
+  the integrations are shown. A probe that fails, or returns the same wrong result, on a plain row-store table of the
+  same server is n/a (the host server itself does not support it), for every system alike; hover a cell for the reason.</p>
 {{ chart("compat_summary", "Probe outcomes per system", "Each probe gets exactly one class. Share of probes.", 340) }}
 {{ chart("compat_heatmap", "Probe by probe", "Letters repeat the colour: D ran in DuckDB, F row-path fallback, E error, ✗ wrong result, ? pushdown unobservable, ✓ DML/DDL ok (not scored), – n/a.", 600) }}
 <h2>Silent slow paths</h2>

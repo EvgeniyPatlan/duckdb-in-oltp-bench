@@ -9,15 +9,35 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Callable, Iterable
 
+from dbench.correctness import MAX_DIFFS  # the most diffs a record keeps
 from dbench.results import ResultRecord
 
 COMMON = "geomean_common"
 OWN = "geomean"
+DIFFERS = "result differs from the reference"
+
+
+def message(rec: ResultRecord) -> str | None:
+    """What to say about a cell: its reason or error, or for a wrong result (which has neither)
+    how its rows differ, from ``extra.diffs`` and ``extra.row_count``."""
+    if rec.reason or rec.error:
+        return rec.reason or rec.error
+    if rec.status != "wrong_result":
+        return None
+    diffs, counts = rec.extra.get("diffs"), rec.extra.get("row_count")
+    if not diffs:
+        return DIFFERS
+    n = len(diffs)
+    what = (f"at least {n} rows differ" if n >= MAX_DIFFS
+            else "1 row differs" if n == 1 else f"{n} rows differ")
+    if isinstance(counts, list) and len(counts) == 2:
+        what += f" ({counts[0]} expected, {counts[1]} returned)"
+    return f"{DIFFERS}: {what}"
 
 
 def cell(rec: ResultRecord, **more) -> dict:
     mark = None if rec.status == "ok" else ("failure" if rec.status == "wrong_result" else "na")
-    return {"v": rec.value, "s": rec.status, "r": rec.reason or rec.error, "mark": mark, **more}
+    return {"v": rec.value, "s": rec.status, "r": message(rec), "mark": mark, **more}
 
 
 def _of(records: Iterable[ResultRecord], measure: str) -> dict[int, list[ResultRecord]]:
