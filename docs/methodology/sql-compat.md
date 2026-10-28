@@ -51,8 +51,10 @@ probe as `n/a`
 reused: an engine record without a usable reference carries `extra.reference = "stale"` or
 `"absent"` (`"ok"` otherwise) and `extra.compared = false`. On resume the stale cells are redone:
 a baseline's cell whose cache is missing or keyed differently runs again and rebuilds the
-reference, an engine's cell compared with an older reference runs again and is compared with the
-new one, and M8 is recomputed. Comparison is the one M1 uses
+reference, an engine's cell compared with an older reference (including one set aside as `n/a`
+by the server control below after a wrong result) runs again and is compared with the new one,
+an engine's failure recorded without the server control runs again with it, and M8 is
+recomputed. Comparison is the one M1 uses
 (`dbench.correctness.compare`: order independent, numeric and CHAR tolerance, NULL only equals
 NULL). A probe with `compare: json` additionally parses every cell that holds a JSON object or
 array and re-serialises it canonically (sorted keys, no whitespace) on both sides, because systems
@@ -60,6 +62,49 @@ print the same document with different spacing; real differences still show. A b
 `extra.compared = false` and is classified from pushdown only. When both baselines have run, the
 second also compares its result with the first's; `extra.baseline_disagreement` marks a probe whose
 dialects do not behave alike, which is a probe bug, not an engine finding.
+
+### Server control: failures of the host server itself
+
+The reference comes from one server per dialect, MySQL 9.7 with InnoDB and Postgres 18. The
+integrations run on other servers: AliSQL, MariaDB, Percona's MySQL 9.7 build, Postgres with an
+extension. A probe can therefore fail because the host server's own SQL dialect lacks the
+feature, in its parser or its function library, before the DuckDB integration is involved at all
+(MariaDB has no `REGEXP_LIKE`, no `LATERAL`, and its `LAG` takes no default argument). Such a
+failure says nothing about the integration, so M5 checks for it. The rule is the same for every
+system:
+
+- Whenever an engine probe ends as `error` or `wrong_result`, it runs once more as a **server
+  control**: the same probe on the same server and session, with every `{{ engine_clause }}`
+  rendered as the system's `{{ rowstore_clause }}` (`ENGINE=InnoDB`, or a plain heap table). That
+  is the same SQL on plain row-store tables, without the integration. Mixed-engine probes already
+  use the row-store clause for some tables; in the control every table is a row-store table.
+- The control uses the probe's own tables and teardown: the probe's tables are dropped after the
+  probe and again before and after the control, so the two never share a table. It has the same
+  timeout and the same recovery after a crash or a timeout as the probe.
+- **The host server fails too.** If the control fails with an error, or, for a wrong result,
+  returns the same rows as the integration (so the server's own result differs from the reference
+  in the same way), the probe does not test the integration on this server. It is recorded as
+  `n/a` with the reason "not supported by the *system* server itself (same failure on a row-store
+  table): *the control's error*" (or "same result on a row-store table"). The integration's own
+  outcome is kept: `extra.integration_class`, `extra.integration_error` or `extra.diffs`, and
+  `extra.server_control` holds what the control saw.
+- **Only the integration fails.** If the control runs and matches the expectation, the original
+  class stands (an `ENGINE=DuckDB` table that refuses a table without a primary key, a `CONCAT`
+  that ignores `NULL`) and `extra.server_control` is `"ok"`, so a reader can see the check was
+  made. The original class also stands when the control runs but differs from the reference,
+  as long as the integration behaves differently from its own server: it failed where the
+  control ran, or its wrong result is not the control's result. `extra.server_control` then
+  records the control's mismatch.
+- **No verdict.** A control that crashes or times out proves nothing; the original class stands
+  and `extra.server_control.conclusive` is `false`.
+- **No control** (`extra.server_control.skipped` says why) where the engine and row-store clauses
+  are identical (pg_duckdb: there is no row-store variant to compare with), for probes that read
+  the TPC-H tables (`nation`, `region`, `supplier` are engine tables on every integration, so the
+  control would not be free of it), when the probe itself crashed or timed out (never set aside),
+  when the server did not recover from the probe, and when the probe's teardown failed (a table
+  left behind would make the control fail for the wrong reason). The baselines get no control.
+
+When the probe has a literal `expected`, the control is compared with it, as the probe is.
 
 ### Classes
 
@@ -73,7 +118,7 @@ dialects do not behave alike, which is a probe bug, not an engine finding.
 | `wrong_result` | wrong_result | It ran, but the rows differ from the expectation (`extra.diffs`). Reported even when the statement was pushed. |
 | `unknown` | ok | It ran and matched, but the adapter cannot tell where: `pushdown_counter_scope` is `none`, or the counter could not be read. |
 | `ok_unobserved` | ok | A DML or DDL probe that succeeded and whose follow-up check matched. Their pushdown is not scored (see below). |
-| `n/a` | n/a | The row-store baseline (reference builder), or a mixed-engine probe on a system where the engine and row-store clauses are the same (pg_duckdb queries heap tables: "there is no separate engine table to mix with"). |
+| `n/a` | n/a | The row-store baseline (reference builder); a mixed-engine probe on a system where the engine and row-store clauses are the same (pg_duckdb queries heap tables: "there is no separate engine table to mix with"); or a probe the host server itself does not support, as the server control shows ("not supported by the ... server itself"). |
 
 **Pushdown detection** is the adapter's normal path, the same as M1: a session status counter
 (AliSQL `Com_duckdb_select`, MariaDB `Rows_read`), a global counter (Percona
@@ -97,7 +142,10 @@ statement inside `BEGIN ... COMMIT` is `unknown`. The statements before the last
 
 Each M5 record has `item = <probe id>`, `extra.category`, `extra.title`, `extra.pushed`
 (a read probe's pushdown; `extra.check_pushed` for a write probe), `extra.class`, and, when relevant, `extra.error`,
-`extra.stage`, `extra.diffs`, `extra.row_count`, `extra.note`.
+`extra.stage`, `extra.diffs`, `extra.row_count`, `extra.note`. A probe that ended as `error` or
+`wrong_result` also has `extra.server_control` (`"ok"`, what the control saw, or `skipped`), and
+one set aside by the control has `extra.integration_class` and, for an error,
+`extra.integration_error`.
 
 ## M8: silent slow paths
 
@@ -137,6 +185,12 @@ Made for every system alike, none for an engine's outcome; the YAML header lists
   the MySQL side had used `TIMESTAMP`, an absolute instant that ignores the session zone, so the
   two dialects did not agree (the baselines disagreed on it).
 - Mixed-engine probes are `n/a` where the engine and row-store clauses are identical.
+- The server control was added: a probe that fails, or returns the same wrong result, on a
+  row-store table of the same server is `n/a` ("not supported by the ... server itself") instead
+  of an integration `error` or `wrong_result`. It applies to every integration alike. On resume,
+  every engine record with status `error` or `wrong_result` and no `extra.server_control` (made
+  before the control existed) runs again, unless no control would apply to it (see above); M8 is
+  recomputed with it.
 - Earlier: primary keys on every scratch table (with `ddl_create_table_without_pk` for the no-PK
   case), `ddl_add_primary_key` became `ddl_change_primary_key`, `types_long_text` uses `LONGTEXT`
   and `cte_recursive_path` uses `TEXT` on PostgreSQL because the baseline result was invalid.
