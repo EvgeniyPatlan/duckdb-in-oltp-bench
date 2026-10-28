@@ -97,6 +97,7 @@ class ContainerServerAdapter(SystemAdapter):
         self.rendered_dir = rendered_dir
         self._limits: Limits | None = None
         self.active = ActiveQueries()
+        self._stream = threading.local()  # this thread's throughput-stream state
 
     # engine hooks
     def container_env(self) -> dict[str, str]:

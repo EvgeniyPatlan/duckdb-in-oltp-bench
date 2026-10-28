@@ -51,6 +51,11 @@ class QueryOutcome:
     pushed: Pushed = "n/a"
     columns: list[str] = field(default_factory=list)
     extra: dict = field(default_factory=dict)  # adapter facts merged into the record's extra
+    # Throughput streams: the server-side id (thread id / backend pid) of the query, and whether
+    # the server itself reported the query stopped (its own deadline fired). A timeout with
+    # neither is a stop nobody confirmed.
+    query_id: int | None = None
+    stopped: bool = False
 
 
 @dataclass(frozen=True)
@@ -89,6 +94,20 @@ class SystemAdapter(ABC):
     @abstractmethod
     def connect(self) -> Any:
         """A new client connection (one per throughput stream)."""
+
+    def open_stream(self, timeout_s: int) -> None:  # noqa: B027 - optional hook
+        """Called on a stream's thread before the timed region: open this thread's persistent
+        connection, apply the session/timeout settings once and run one trivial statement through
+        DuckDB, so ``execute()`` on this thread then runs only the query. Default: nothing
+        (``execute()`` keeps its per-query behaviour)."""
+
+    def close_stream(self) -> None:  # noqa: B027 - optional hook
+        """Called on a stream's thread after the timed region: close its connection."""
+
+    def still_running(self, ident: int) -> bool:
+        """Whether the server-side query ``ident`` (``QueryOutcome.query_id``) is still running.
+        The default is conservative: True."""
+        return True
 
     def prepare_streams(self, n: int) -> None:  # noqa: B027 - optional hook, no-op by default
         """Called by the throughput run before it opens ``n`` concurrent streams and again with

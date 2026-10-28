@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import socket
+import threading
 from datetime import date, datetime
 from datetime import time as dtime
 from decimal import Decimal
@@ -119,6 +120,7 @@ class DuckDBNative(SystemAdapter):
         self.volume = f"dbench-{self.name}-data"
         self.data_dir = Path(data_dir) if data_dir else None
         self._limits: Limits | None = None
+        self._stream = threading.local()  # this thread's throughput-stream state
 
     # lifecycle
     def start(self, limits: Limits) -> None:
@@ -241,23 +243,59 @@ class DuckDBNative(SystemAdapter):
         return LoadOutcome("n/a", None, None, {"reason": reason})
 
     # queries
-    def execute(self, sql: str, timeout_s: int) -> QueryOutcome:
+    # Throughput streams: one TCP connection (one server-side cursor) per stream thread, opened
+    # and warmed before the timed region. The server enforces the per-query deadline itself.
+    def open_stream(self, timeout_s: int) -> None:
+        self.close_stream()
+        conn = self.connect()
         try:
-            conn = self.connect()
+            conn.execute("SELECT 1", timeout_s)
+        except Exception:
+            conn.close()
+            raise
+        self._stream.conn = conn
+        self._stream.streaming = True
+
+    def close_stream(self) -> None:
+        self._stream.streaming = False
+        self._drop_stream_conn()
+
+    def _drop_stream_conn(self) -> None:
+        conn = getattr(self._stream, "conn", None)
+        self._stream.conn = None
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def execute(self, sql: str, timeout_s: int) -> QueryOutcome:
+        streaming = getattr(self._stream, "streaming", False)
+        try:
+            conn = self._stream.conn if streaming and self._stream.conn else self.connect()
+            if streaming:
+                self._stream.conn = conn
         except Exception as exc:  # noqa: BLE001
             return self._connection_failure(exc)
         try:
             resp = conn.execute(sql, timeout_s)
         except TimeoutError:
+            if streaming:
+                self._drop_stream_conn()
             return QueryOutcome("timeout", None, None, set(),
                                 "no response from server within timeout + margin", "duckdb")
         except Exception as exc:  # noqa: BLE001
+            if streaming:
+                self._drop_stream_conn()
             return self._connection_failure(exc)
         finally:
-            conn.close()
+            if not streaming:
+                conn.close()
         if resp["status"] != "ok":
+            if streaming:
+                self._drop_stream_conn()
             return QueryOutcome(resp["status"], resp["elapsed_s"], None, set(),
-                                resp["error"], "duckdb")
+                                resp["error"], "duckdb", stopped=resp["status"] == "timeout")
         rows = [tuple(decode(v) for v in row) for row in resp["rows"]]
         numeric = numeric_cols_from_types([c["type"] for c in resp["columns"]])
         return QueryOutcome("ok", resp["elapsed_s"], rows, numeric, None, "duckdb",

@@ -65,6 +65,8 @@ class PgDuckLake(PgDuckBase):
     def _duckdb_version_sql(self) -> str:
         return DUCKDB_VERSION_SQL
 
+    _warm_sql = "SELECT * FROM ducklake.query('SELECT 1 AS one')"
+
     def memory_per_backend(self) -> str | None:
         mib = self._duck_memory_mib()
         return None if mib is None else f"{mib}MiB"

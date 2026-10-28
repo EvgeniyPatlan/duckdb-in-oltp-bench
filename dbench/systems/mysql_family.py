@@ -6,6 +6,7 @@ Engine-specific adapters override the class attributes and hooks: ``image``,
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 from typing import Any, Literal
 
 import pymysql
@@ -218,33 +219,96 @@ class MySQLFamilyAdapter(ContainerServerAdapter):
         """Adapter-specific failure classification; None falls through to the shared rules."""
         return None
 
+    # Throughput streams: the thread's own connection is opened, configured (timeout) and warmed
+    # before the timed region, and every query then runs on it with nothing else around it: no
+    # per-query SET, no pushdown probes.
+    def _open_conn(self, timeout_s: int):
+        conn = self._connect(read_timeout=timeout_s + READ_MARGIN_S)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(self._timeout_sql(timeout_s))
+        except Exception:
+            conn.close()
+            raise
+        return conn
+
+    def open_stream(self, timeout_s: int) -> None:
+        self.close_stream()
+        local = self._stream
+        local.timeout_s = timeout_s
+        local.conn = self._open_conn(timeout_s)
+        local.streaming = True
+        with local.conn.cursor() as cur:  # warm: one trivial statement through the entry point
+            cur.execute(self._statement("SELECT 1"))
+            cur.fetchall()
+
+    def close_stream(self) -> None:
+        local = self._stream
+        local.streaming = False
+        self._drop_stream_conn()
+
+    def _drop_stream_conn(self) -> None:
+        conn = getattr(self._stream, "conn", None)
+        self._stream.conn = None
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001 - may already be dead
+                pass
+
+    def _execute_in_stream(self, sql: str, timeout_s: int) -> QueryOutcome:
+        local = self._stream
+        if local.conn is None:  # dropped after a failure: reopen (settings only, no warm-up)
+            try:
+                local.conn = self._open_conn(timeout_s)
+            except Exception as exc:  # noqa: BLE001
+                return classify_connection_failure(self.crash_info, exc)
+        out = self._query(local.conn, sql, timeout_s, probe=False, set_timeout=False)
+        if out.status != "ok":
+            self._drop_stream_conn()  # a failed or timed-out connection is never reused
+        return out
+
     def execute(self, sql: str, timeout_s: int) -> QueryOutcome:
-        started = time.perf_counter()
+        if getattr(self._stream, "streaming", False):
+            return self._execute_in_stream(sql, timeout_s)
         try:
             conn = self._connect(read_timeout=timeout_s + READ_MARGIN_S)
         except Exception as exc:  # noqa: BLE001
             return classify_connection_failure(self.crash_info, exc)
+        try:
+            return self._query(conn, sql, timeout_s, probe=True, set_timeout=True)
+        finally:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001 - connection may already be dead
+                pass
+
+    def _query(self, conn, sql: str, timeout_s: int, *, probe: bool,
+               set_timeout: bool) -> QueryOutcome:
+        """Run ``sql`` on ``conn``; the caller owns the connection."""
+        started = time.perf_counter()
         ident: int | None = None
         keep_active = False
         try:
             with conn.cursor() as cur:
-                cur.execute(self._timeout_sql(timeout_s))
+                if set_timeout:
+                    cur.execute(self._timeout_sql(timeout_s))
                 ident = conn.thread_id()
                 self.active.add(ident, timeout_s)
-                token = self._query_begin(cur)
+                token = self._query_begin(cur) if probe else None
                 started = time.perf_counter()
                 cur.execute(self._statement(sql))
                 desc = cur.description or ()
                 raw = list(cur.fetchall()) if desc else []
                 elapsed = time.perf_counter() - started
-                pushed = self._query_end(cur, token)
+                pushed = self._query_end(cur, token) if probe else "n/a"
             rows, columns, numeric = self._decode(raw, desc)
             return QueryOutcome("ok", elapsed, rows, numeric, None, pushed, columns)
         except Exception as exc:  # noqa: BLE001 - classified below
             elapsed = time.perf_counter() - started
             special = self._classify_error(exc, elapsed, timeout_s)
             if special is not None:
-                return special
+                return replace(special, query_id=ident)
             if is_timeout_error(exc, elapsed, timeout_s):
                 if _code(exc) == CR_LOST:
                     # A lost connection past the deadline is a timeout only if the server
@@ -255,17 +319,25 @@ class MySQLFamilyAdapter(ContainerServerAdapter):
                 # Leave the id registered: a client-side read timeout leaves the query
                 # running, and cancel() kills it once the deadline has passed.
                 keep_active = _code(exc) == CR_LOST
-                return QueryOutcome("timeout", elapsed, None, set(), f"{type(exc).__name__}: {exc}")
+                return QueryOutcome("timeout", elapsed, None, set(),
+                                    f"{type(exc).__name__}: {exc}", query_id=ident,
+                                    stopped=_code(exc) != CR_LOST)
             if is_connection_error(exc):
                 return classify_connection_failure(self.crash_info, exc)
             return QueryOutcome("error", elapsed, None, set(), f"{type(exc).__name__}: {exc}")
         finally:
             if ident is not None and not keep_active:
                 self.active.remove(ident)
-            try:
-                conn.close()
-            except Exception:  # noqa: BLE001 - connection may already be dead
-                pass
+
+    def still_running(self, ident: int) -> bool:
+        conn = self._connect(read_timeout=PROBE_TIMEOUT_S)
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM information_schema.PROCESSLIST "
+                            "WHERE ID = %s AND COMMAND IN ('Query', 'Killed')", (int(ident),))
+                return int(cur.fetchone()[0]) > 0
+        finally:
+            conn.close()
 
     def lingering_queries(self) -> int:
         conn = self._connect(read_timeout=PROBE_TIMEOUT_S)

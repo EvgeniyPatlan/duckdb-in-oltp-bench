@@ -274,6 +274,32 @@ class PostgresFamilyAdapter(ContainerServerAdapter):
         finally:
             conn.close()
 
+    # Throughput streams: this thread's session is configured (statement_timeout once) and warmed
+    # before the timed region; queries then run with no per-query SET and no EXPLAIN probe.
+    _warm_sql = "SELECT 1"  # a trivial statement that actually runs in the engine's executor
+
+    def open_stream(self, timeout_s: int) -> None:
+        local = self._stream
+        conn = self._session()
+        conn.execute(f"SET statement_timeout = {int(timeout_s * 1000)}")
+        conn.execute(self._warm_sql).fetchall()
+        local.configured = conn
+        local.streaming = True
+
+    def close_stream(self) -> None:
+        self._stream.streaming = False
+        self._stream.configured = None
+        self._drop_session()
+
+    def still_running(self, ident: int) -> bool:
+        conn = self._connect()
+        try:
+            row = conn.execute("SELECT count(*) FROM pg_stat_activity "
+                               "WHERE pid = %s AND state = 'active'", (int(ident),)).fetchone()
+            return int(row[0]) > 0
+        finally:
+            conn.close()
+
     def execute(self, sql: str, timeout_s: int) -> QueryOutcome:
         token: Any = None
         keep = False
@@ -282,13 +308,17 @@ class PostgresFamilyAdapter(ContainerServerAdapter):
             conn = self._session()
         except Exception as exc:  # noqa: BLE001
             return classify_connection_failure(self.crash_info, exc)
+        streaming = getattr(self._stream, "streaming", False)
         pid = conn.info.backend_pid
         done, fired = threading.Event(), threading.Event()
         timer = threading.Timer(timeout_s + READ_MARGIN_S, self._watchdog, (pid, done, fired))
         timer.daemon = True
         try:
-            conn.execute(f"SET statement_timeout = {int(timeout_s * 1000)}")
-            token = self._query_begin(conn, sql)
+            if not streaming or self._stream.configured is not conn:  # new session after a failure
+                conn.execute(f"SET statement_timeout = {int(timeout_s * 1000)}")
+                if streaming:
+                    self._stream.configured = conn
+            token = None if streaming else self._query_begin(conn, sql)
             self.active.add(pid, timeout_s)
             timer.start()
             started = time.perf_counter()
@@ -296,7 +326,7 @@ class PostgresFamilyAdapter(ContainerServerAdapter):
             rows = cur.fetchall() if cur.description else []
             elapsed = time.perf_counter() - started
             desc = cur.description or []
-            pushed = self._query_end(conn, token)
+            pushed = "n/a" if streaming else self._query_end(conn, token)
             keep = True  # only a clean query keeps the session (and its DuckDB cache)
             return QueryOutcome(
                 "ok", elapsed, [tuple(r) for r in rows],
@@ -306,18 +336,20 @@ class PostgresFamilyAdapter(ContainerServerAdapter):
         except pgerrors.QueryCanceled as exc:
             elapsed = time.perf_counter() - started
             return QueryOutcome("timeout", elapsed, None, set(), f"{type(exc).__name__}: {exc}",
-                                token or "n/a")
+                                token or "n/a", query_id=pid, stopped=True)
         except psycopg.OperationalError as exc:
             if fired.is_set():  # the watchdog terminated the backend
                 elapsed = time.perf_counter() - started
                 return QueryOutcome("timeout", elapsed, None, set(),
-                                    f"watchdog: {type(exc).__name__}: {exc}", token or "n/a")
+                                    f"watchdog: {type(exc).__name__}: {exc}", token or "n/a",
+                                    query_id=pid)
             return classify_connection_failure(self.crash_info, exc)
         except psycopg.Error as exc:
             elapsed = time.perf_counter() - started
             if is_cancelled_by_deadline(exc, elapsed, timeout_s):
                 return QueryOutcome("timeout", elapsed, None, set(),
-                                    f"{type(exc).__name__}: {exc}", token or "n/a")
+                                    f"{type(exc).__name__}: {exc}", token or "n/a",
+                                    query_id=pid, stopped=True)
             return QueryOutcome("error", elapsed, None, set(), f"{type(exc).__name__}: {exc}",
                                 token or "n/a")
         finally:

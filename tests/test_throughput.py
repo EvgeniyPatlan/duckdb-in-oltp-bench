@@ -35,9 +35,13 @@ class StreamFake(FakeAdapter):
     """Thread-safe fake: ``script[n]`` is the outcome of query ``n`` (ok(1.0) by default);
     ``log`` records every call in order."""
 
-    def __init__(self, script=None, scope="session", pushed="duckdb", **kw):
+    def __init__(self, script=None, scope="session", pushed="duckdb", running=False,
+                 hook=None, **kw):
         super().__init__([], **kw)
         self.script = script or {}
+        self.running = running  # what still_running() answers
+        self.hook = hook  # hook(call_index) -> outcome overriding the script
+        self.calls = 0
         self.pushdown_counter_scope = scope
         self.pushed = pushed
         self.log: list[tuple] = []
@@ -46,7 +50,11 @@ class StreamFake(FakeAdapter):
     def execute(self, sql, timeout_s):
         with self._lock:
             self.log.append(("execute", qnum(sql)))
+            self.calls += 1
+            idx = self.calls
         out = self.script.get(qnum(sql))
+        if self.hook is not None:
+            out = self.hook(idx) or out
         if isinstance(out, Exception):
             raise out
         return out or QueryOutcome("ok", 1.0, [(1,)], set(), None, self.pushed)
@@ -64,6 +72,19 @@ class StreamFake(FakeAdapter):
     def prepare_streams(self, n):
         with self._lock:
             self.log.append(("prepare", n))
+
+    def open_stream(self, timeout_s):
+        with self._lock:
+            self.log.append(("open", timeout_s))
+
+    def close_stream(self):
+        with self._lock:
+            self.log.append(("close",))
+
+    def still_running(self, ident):
+        with self._lock:
+            self.log.append(("still_running", ident))
+        return self.running
 
 
 def throughput(adapter, tmp_path, streams=2, timer=None, **kw):
@@ -148,9 +169,12 @@ def test_lingering_after_timeout_marks_contaminated_and_restarts_after_the_run(
     assert ("cancel",) in a.log
 
 
+STOPPED = QueryOutcome("timeout", 1.0, None, set(), "server stopped it", "n/a", stopped=True)
+
+
 def test_timeout_that_stops_is_not_contaminated(tmp_path, monkeypatch):
     monkeypatch.setattr("dbench.measures.power.LINGER_POLL_S", 0.01)
-    a = StreamFake({5: timeout()}, lingering=[2, 0])
+    a = StreamFake({5: STOPPED}, lingering=[2, 0])
     rec = throughput(a, tmp_path, streams=2)
     assert rec.extra["contaminated"] is False and "restart" not in [e[0] for e in a.log]
 
@@ -170,11 +194,42 @@ def test_restart_failure_is_attached_not_raised(tmp_path, monkeypatch):
 def test_warmup_runs_once_unrecorded_then_streams_are_prepared_and_reset(tmp_path):
     a = StreamFake()
     rec = throughput(a, tmp_path, streams=4)
-    assert [e for e in a.log[:22]] == [("execute", n) for n in range(1, 23)]
-    assert a.log[22] == ("prepare", 4)
-    assert all(e[0] == "execute" for e in a.log[23:-1]) and len(a.log) == 22 + 1 + 88 + 1
+    assert a.log[0][0] == "open"
+    assert a.log[1:23] == [("execute", n) for n in range(1, 23)]
+    assert a.log[23] == ("close",) and a.log[24] == ("prepare", 4)
+    assert len(a.log) == 1 + 22 + 1 + 1 + 4 + 88 + 4 + 1
     assert a.log[-1] == ("prepare", 1)
     assert rec.extra["total_queries"] == 88
+
+
+def test_streams_are_opened_before_the_clock_starts_and_closed_after_it_stops(tmp_path):
+    a = StreamFake()
+    marks: list[tuple] = []
+    ticks = iter([0.0, 100.0])
+
+    def timer():
+        with a._lock:
+            a.log.append(("clock",))
+        return next(ticks)
+
+    rec = run_throughput(a, 1, 3, "run1", tmp_path, clock=lambda: NOW, host=lambda: HOST,
+                         query_text=lambda n: f"Q{n}", timer=timer)
+    run = a.log[a.log.index(("prepare", 3)) + 1:-1]  # between prepare(3) and the reset
+    start, stop = run.index(("clock",)), len(run) - 1 - run[::-1].index(("clock",))
+    assert [e[0] for e in run[:start]] == ["open"] * 3  # opened and warmed before timing
+    assert {e[0] for e in run[start + 1:stop]} == {"execute"} and stop - start - 1 == 66
+    assert [e[0] for e in run[stop + 1:]] == ["close"] * 3  # closed after timing stopped
+    assert rec.extra["elapsed_s"] == 100.0 and not marks
+
+
+def test_a_failing_open_does_not_stop_the_stream_from_reaching_the_barrier(tmp_path):
+    class Broken(StreamFake):
+        def open_stream(self, timeout_s):
+            raise RuntimeError("no session")
+
+    rec = throughput(Broken(), tmp_path, streams=2)
+    assert rec.extra["counts_by_status"] == {"ok": 44}
+    assert rec.extra["open_errors"] and "no session" in rec.extra["open_errors"][0]
 
 
 def test_prepare_streams_is_reset_even_when_the_host_slept_through_every_attempt(tmp_path):
@@ -225,21 +280,12 @@ def test_suspend_on_every_attempt_raises_host_suspended_and_writes_nothing(tmp_p
 
 # ---- pushdown under concurrency ------------------------------------------------------------
 
-def test_pushed_is_unknown_for_a_global_counter_at_more_than_one_stream(tmp_path):
-    rec = throughput(StreamFake(scope="global"), tmp_path, streams=2)
-    assert rec.extra["pushed_counts"] == [{"unknown": 22}, {"unknown": 22}]
-    assert rec.extra["pushdown_counter_scope"] == "global"
-
-
-def test_pushed_is_kept_for_a_global_counter_at_one_stream(tmp_path):
-    rec = throughput(StreamFake(scope="global"), tmp_path, streams=1)
-    assert rec.extra["pushed_counts"] == [{"duckdb": 22}]
-
-
-@pytest.mark.parametrize("scope", ["session", "explain", "none"])
-def test_pushed_is_kept_for_per_session_counters(tmp_path, scope):
-    rec = throughput(StreamFake(scope=scope, pushed="fallback"), tmp_path, streams=2)
-    assert rec.extra["pushed_counts"] == [{"fallback": 22}, {"fallback": 22}]
+@pytest.mark.parametrize("scope", ["session", "global", "explain", "none"])
+@pytest.mark.parametrize("streams", [1, 2])
+def test_pushdown_is_not_measured_by_m4(tmp_path, scope, streams):
+    rec = throughput(StreamFake(scope=scope, pushed="fallback"), tmp_path, streams=streams)
+    assert rec.extra["pushed_counts"] == [{"not_measured": 22}] * streams
+    assert rec.extra["pushdown_counter_scope"] == scope
 
 
 EXPECTED_SCOPE = {
@@ -387,3 +433,253 @@ def test_campaign_resume_skips_recorded_stream_counts(tmp_path):
     run_campaign(path, res, Env(tmp_path).deps())
     assert {p: p.read_text() for p in res.rglob("M4-*.json")} == json_before
     assert json.loads(next(iter(json_before.values())))["measure"] == "M4"
+
+
+# ---- per-query linger detection ----------------------------------------------------------------
+
+def test_a_query_that_lingers_mid_run_marks_the_run_contaminated(tmp_path, monkeypatch):
+    monkeypatch.setattr("dbench.measures.power.LINGER_WAIT_S", 0.05)
+    monkeypatch.setattr("dbench.measures.power.LINGER_POLL_S", 0.01)
+    survivor = QueryOutcome("timeout", 1.0, None, set(), "client read timeout", "n/a",
+                            query_id=77)
+    a = StreamFake({5: survivor}, running=True)  # the end-of-run processlist check shows nothing
+    rec = throughput(a, tmp_path, streams=2)
+    assert ("still_running", 77) in a.log
+    assert rec.extra["contaminated"] is True and rec.extra["survived_cancel"] == 2
+    assert a.log.count(("restart",)) == 1
+
+
+def test_a_query_that_stops_after_cancel_is_not_contaminated(tmp_path, monkeypatch):
+    monkeypatch.setattr("dbench.measures.power.LINGER_POLL_S", 0.01)
+    gone = QueryOutcome("timeout", 1.0, None, set(), "client read timeout", "n/a", query_id=77)
+    a = StreamFake({5: gone}, running=False)
+    rec = throughput(a, tmp_path, streams=2)
+    assert rec.extra["contaminated"] is False and ("restart",) not in a.log
+
+
+def test_unconfirmed_stop_is_contaminated_only_with_several_streams(tmp_path, monkeypatch):
+    monkeypatch.setattr("dbench.measures.power.LINGER_POLL_S", 0.01)
+    assert throughput(StreamFake({5: timeout()}), tmp_path, streams=2).extra["contaminated"]
+    one = throughput(StreamFake({5: timeout()}), tmp_path / "one", streams=1)
+    assert one.extra["contaminated"] is False
+
+
+def test_a_failing_still_running_probe_counts_as_contaminated(tmp_path, monkeypatch):
+    monkeypatch.setattr("dbench.measures.power.LINGER_POLL_S", 0.01)
+
+    class Dead(StreamFake):
+        def still_running(self, ident):
+            raise ConnectionError("server gone")
+
+    gone = QueryOutcome("timeout", 1.0, None, set(), "x", "n/a", query_id=1)
+    assert throughput(Dead({5: gone}), tmp_path, streams=1).extra["contaminated"] is True
+
+
+def test_a_failing_end_of_run_linger_probe_counts_as_contaminated(tmp_path, monkeypatch):
+    monkeypatch.setattr("dbench.measures.power.LINGER_POLL_S", 0.01)
+
+    class Dead(StreamFake):
+        def lingering_queries(self):
+            raise ConnectionError("server gone")
+
+    rec = throughput(Dead({5: STOPPED}), tmp_path, streams=1)
+    assert rec.extra["contaminated"] is True and rec.extra["linger_probe_failed"] is True
+
+
+# ---- suspend retries: restart bookkeeping --------------------------------------------------------
+
+def test_no_warm_up_after_the_restart_of_the_final_discarded_attempt(tmp_path):
+    a = StreamFake(hook=lambda i: QueryOutcome("crashed", None, None, set(), "x", "n/a")
+                   if i % 44 == 30 else None)
+    with pytest.raises(HostSuspended):
+        throughput(a, tmp_path, streams=2, suspended_s=Ticking(60.0), timer=iter(range(100)))
+    # 1 initial + 2 re-warm-ups (after attempts 1 and 2) of 22, plus 3 attempts of 44
+    assert len([e for e in a.log if e[0] == "execute"]) == 3 * 22 + 3 * 44
+    assert a.log.count(("restart",)) == 3
+
+
+def test_a_discarded_attempts_restart_error_stays_in_its_entry(tmp_path):
+    readings = iter([0.0, 60.0, 60.0, 60.0])
+    a = StreamFake(hook=lambda i: QueryOutcome("crashed", None, None, set(), "x", "n/a")
+                   if i == 30 else None, restart_error=RuntimeError("no start"))
+    rec = throughput(a, tmp_path, streams=2, suspended_s=lambda: next(readings),
+                     timer=iter([0.0, 5.0, 10.0, 100.0]))
+    assert "no start" in rec.extra["discarded_attempts"][0]["restart_error"]
+    assert "restart_error" not in rec.extra
+
+
+# ---- what runs inside the timed region, per family ------------------------------------------
+
+class MyCur:
+    def __init__(self, conn):
+        self.conn, self.description, self._rows = conn, None, []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def execute(self, sql, params=None):
+        self.conn.seen.append(sql)
+        self._rows, self.description = [], None
+        if sql.startswith("SELECT") and "STATUS" not in sql and "PROCESSLIST" not in sql:
+            self._rows, self.description = [(1,)], (("a", 3),)
+        if sql.startswith("SHOW"):
+            self._rows = [("Com_duckdb_select", "1")]
+        if "PROCESSLIST" in sql:
+            self._rows = [(self.conn.listed,)]
+
+    def fetchall(self):
+        return self._rows
+
+    def fetchone(self):
+        return self._rows[0] if self._rows else None
+
+
+class MyConn:
+    def __init__(self, listed=0):
+        self.seen, self.closed, self.listed = [], False, listed
+
+    def cursor(self):
+        return MyCur(self)
+
+    def thread_id(self):
+        return 42
+
+    def close(self):
+        self.closed = True
+
+
+def mysql_adapter(conns):
+    from dbench.systems.alisql import AliSQLDuckDB
+
+    a = AliSQLDuckDB(None)
+    a._connect = lambda **kw: conns.append(MyConn()) or conns[-1]
+    return a
+
+
+def test_mysql_stream_connection_is_set_up_once_and_runs_no_probes(tmp_path):
+    conns: list[MyConn] = []
+    a = mysql_adapter(conns)
+    a.open_stream(900)
+    assert len(conns) == 1
+    for _ in range(3):
+        out = a.execute("SELECT 1 AS q", 900)
+        assert out.status == "ok" and out.pushed == "n/a"
+    assert len(conns) == 1  # one connection for the whole stream
+    assert conns[0].seen == [
+        "SET SESSION max_execution_time = 900000",  # once
+        "SELECT 1", "SELECT 1 AS q", "SELECT 1 AS q", "SELECT 1 AS q"]
+    assert not any("STATUS" in s for s in conns[0].seen)
+    a.close_stream()
+    assert conns[0].closed
+    # outside a stream the per-query path is unchanged (fresh connection, probes)
+    a.execute("SELECT 1 AS q", 900)
+    assert len(conns) == 2 and any("STATUS" in s for s in conns[1].seen)
+
+
+def test_mysql_stream_drops_its_connection_after_a_failure_and_reopens(tmp_path):
+    conns: list[MyConn] = []
+    a = mysql_adapter(conns)
+    a.open_stream(900)
+
+    def boom(sql, params=None):
+        raise RuntimeError("bad statement")
+
+    conns[0].cursor = lambda: type("C", (MyCur,), {"execute": lambda s, q, p=None: boom(q)})(
+        conns[0])
+    assert a.execute("SELECT 1", 900).status == "error"
+    assert conns[0].closed
+    assert a.execute("SELECT 1 AS q", 900).status == "ok"
+    assert len(conns) == 2 and conns[1].seen[0] == "SET SESSION max_execution_time = 900000"
+
+
+def test_mysql_still_running_asks_the_processlist_for_that_id():
+    conns: list[MyConn] = []
+    a = mysql_adapter(conns)
+    conns.append(MyConn(listed=1))
+    a._connect = lambda **kw: conns[0]
+    assert a.still_running(42) is True
+    sql = conns[0].seen[0]
+    assert "PROCESSLIST" in sql and "COMMAND IN ('Query', 'Killed')" in sql
+
+
+class PgCur:
+    def __init__(self, conn, sql):
+        conn.seen.append(sql)
+        self.description = None
+        self._rows = []
+        if sql.startswith(("SELECT", "EXPLAIN")):
+            self._rows, self.description = [(1,)], (type("D", (), {"type_code": 23,
+                                                                    "name": "a"})(),)
+        if "pg_stat_activity" in sql:
+            self._rows = [(conn.active,)]
+
+    def fetchall(self):
+        return self._rows
+
+    def fetchone(self):
+        return self._rows[0]
+
+
+class PgConn:
+    def __init__(self, active=0):
+        self.seen, self.closed, self.active = [], False, active
+        self.info = type("I", (), {"backend_pid": 99})()
+
+    def execute(self, sql, params=None):
+        return PgCur(self, sql)
+
+    def close(self):
+        self.closed = True
+
+
+def pg_adapter(conns, cls_name="pg_duckdb"):
+    from dbench.systems.pgduckdb import PgDuckDB
+
+    a = PgDuckDB(None)
+    a._limits = SMOKE
+    a._connect = lambda connect_timeout=10: conns.append(PgConn()) or conns[-1]
+    return a
+
+
+def test_pg_stream_session_is_warmed_in_duckdb_before_timing_and_runs_no_probes():
+    conns: list[PgConn] = []
+    a = pg_adapter(conns)
+    a.open_stream(900)
+    assert conns[0].seen == [
+        "SET duckdb.force_execution = true", "SET statement_timeout = 900000",
+        "SELECT * FROM duckdb.query('SELECT 1')"]
+    for _ in range(2):
+        assert a.execute("SELECT 1 AS q", 900).status == "ok"
+    assert len(conns) == 1
+    assert conns[0].seen[3:] == ["SELECT 1 AS q", "SELECT 1 AS q"]  # no EXPLAIN, no SET
+    a.close_stream()
+    assert conns[0].closed
+
+
+def test_pgducklake_warm_statement_runs_in_duckdb():
+    from dbench.systems.pgducklake import PgDuckLake
+
+    conns: list[PgConn] = []
+    a = PgDuckLake(None)
+    a._limits = SMOKE
+    a._connect = lambda connect_timeout=10: conns.append(PgConn()) or conns[-1]
+    a.open_stream(900)
+    assert conns[0].seen[-1] == "SELECT * FROM ducklake.query('SELECT 1 AS one')"
+    assert conns[0].seen[0].startswith("SELECT ducklake.raw_query")  # setup before the warm-up
+
+
+def test_pg_still_running_asks_pg_stat_activity_for_that_pid():
+    conns: list[PgConn] = []
+    a = pg_adapter(conns)
+    a._connect = lambda connect_timeout=10: conns.append(PgConn(active=1)) or conns[-1]
+    assert a.still_running(99) is True
+    assert "pid = %s" in conns[0].seen[0] and "state = 'active'" in conns[0].seen[0]
+
+
+def test_base_still_running_is_conservative_and_stream_hooks_are_no_ops():
+    a = FakeAdapter([])
+    assert a.still_running(1) is True
+    assert a.open_stream(900) is None and a.close_stream() is None

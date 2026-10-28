@@ -74,6 +74,8 @@ class PgDuckBase(PostgresFamilyAdapter):
         mib = self._duck_memory_mib()
         return None if mib is None else f"{mib}MB"  # Postgres' MB is 2^20 bytes
 
+    _warm_sql = "SELECT * FROM duckdb.query('SELECT 1')"
+
     def _query_begin(self, conn, sql: str) -> Pushed:
         return self._explain_pushed(conn, sql)
 

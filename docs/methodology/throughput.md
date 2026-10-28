@@ -6,11 +6,15 @@ permutation (`stream_order`; streams are numbered from 1). One record per stream
 timed out or crashed are counted (`counts_by_status`) and do not count in the numerator.
 `elapsed_s` is the wall time from the moment every stream is released until the last one finishes.
 
-- **Execution path.** Each stream thread uses the adapter's normal `execute()`, so per-session setup
-  and timeouts are those of the power run (900 s per query). Postgres-family systems keep one
-  persistent session per thread. MySQL-family systems open a fresh connection per query: its
-  connect time is outside each query's timed region but inside the stream's wall time, for every
-  MySQL-family system alike.
+- **What is inside the timed region (the same for every family).** Before the clock starts, each
+  stream thread opens its own persistent connection, applies the session settings and the
+  per-query timeout once, and runs one trivial statement through DuckDB (so a Postgres backend's
+  DuckDB instance already exists). All streams meet at a barrier and the clock starts. Per query a
+  stream only sends the statement and fetches the result on its connection: no connect, no
+  per-query `SET`, no `SHOW STATUS`/`EXPLAIN` probe. The clock stops when the last stream
+  finishes; only then are the connections closed. Client-side decoding of a result (VillageSQL's
+  JSON) is inside the stream. A query that fails drops that stream's connection and the next
+  query reopens one (a rare path, identical everywhere).
 - **No correctness check.** M1 owns correctness; M4 keeps only each query's status.
 - **Warm cache.** One unrecorded warm-up pass of the 22 queries on a single stream runs before
   each stream count. The OS page cache is not dropped between stream counts.
@@ -18,13 +22,14 @@ timed out or crashed are counted (`counts_by_status`) and do not count in the nu
   divide DuckDB's memory by the stream count per session (`prepare_streams`), recorded as
   `memory_per_backend`. MySQL-family engines and VillageSQL share one DuckDB instance per server
   and get no per-stream setting.
-- **Pushdown.** `pushed_counts` holds, per stream, the `pushed` values of its ok queries. Percona's
-  counter is server-wide (`pushdown_counter_scope = "global"`), so its `pushed` is `unknown`
-  when N > 1.
-- **Contamination.** After a timeout the stream calls `cancel()`. When all streams are done,
-  `lingering_queries()` is polled for up to 10 s; anything still running (or a `cancel()` that
-  cannot be issued) sets `contaminated = true` and the server is restarted after the record is
-  written, never mid-run.
+- **Pushdown.** M4 does not probe pushdown (that is M1/M8's job); `pushed_counts` only counts
+  `not_measured`. `pushdown_counter_scope` (session, global, explain, none) is recorded for M8.
+- **Contamination.** After a timeout the stream calls `cancel()` and polls whether that very query
+  is still running (`still_running`: processlist / `pg_stat_activity`) for up to 10 s. The run is
+  `contaminated` when it survives, when `cancel()` could not be issued, when a probe fails, when a
+  timeout's stop was never confirmed and several streams ran, or when `lingering_queries()` still
+  shows queries after all streams are done. The server is restarted after the record is written,
+  never mid-run.
 - **Host suspend.** If the host slept more than 1 s during a run, the run is discarded and repeated
   (up to 2 retries, recorded in `discarded_attempts`); if every attempt slept the campaign records
   an automatic failure that a resume retries.
