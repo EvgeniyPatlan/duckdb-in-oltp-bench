@@ -3,9 +3,13 @@
 Three cells per system:
 
 ``fallback_share_tpch``    share of the M1 queries that ran on the row path (``pushed=fallback``)
-``fallback_share_probes``  the same over the M5 probes that ran
+``fallback_share_probes``  the same over the M5 read probes that ran
 ``visibility``             1 when the adapter can observe pushdown at all, else 0;
                            ``extra.mechanism`` is ``status_counter``, ``explain`` or ``none``
+
+Both shares count the statements that ran (status ``ok`` or ``wrong_result``). DML and DDL probes
+are left out of the probe share and its ``not_run`` count: their pushdown is the follow-up SELECT's,
+not the statement under test (see ``extra.check_pushed``).
 
 A statement whose pushdown could not be told is counted as ``unknown`` and never as ``duckdb``;
 ``extra.unobserved_share`` says how much of a share rests on unknowns. A system with no way to
@@ -33,6 +37,8 @@ GLOBAL_NOTE = ("ambiguous under concurrency: the counter is server-wide, so it i
 NO_OBSERVATION = ("this system exposes no status counter or plan that shows whether DuckDB ran "
                   "a statement")
 PUSHED = ("duckdb", "fallback", "unknown")
+RAN = ("ok", "wrong_result")
+WRITE_CATEGORIES = ("dml", "ddl")
 
 
 def _share(pushed: Iterable[str], scope: str, label: str) -> dict:
@@ -55,12 +61,14 @@ def summarize_fallback(records: Iterable[ResultRecord], scope: str) -> dict[str,
     """The three M8 cells (``status``, ``value``, ``extra``, ``reason``) of one system from its
     M1 and M5 records; ``scope`` is the adapter's ``pushdown_counter_scope``."""
     records = list(records)
-    m1 = [r.extra.get("pushed") for r in records if r.measure == "M1" and r.status == "ok"]
-    m5_ran = [r for r in records if r.measure == "M5" and r.status in ("ok", "wrong_result")]
+    m1 = [r.extra.get("pushed") for r in records if r.measure == "M1" and r.status in RAN]
+    reads = [r for r in records if r.measure == "M5"
+             and r.extra.get("category") not in WRITE_CATEGORIES]
+    m5_ran = [r for r in reads if r.status in RAN]
     tpch = _share(m1, scope, "TPC-H queries")
     probes = _share([r.extra.get("pushed") for r in m5_ran], scope, "probes")
-    not_run = Counter(r.extra.get("class", r.status) for r in records
-                      if r.measure == "M5" and r.status not in ("ok", "wrong_result", "n/a"))
+    not_run = Counter(r.extra.get("class", r.status) for r in reads
+                      if r.status not in (*RAN, "n/a"))
     if not_run:
         probes["extra"]["not_run"] = dict(not_run)
     mechanism = MECHANISM[scope]

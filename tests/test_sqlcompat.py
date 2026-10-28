@@ -55,10 +55,14 @@ def out(rows=None, pushed="duckdb", status="ok", error=None, numeric=()):
     (dict(status="ok", pushed="duckdb", scope="none", matches=True, write=False), "unknown"),
     (dict(status="ok", pushed="duckdb", scope="none", matches=True, write=True),
      "ok_unobserved"),
+    (dict(status="ok", pushed="duckdb", scope="session", matches=True, write=True),
+     "ok_unobserved"),
+    (dict(status="ok", pushed="duckdb", scope="session", matches=False, write=True),
+     "wrong_result"),
     (dict(status="ok", pushed="unknown", scope="global", matches=True, write=True),
      "ok_unobserved"),
     (dict(status="ok", pushed="fallback", scope="explain", matches=True, write=True),
-     "fallback"),
+     "ok_unobserved"),
     (dict(status="ok", pushed="duckdb", scope="global", matches=None, write=False), "duckdb"),
     (dict(status="error", pushed="n/a", scope="none", matches=None, write=True), "error"),
 ])
@@ -179,7 +183,8 @@ def probe(pid="p1", category="functions", **kw) -> Probe:
         setup=kw.pop("setup", None), teardown=kw.pop("teardown", None),
         sql=kw.pop("sql", {"mysql": "SELECT 1 FROM t", "postgres": "SELECT 1 FROM t"}),
         check=kw.pop("check", {"mysql": None, "postgres": None}),
-        expected=kw.pop("expected", None), note=kw.pop("note", None))
+        expected=kw.pop("expected", None), note=kw.pop("note", None),
+        compare=kw.pop("compare", None))
 
 
 class ProbeAdapter(FakeAdapter):
@@ -208,23 +213,28 @@ class ProbeAdapter(FakeAdapter):
         return self._pick(statements[-1])
 
 
+def save_ref(root, p, rows, numeric=(0,), run_id="r1"):
+    """Cache ``rows`` as the baseline result of probe ``p`` (keyed to its current wording)."""
+    ProbeReferenceStore(root, run_id, sf=1).save(
+        "mysql", p.id, "innodb", rows, set(numeric), ["a"], p.content_key("mysql"))
+
+
 def run(adapter, probes, tmp_path, run_id="r1"):
     return run_sqlcompat(adapter, run_id, tmp_path, sf=1, probes=probes, host=lambda: HOST,
                          clock=CLOCK)
 
 
 def test_engine_probe_classes(tmp_path):
-    ref = ProbeReferenceStore(tmp_path, "r1", sf=1)
-    for pid, rows in (("ok", [(1,)]), ("slow", [(1,)]), ("bad", [(1,)]), ("err", [(1,)])):
-        ref.save("mysql", pid, "innodb", rows, {0}, ["a"])
+    probes = [probe(pid, sql={"mysql": f"SELECT 1 FROM {pid}", "postgres": "SELECT 1"})
+              for pid in ("ok", "slow", "bad", "err")]
+    for p in probes:
+        save_ref(tmp_path, p, [(1,)])
     a = ProbeAdapter("alisql", "mysql", "session", {
         "FROM ok": out([(1,)], "duckdb"),
         "FROM slow": out([(1,)], "fallback"),
         "FROM bad": out([(2,)], "duckdb", numeric={0}),
         "FROM err": out(None, "n/a", status="error", error="boom"),
     })
-    probes = [probe(pid, sql={"mysql": f"SELECT 1 FROM {pid}", "postgres": "SELECT 1"})
-              for pid in ("ok", "slow", "bad", "err")]
     recs = {r.item: r for r in run(a, probes, tmp_path)}
     assert {k: r.extra["class"] for k, r in recs.items()} == {
         "ok": "duckdb", "slow": "fallback", "bad": "wrong_result", "err": "error"}
@@ -235,8 +245,7 @@ def test_engine_probe_classes(tmp_path):
 
 
 def test_no_counter_scope_is_unknown_unless_error(tmp_path):
-    ref = ProbeReferenceStore(tmp_path, "r1", sf=1)
-    ref.save("mysql", "p1", "innodb", [(1,)], {0}, ["a"])
+    save_ref(tmp_path, probe("p1"), [(1,)])
     a = ProbeAdapter("x", "mysql", "none", {})
     (rec,) = run(a, [probe("p1")], tmp_path)
     assert rec.extra["class"] == "unknown" and rec.status == "ok"
@@ -279,9 +288,10 @@ def test_baselines_disagreement_is_flagged(tmp_path):
 
 
 def test_literal_expected_overrides_baseline(tmp_path):
-    ProbeReferenceStore(tmp_path, "r1", sf=1).save("mysql", "p1", "innodb", [(9,)], {0}, ["a"])
+    p = probe("p1", expected=[[1]])
+    save_ref(tmp_path, p, [(9,)])
     a = ProbeAdapter("alisql", "mysql", "session", {"FROM t": out([(1,)], "duckdb")})
-    (rec,) = run(a, [probe("p1", expected=[[1]])], tmp_path)
+    (rec,) = run(a, [p], tmp_path)
     assert rec.extra["class"] == "duckdb"
 
 
@@ -296,30 +306,32 @@ def test_setup_failure_is_an_error_and_teardown_still_runs(tmp_path):
     assert "ENGINE=DuckDB" in " ".join(a.executed)
 
 
-def test_dml_probe_is_classified_by_its_check(tmp_path):
+def test_dml_probe_is_ok_unobserved_and_keeps_the_check_pushdown(tmp_path):
     ref = ProbeReferenceStore(tmp_path, "r1", sf=1)
-    ref.save("mysql", "d1", "innodb", [(2,)], {0}, ["n"])
-    a = ProbeAdapter("percona", "mysql", "global", {
-        "UPDATE": out([], "n/a"), "SELECT n": out([(2,)], "duckdb")})
     d = probe("d1", "dml", sql={"mysql": "UPDATE s SET x = 1", "postgres": "UPDATE s SET x = 1"},
               check={"mysql": "SELECT n FROM s", "postgres": "SELECT n FROM s"})
+    ref.save("mysql", "d1", "innodb", [(2,)], {0}, ["n"], d.content_key("mysql"))
+    a = ProbeAdapter("percona", "mysql", "global", {
+        "UPDATE": out([], "n/a"), "SELECT n": out([(2,)], "duckdb")})
     (rec,) = run(a, [d], tmp_path)
-    assert rec.extra["class"] == "duckdb" and rec.extra["pushed"] == "duckdb"
+    assert rec.extra["class"] == "ok_unobserved" and rec.status == "ok"
+    assert rec.extra["check_pushed"] == "duckdb" and "pushed" not in rec.extra
     # the check differs from the baseline -> wrong_result
     a2 = ProbeAdapter("percona", "mysql", "global", {"SELECT n": out([(3,)], "duckdb")})
-    (rec2,) = run(a2, [d], tmp_path, run_id="r1")
-    assert rec2.extra["class"] == "wrong_result"
-    # no counter: success plus a matching check is ok_unobserved
-    a3 = ProbeAdapter("x", "mysql", "none", {"SELECT n": out([(2,)], "n/a")})
+    (rec2,) = run(a2, [d], tmp_path)
+    assert rec2.extra["class"] == "wrong_result" and rec2.status == "wrong_result"
+    # the statement fails -> error
+    a3 = ProbeAdapter("x", "mysql", "none", {
+        "UPDATE": out(None, "n/a", status="error", error="no option")})
     (rec3,) = run(a3, [d], tmp_path)
-    assert rec3.extra["class"] == "ok_unobserved" and rec3.status == "ok"
+    assert rec3.extra["class"] == "error" and rec3.extra["stage"] == "statement"
 
 
 def test_session_script_runs_on_one_session(tmp_path):
-    ProbeReferenceStore(tmp_path, "r1", sf=1).save("mysql", "v1", "innodb", [(5,)], {0}, ["a"])
-    a = ProbeAdapter("alisql", "mysql", "session", {"@v": out([(5,)], "duckdb")})
     v = probe("v1", "variables", sql={"mysql": ["SET @v = 5", "SELECT @v FROM t"],
                                       "postgres": ["SET x.v = 5", "SELECT 5 FROM t"]})
+    save_ref(tmp_path, v, [(5,)])
+    a = ProbeAdapter("alisql", "mysql", "session", {"@v": out([(5,)], "duckdb")})
     (rec,) = run(a, [v], tmp_path)
     assert a.sessions == [["SET @v = 5", "SELECT @v FROM t"]]
     assert rec.extra["class"] == "duckdb"
@@ -345,6 +357,19 @@ def test_records_are_written(tmp_path):
 def rec(measure, item, status="ok", **extra):
     return ResultRecord("alisql", "A", measure, 1, item, status, None, "s", "systems/alisql/",
                         "r1", "t", extra=extra)
+
+
+def test_fallback_share_excludes_write_probes_and_counts_the_same_statuses():
+    m1 = [rec("M1", "q1", pushed="duckdb"),
+          rec("M1", "q2", status="wrong_result", pushed="fallback")]
+    m5 = [rec("M5", "r", pushed="fallback", category="functions", **{"class": "fallback"}),
+          rec("M5", "w", check_pushed="fallback", category="dml", **{"class": "ok_unobserved"}),
+          rec("M5", "e", status="error", category="ddl", **{"class": "error"})]
+    s = summarize_fallback(m1 + m5, "session")
+    assert s["fallback_share_tpch"]["value"] == pytest.approx(0.5)  # wrong_result counts too
+    probes = s["fallback_share_probes"]
+    assert probes["value"] == 1.0 and probes["extra"]["total"] == 1
+    assert "not_run" not in probes["extra"]
 
 
 def test_fallback_share_math():
@@ -480,6 +505,11 @@ def test_explain_outside_a_transaction_is_plain():
     conn = _Conn(pq.TransactionStatus.IDLE, explain_fails=True)
     assert PostgresFamilyAdapter._explain_pushed(PgDuckDB("x"), conn, "SELECT 1") == "unknown"
     assert conn.sent == ["EXPLAIN SELECT 1"]
+    ok_conn = _Conn(pq.TransactionStatus.IDLE)
+    assert PostgresFamilyAdapter._explain_pushed(PgDuckDB("x"), ok_conn, "SELECT 1") == "duckdb"
+    heap = _Conn(pq.TransactionStatus.IDLE, plan="Seq Scan on t")
+    assert PostgresFamilyAdapter._explain_pushed(PgDuckDB("x"), heap, "SELECT 1") == "fallback"
+    assert ok_conn.sent == ["EXPLAIN SELECT 1"]
 
 
 def test_probe_scratch_tables_have_primary_keys_except_the_dedicated_probe():
@@ -492,3 +522,97 @@ def test_probe_scratch_tables_have_primary_keys_except_the_dedicated_probe():
     dedicated = next(p for p in load_probes() if p.id == "ddl_create_table_without_pk")
     assert not _per_dialect(dedicated.setup, "mysql")
     assert "PRIMARY KEY" not in " ".join(_per_dialect(dedicated.sql["mysql"], "mysql")).upper()
+
+
+# ---- json comparison, content key, teardown, mixed-engine rule ----------------------------
+
+def test_json_compare_ignores_whitespace_and_key_order(tmp_path):
+    p = probe("j1", "functions", compare="json")
+    save_ref(tmp_path, p, [(1, '{"k": 1, "a": [1, 2]}')], numeric=(0,))
+    a = ProbeAdapter("alisql", "mysql", "session",
+                     {"FROM t": out([(1, '{"a":[1,2],"k":1}')], "duckdb", numeric={0})})
+    (rec,) = run(a, [p], tmp_path)
+    assert rec.extra["class"] == "duckdb"
+    b = ProbeAdapter("alisql", "mysql", "session",
+                     {"FROM t": out([(1, '{"a":[1,3],"k":1}')], "duckdb", numeric={0})})
+    (rec2,) = run(b, [p], tmp_path)
+    assert rec2.extra["class"] == "wrong_result"  # a real difference still shows
+
+
+def test_json_compare_is_off_by_default(tmp_path):
+    p = probe("j2", "functions")
+    save_ref(tmp_path, p, [('{"k": 1}',)], numeric=())
+    a = ProbeAdapter("alisql", "mysql", "session", {"FROM t": out([('{"k":1}',)], "duckdb")})
+    (rec,) = run(a, [p], tmp_path)
+    assert rec.extra["class"] == "wrong_result"
+
+
+def test_json_compare_accepts_parsed_documents():
+    from dbench.measures.sqlcompat import _canonical_json
+
+    assert _canonical_json({"b": 1, "a": [1]}) == _canonical_json('{ "a": [1], "b": 1 }')
+    assert _canonical_json("plain") == "plain" and _canonical_json(5) == 5
+
+
+def test_reference_with_another_content_key_is_rebuilt_not_used(tmp_path):
+    p = probe("p1")
+    store = ProbeReferenceStore(tmp_path, "r1", sf=1)
+    store.save("mysql", "p1", "innodb", [(1,)], {0}, ["a"], "old-wording")
+    assert store.load("mysql", "p1", p.content_key("mysql")) is None
+    assert store.load("mysql", "p1", "old-wording") is not None
+    # an engine run finds no usable reference and does not compare
+    a = ProbeAdapter("alisql", "mysql", "session", {"FROM t": out([(5,)], "duckdb")})
+    (rec,) = run(a, [p], tmp_path)
+    assert rec.extra["compared"] is False
+    # a baseline run rewrites it under the current key
+    inno = ProbeAdapter("innodb", "mysql", "none", {"FROM t": out([(7,)], "n/a")},
+                        track="baseline")
+    run(inno, [p], tmp_path)
+    assert store.load("mysql", "p1", p.content_key("mysql"))["rows"] == [(7,)]
+
+
+def test_content_key_changes_with_any_part_of_the_probe():
+    base = probe("p1")
+    keys = {base.content_key("mysql")}
+    for variant in (probe("p1", setup=["CREATE TABLE x (a INT) {{ engine_clause }}"]),
+                    probe("p1", sql={"mysql": "SELECT 2 FROM t", "postgres": "SELECT 1 FROM t"}),
+                    probe("p1", check={"mysql": "SELECT 1", "postgres": None}),
+                    probe("p1", compare="json")):
+        keys.add(variant.content_key("mysql"))
+    assert len(keys) == 5
+    assert base.content_key("mysql") == probe("p1").content_key("mysql")
+
+
+def test_teardown_continues_past_a_failing_drop(tmp_path):
+    a = ProbeAdapter("alisql", "mysql", "session",
+                     {"DROP TABLE IF EXISTS first": out(None, "n/a", status="error", error="x")})
+    p = probe("p1", teardown=["DROP TABLE IF EXISTS first", "DROP TABLE IF EXISTS second"])
+    run(a, [p], tmp_path)
+    drops = [s for s in a.executed if s.startswith("DROP")]
+    assert drops.count("DROP TABLE IF EXISTS second") == 2  # before setup and after the probe
+
+
+def test_mixed_engine_probe_is_na_when_clauses_are_the_same(tmp_path):
+    mixed = probe("m1", "joins", setup=["CREATE TABLE a (x INT) {{ engine_clause }}",
+                                        "CREATE TABLE b (x INT) {{ rowstore_clause }}"])
+    plain = probe("p2", setup=["CREATE TABLE a (x INT) {{ engine_clause }}"])
+    heap = ProbeAdapter("pg_duckdb", "postgres", "explain", {}, engine_clause="")
+    heap.rowstore_clause = ""
+    recs = {r.item: r for r in run(heap, [mixed, plain], tmp_path)}
+    assert recs["m1"].status == "n/a" and recs["m1"].extra["class"] == "n/a"
+    assert "no separate engine table to mix with" in recs["m1"].reason
+    assert recs["p2"].extra["class"] != "n/a"
+    assert not any("CREATE TABLE b" in s for s in heap.executed)
+    # an engine with a distinct row-store clause runs it; so does the baseline
+    eng = ProbeAdapter("alisql", "mysql", "session", {})
+    assert run(eng, [mixed], tmp_path / "e")[0].extra["class"] != "n/a"
+    inno = ProbeAdapter("innodb", "mysql", "none", {}, track="baseline", engine_clause="")
+    inno.rowstore_clause = ""
+    assert run(inno, [mixed], tmp_path / "b")[0].extra["outcome"] == "ok"
+
+
+def test_probe_file_flags_json_probe_and_keeps_keys_stable():
+    probes = {p.id: p for p in load_probes()}
+    assert probes["fn_json_build"].compare == "json"
+    assert all(p.compare in (None, "json") for p in probes.values())
+    assert probes["ddl_truncate"].main("mysql")[-1].startswith("INSERT")

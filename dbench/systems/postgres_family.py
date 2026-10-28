@@ -380,16 +380,34 @@ class PostgresFamilyAdapter(ContainerServerAdapter):
         except Exception as exc:  # noqa: BLE001
             return classify_connection_failure(self.crash_info, exc)
         started = time.perf_counter()
+        # The script's own statements get the same bound as a query: statement_timeout plus the
+        # client-side watchdog.
+        pid = conn.info.backend_pid
+        done, fired = threading.Event(), threading.Event()
+        timer = threading.Timer(timeout_s + READ_MARGIN_S, self._watchdog, (pid, done, fired))
+        timer.daemon = True
         try:
+            conn.execute(f"SET statement_timeout = {int(timeout_s * 1000)}")
+            timer.start()
             for stmt in prepare:
                 conn.execute(stmt)
         except psycopg.OperationalError as exc:
             self._drop_session()
+            if fired.is_set():
+                return QueryOutcome("timeout", time.perf_counter() - started, None, set(),
+                                    f"watchdog: {type(exc).__name__}: {exc}", query_id=pid)
             return classify_connection_failure(self.crash_info, exc)
         except psycopg.Error as exc:
             self._drop_session()
-            return QueryOutcome("error", time.perf_counter() - started, None, set(),
-                                f"{type(exc).__name__}: {exc}")
+            elapsed = time.perf_counter() - started
+            if isinstance(exc, pgerrors.QueryCanceled):
+                return QueryOutcome("timeout", elapsed, None, set(),
+                                    f"{type(exc).__name__}: {exc}", query_id=pid, stopped=True)
+            return QueryOutcome("error", elapsed, None, set(), f"{type(exc).__name__}: {exc}")
+        finally:
+            with self._watchdog_lock:
+                done.set()
+            timer.cancel()
         try:
             return self.execute(last, timeout_s)
         finally:

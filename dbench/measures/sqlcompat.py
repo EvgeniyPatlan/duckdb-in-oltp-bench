@@ -5,12 +5,12 @@ try (types, functions, joins, subqueries, CTEs, window functions, DML, DDL, sess
 Each probe has a MySQL and a PostgreSQL spelling of the same intent. A probe runs on one system
 and gets one class (see ``docs/methodology/sql-compat.md``):
 
-    duckdb         ran, and the observed statement was pushed to DuckDB
+    duckdb         ran, and the observed statement was pushed to DuckDB (read probes only)
     fallback       ran on the row path
     error          failed (any stage: setup, statement, follow-up check)
     wrong_result   ran, and the result differs from the expected one
     unknown        ran, but pushdown cannot be told (no counter, or the counter was unreadable)
-    ok_unobserved  a DML/DDL probe that succeeded where pushdown is not observable
+    ok_unobserved  a DML/DDL probe that succeeded and whose follow-up check matched
     n/a            the row-store baseline that builds the reference
 
 The expected result of a probe comes from the same-dialect row-store baseline (InnoDB for the
@@ -20,11 +20,15 @@ MySQL dialect, Postgres for the PostgreSQL one), cached under
 Probes work on their own scratch tables, created in ``setup`` with ``{{ engine_clause }}`` (the
 system's engine: ``ENGINE=DuckDB``, ``USING ducklake``, or nothing) or ``{{ rowstore_clause }}``
 (a plain row-store table, for mixed-engine joins) and dropped in ``teardown``. DML and DDL probes
-carry a follow-up SELECT (``check_*``); it supplies the result that is compared and the pushdown
-that is classified, since the status counters only watch SELECTs.
+carry a follow-up SELECT (``check_*``) that supplies the result that is compared; their class is
+``ok_unobserved`` when it matches (the status counters only watch SELECTs) and the check's
+pushdown is kept as ``extra.check_pushed``. A probe that uses both placeholders mixes an engine
+table with a row-store table; where the two clauses are the same (pg_duckdb) there is nothing to
+mix and it is ``n/a``.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -52,6 +56,8 @@ WRITE_CATEGORIES = ("dml", "ddl")
 PROBE_TIMEOUT_S = 60
 PROBES_FILE = Path(__file__).resolve().parents[2] / "probes" / "probes.yaml"
 BASELINE_REASON = "row-store baseline; reference for the probe suite"
+NO_MIX_REASON = ("{system} queries heap tables; there is no separate engine table to mix with")
+COMPARE_MODES = ("json",)
 UNIT = "class"
 
 _ENV = Environment(undefined=StrictUndefined)
@@ -72,6 +78,20 @@ class Probe:
     teardown: Any = None
     expected: list | None = None
     note: str | None = None
+    compare: str | None = None  # "json": cells holding JSON text are compared canonically
+
+    def content_key(self, dialect: str) -> str:
+        """Hash of everything that decides this dialect's result (the unrendered templates), so
+        a cached reference built from an older wording of the probe is never reused."""
+        doc = {"setup": self.statements("setup", dialect), "sql": self.main(dialect),
+               "check": self.check[dialect], "compare": self.compare,
+               "expected": self.expected}
+        return hashlib.sha256(json.dumps(doc, sort_keys=True).encode()).hexdigest()[:16]
+
+    def mixes_engines(self, dialect: str) -> bool:
+        """The probe makes both an engine table and a row-store table."""
+        text = " ".join(self.statements("setup", dialect) + self.main(dialect))
+        return "{{ engine_clause }}" in text and "{{ rowstore_clause }}" in text
 
     def statements(self, kind: str, dialect: str) -> list[str]:
         """``setup`` or ``teardown`` of this dialect, as a flat list of templates."""
@@ -128,7 +148,10 @@ def _parse(entry: Any) -> Probe:
             raise ProbeFileError(f"{pid}: sql_{d} is missing")
         if entry["category"] in WRITE_CATEGORIES and not check[d]:
             raise ProbeFileError(f"{pid}: a {entry['category']} probe needs check_{d}")
+    if entry.get("compare") not in (None, *COMPARE_MODES):
+        raise ProbeFileError(f"{pid}: compare must be one of {list(COMPARE_MODES)}")
     return Probe(id=pid, category=entry["category"], title=str(entry.get("title") or ""),
+                 compare=entry.get("compare"),
                  sql=sql, check=check, setup=entry.get("setup"),
                  teardown=entry.get("teardown"), expected=entry.get("expected"),
                  note=entry.get("note"))
@@ -146,14 +169,17 @@ def classify_probe(*, status: str, pushed: str, scope: str, matches: bool | None
                    write: bool) -> str:
     """Class of a probe from the observed statement's outcome. ``matches`` is None when no
     expected result exists. A failure is an error whatever else is known; a wrong result is
-    reported even when the statement was pushed."""
+    reported even when the statement was pushed. A write probe that is correct is
+    ``ok_unobserved``: its pushdown is not what the follow-up SELECT's counter measures."""
     if status != "ok":
         return "error"
     if matches is False:
         return "wrong_result"
+    if write:
+        return "ok_unobserved"
     if scope != "none" and pushed in ("duckdb", "fallback"):
         return pushed
-    return "ok_unobserved" if write else "unknown"
+    return "unknown"
 
 
 class ProbeReferenceStore:
@@ -168,20 +194,22 @@ class ProbeReferenceStore:
         return self.dir / f"{probe_id}.{dialect}.json"
 
     def save(self, dialect: str, probe_id: str, system: str, rows: list[tuple],
-             numeric_cols: Iterable[int], columns: list[str]) -> None:
+             numeric_cols: Iterable[int], columns: list[str], key: str | None = None) -> None:
         self.dir.mkdir(parents=True, exist_ok=True)
         doc = {"system": system, "sf": self.sf, "dialect": dialect,
                "rows": [[encode(v) for v in row] for row in rows],
-               "numeric_cols": sorted(numeric_cols), "columns": list(columns)}
+               "numeric_cols": sorted(numeric_cols), "columns": list(columns), "key": key}
         path = self._file(dialect, probe_id)
         tmp = path.with_name(path.name + ".tmp")
         tmp.write_text(json.dumps(doc), encoding="utf-8")
         tmp.replace(path)
 
-    def load(self, dialect: str, probe_id: str) -> dict | None:
+    def load(self, dialect: str, probe_id: str, key: str | None = None) -> dict | None:
+        """The cached result, or None when missing, for another scale factor, or (when ``key`` is
+        given) built from a different wording of the probe."""
         try:
             doc = json.loads(self._file(dialect, probe_id).read_text(encoding="utf-8"))
-            if doc["sf"] != self.sf:
+            if doc["sf"] != self.sf or (key is not None and doc.get("key") != key):
                 return None
             return {"rows": [tuple(decode(v) for v in row) for row in doc["rows"]],
                     "numeric_cols": set(doc["numeric_cols"]), "columns": list(doc["columns"]),
@@ -216,15 +244,40 @@ def _recover(adapter: SystemAdapter, outcome: QueryOutcome) -> str | None:
     return None
 
 
-def _run_steps(adapter: SystemAdapter, steps: list[str], timeout_s: int,
-               obs: _Observed) -> QueryOutcome | None:
-    """Run setup/teardown statements; the first failure is kept in ``obs`` and returned."""
+def _run_steps(adapter: SystemAdapter, steps: list[str], timeout_s: int, obs: _Observed,
+               *, stop_on_failure: bool = True) -> QueryOutcome | None:
+    """Run setup/teardown statements; the first failure is kept in ``obs`` and returned. Teardown
+    passes ``stop_on_failure=False`` so one failing DROP does not leave the other tables behind."""
+    first: QueryOutcome | None = None
     for stmt in steps:
         res = adapter.execute(stmt, timeout_s)
         if res.status != "ok":
             obs.restart_error = _recover(adapter, res) or obs.restart_error
-            return res
-    return None
+            first = first or res
+            if stop_on_failure:
+                break
+    return first
+
+
+def _canonical_json(value):
+    """JSON text (or an already parsed document) as sorted, whitespace-free JSON; anything that
+    is not a JSON object or array is returned unchanged."""
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    if isinstance(value, str) and value.lstrip()[:1] in ("{", "["):
+        try:
+            return json.dumps(json.loads(value), sort_keys=True, separators=(",", ":"),
+                              ensure_ascii=False)
+        except ValueError:
+            return value
+    return value
+
+
+def _prepared(probe: Probe, rows: list[tuple]) -> list[tuple]:
+    """Rows as compared: with ``compare: json``, JSON cells are canonicalised first."""
+    if probe.compare != "json":
+        return list(rows)
+    return [tuple(_canonical_json(v) for v in row) for row in rows]
 
 
 def _execute_probe(adapter: SystemAdapter, probe: Probe, timeout_s: int) -> _Observed:
@@ -233,7 +286,8 @@ def _execute_probe(adapter: SystemAdapter, probe: Probe, timeout_s: int) -> _Obs
     teardown = [render_sql(s, adapter) for s in probe.statements("teardown", dialect)]
     scratch = _Observed()
     try:
-        _run_steps(adapter, teardown, timeout_s, scratch)  # leftovers of an interrupted run
+        # leftovers of an interrupted run
+        _run_steps(adapter, teardown, timeout_s, scratch, stop_on_failure=False)
         failed = _run_steps(adapter, [render_sql(s, adapter)
                                       for s in probe.statements("setup", dialect)],
                             timeout_s, obs)
@@ -259,7 +313,7 @@ def _execute_probe(adapter: SystemAdapter, probe: Probe, timeout_s: int) -> _Obs
         obs.outcome = res
         return obs
     finally:
-        _run_steps(adapter, teardown, timeout_s, scratch)
+        _run_steps(adapter, teardown, timeout_s, scratch, stop_on_failure=False)
         obs.restart_error = obs.restart_error or scratch.restart_error
 
 
@@ -271,7 +325,7 @@ def _expected(probe: Probe, dialect: str, store: ProbeReferenceStore,
               numeric: set[int]) -> tuple[list | None, set[int]]:
     if probe.expected is not None:
         return [tuple(r) for r in probe.expected], numeric
-    cached = store.load(dialect, probe.id)
+    cached = store.load(dialect, probe.id, probe.content_key(dialect))
     if cached is None:
         return None, numeric
     return cached["rows"], numeric | cached["numeric_cols"]
@@ -287,11 +341,13 @@ def _baseline_extra(probe: Probe, dialect: str, system: str, obs: _Observed,
         extra["stage"] = obs.stage
         return extra
     rows = obs.outcome.rows or []
-    store.save(dialect, probe.id, system, rows, obs.outcome.numeric_cols, obs.outcome.columns)
-    other = store.load("postgres" if dialect == "mysql" else "mysql", probe.id)
+    store.save(dialect, probe.id, system, rows, obs.outcome.numeric_cols, obs.outcome.columns,
+               probe.content_key(dialect))
+    other_dialect = "postgres" if dialect == "mysql" else "mysql"
+    other = store.load(other_dialect, probe.id, probe.content_key(other_dialect))
     if other is not None:
         numeric = obs.outcome.numeric_cols | other["numeric_cols"]
-        cmp = compare(other["rows"], rows, numeric)
+        cmp = compare(_prepared(probe, other["rows"]), _prepared(probe, rows), numeric)
         extra["baseline_disagreement"] = not cmp.match
         if not cmp.match:
             extra["diffs"] = _diff_rows(cmp.diffs)
@@ -307,22 +363,32 @@ def _probe_extra(probe: Probe, adapter: SystemAdapter, obs: _Observed,
     if obs.outcome is None:
         fail = obs.failure
         extra.update({"class": "error", "stage": obs.stage, "outcome": fail.status,
-                      "error": fail.error, "pushed": fail.pushed})
+                      "error": fail.error})
         return "error", "error", extra, fail.error
     res = obs.outcome
     expected, numeric = _expected(probe, dialect, store, res.numeric_cols)
     matches = None
     if expected is not None:
-        cmp = compare(expected, res.rows or [], numeric)
+        cmp = compare(_prepared(probe, expected), _prepared(probe, res.rows or []), numeric)
         matches = cmp.match
         if not cmp.match:
             extra["row_count"] = [cmp.row_count_a, cmp.row_count_b]
             extra["diffs"] = _diff_rows(cmp.diffs)
     cls = classify_probe(status="ok", pushed=res.pushed, scope=adapter.pushdown_counter_scope,
                          matches=matches, write=probe.writes)
-    extra.update({"class": cls, "outcome": "ok", "pushed": res.pushed,
-                  "compared": expected is not None, "error": None})
+    extra.update({"class": cls, "outcome": "ok", "compared": expected is not None, "error": None})
+    # A write probe's follow-up SELECT is not the statement under test: its pushdown is recorded
+    # as a fact about the check and kept out of the pushdown shares (M8).
+    extra["check_pushed" if probe.writes else "pushed"] = res.pushed
     return ("wrong_result" if cls == "wrong_result" else "ok"), cls, extra, None
+
+
+def _nothing_to_mix(adapter: SystemAdapter, probe: Probe) -> bool:
+    """A mixed-engine probe on a system whose engine and row-store clauses are the same: both
+    tables would be the same kind, so the probe would not test mixing."""
+    same = (getattr(adapter, "engine_clause", "").strip()
+            == getattr(adapter, "rowstore_clause", "").strip())
+    return same and probe.mixes_engines(adapter.dialect)
 
 
 def run_sqlcompat(
@@ -352,9 +418,17 @@ def run_sqlcompat(
         if wanted is not None and probe.id not in wanted:
             continue
         started = clock()
-        obs = _execute_probe(adapter, probe, timeout_s)
         status: Status
         error = reason = None
+        if not baseline and _nothing_to_mix(adapter, probe):
+            reason = NO_MIX_REASON.format(system=adapter.name)
+            records.append(make_record(
+                adapter, measure="M5", item=probe.id, status="n/a", sf=sf, run_id=run_id,
+                root=root, unit=UNIT, reason=reason, extra={
+                    "class": "n/a", "category": probe.category, "title": probe.title},
+                versions=versions, clock=clock, host=lambda: host_facts, started=started))
+            continue
+        obs = _execute_probe(adapter, probe, timeout_s)
         if baseline:
             status, reason = "n/a", BASELINE_REASON
             extra = {"category": probe.category, "title": probe.title,

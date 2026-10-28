@@ -24,6 +24,21 @@
 # requirement is measured once instead of failing every probe's setup. This was decided before
 # any engine-specific tuning.
 #
+# Changes after the first run (made for every system alike, none for an engine's outcome):
+#   - fn_json_build has `compare: json`: JSON text is compared canonically (sorted keys, no
+#     whitespace), because MySQL and engines print the same document with different spacing.
+#   - ddl_truncate inserts one sentinel row after TRUNCATE and counts, so the check reads a row.
+#   - var_session_time_zone: both sides now read a wall-clock timestamp (MySQL DATETIME, PostgreSQL
+#     TIMESTAMP) and convert it to epoch seconds in the session time zone (UTC+2). The MySQL side
+#     had used TIMESTAMP, an absolute instant that ignores the session zone, so the two did not agree.
+#   - dml and ddl probes are classed ok_unobserved when correct; the follow-up SELECT's pushdown
+#     is kept as extra.check_pushed and left out of the pushdown shares.
+#   - A probe that uses both {{ engine_clause }} and {{ rowstore_clause }} is n/a on a system
+#     where the two are the same (pg_duckdb queries heap tables).
+#   - Cached baseline results carry a hash of the probe's text and are rebuilt when it changes.
+#   (Earlier: primary keys on every scratch table; types_long_text and cte_recursive_path fixed
+#   because their baseline result was invalid.)
+#
 # Probes that read a table always read at least one row, so a status counter can tell whether
 # DuckDB ran them. Only the TPC-H tables nation, region and supplier are read (never written).
 
@@ -266,6 +281,7 @@ probes:
       - "DROP TABLE IF EXISTS pc_types_json"
     sql_mysql: "SELECT id, JSON_UNQUOTE(JSON_EXTRACT(v, '$.c')) FROM pc_types_json"
     sql_postgres: "SELECT id, v->>'c' FROM pc_types_json"
+    note: "PostgreSQL uses JSONB, the type applications normally choose there (plain JSON keeps text and is rarely used); MySQL has one JSON type."
   - id: types_enum
     category: types
     title: "ENUM column grouped by value"
@@ -549,6 +565,7 @@ probes:
       - "DROP TABLE IF EXISTS pc_fn_json_array_length"
     sql_mysql: "SELECT id, JSON_LENGTH(j, '$.b') FROM pc_fn_json_array_length"
     sql_postgres: "SELECT id, jsonb_array_length(j->'b') FROM pc_fn_json_array_length"
+    note: "PostgreSQL uses JSONB, the type applications normally choose there (plain JSON keeps text and is rarely used); MySQL has one JSON type."
   - id: fn_json_build
     category: functions
     title: "Build a JSON object and read it as text"
@@ -563,6 +580,8 @@ probes:
       - "DROP TABLE IF EXISTS pc_fn_json_build"
     sql_mysql: "SELECT id, CAST(JSON_OBJECT('k', id) AS CHAR) FROM pc_fn_json_build"
     sql_postgres: "SELECT id, CAST(jsonb_build_object('k', id) AS TEXT) FROM pc_fn_json_build"
+    note: "PostgreSQL uses JSONB, the type applications normally choose there (plain JSON keeps text and is rarely used); MySQL has one JSON type. The JSON text is compared canonically (sorted keys, no whitespace)."
+    compare: json
   - id: join_inner
     category: joins
     title: "INNER JOIN with a duplicate match"
@@ -1341,14 +1360,18 @@ probes:
     check_postgres: "SELECT id, v, s FROM pc_ddl_rename_table_new ORDER BY id"
   - id: ddl_truncate
     category: ddl
-    title: "TRUNCATE TABLE"
+    title: "TRUNCATE TABLE, then insert one row and count"
     setup:
       - "CREATE TABLE pc_ddl_truncate (id INT PRIMARY KEY, v INT, s VARCHAR(20)) {{ engine_clause }}"
       - "INSERT INTO pc_ddl_truncate VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
     teardown:
       - "DROP TABLE IF EXISTS pc_ddl_truncate"
-    sql_mysql: "TRUNCATE TABLE pc_ddl_truncate"
-    sql_postgres: "TRUNCATE TABLE pc_ddl_truncate"
+    sql_mysql:
+      - "TRUNCATE TABLE pc_ddl_truncate"
+      - "INSERT INTO pc_ddl_truncate VALUES (99, 990, 'z')"
+    sql_postgres:
+      - "TRUNCATE TABLE pc_ddl_truncate"
+      - "INSERT INTO pc_ddl_truncate VALUES (99, 990, 'z')"
     check_mysql: "SELECT COUNT(*) FROM pc_ddl_truncate"
     check_postgres: "SELECT COUNT(*) FROM pc_ddl_truncate"
   - id: ddl_modify_column_type
@@ -1500,15 +1523,19 @@ probes:
       - "EXECUTE pc_stmt(1)"
   - id: var_session_time_zone
     category: variables
-    title: "Session time zone changes how timestamps convert to epoch seconds"
+    title: "The session time zone (UTC+2) decides how a timestamp converts to epoch seconds"
     setup:
-      - "CREATE TABLE pc_var_session_time_zone (id INT PRIMARY KEY, ts TIMESTAMP) {{ engine_clause }}"
-      - "INSERT INTO pc_var_session_time_zone VALUES (1, '2024-02-29 13:45:10'), (2, '2000-01-01 00:00:00')"
+      mysql:
+        - "CREATE TABLE pc_var_session_time_zone (id INT PRIMARY KEY, ts DATETIME) {{ engine_clause }}"
+        - "INSERT INTO pc_var_session_time_zone VALUES (1, '2024-02-29 13:45:10'), (2, '2000-01-01 00:00:00')"
+      postgres:
+        - "CREATE TABLE pc_var_session_time_zone (id INT PRIMARY KEY, ts TIMESTAMP) {{ engine_clause }}"
+        - "INSERT INTO pc_var_session_time_zone VALUES (1, '2024-02-29 13:45:10'), (2, '2000-01-01 00:00:00')"
     teardown:
       - "DROP TABLE IF EXISTS pc_var_session_time_zone"
     sql_mysql:
-      - "SET time_zone = '+00:00'"
+      - "SET time_zone = '+02:00'"
       - "SELECT id, UNIX_TIMESTAMP(ts) FROM pc_var_session_time_zone"
     sql_postgres:
-      - "SET TIME ZONE 'UTC'"
-      - "SELECT id, EXTRACT(EPOCH FROM ts AT TIME ZONE 'UTC') FROM pc_var_session_time_zone"
+      - "SET TIME ZONE 'Etc/GMT-2'"
+      - "SELECT id, EXTRACT(EPOCH FROM CAST(ts AS TIMESTAMPTZ)) FROM pc_var_session_time_zone"

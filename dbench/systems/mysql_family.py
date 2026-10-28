@@ -296,6 +296,7 @@ class MySQLFamilyAdapter(ContainerServerAdapter):
             started = time.perf_counter()
             try:
                 with conn.cursor() as cur:
+                    cur.execute(self._timeout_sql(timeout_s))
                     for stmt in prepare:
                         cur.execute(self._statement(stmt))
             except Exception as exc:  # noqa: BLE001
