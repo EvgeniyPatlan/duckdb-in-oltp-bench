@@ -71,8 +71,9 @@ connect.
 connection before and after the query (outside the timed region) and sets `pushed` to `duckdb`
 if it rose, `fallback` if not, `unknown` if the counter could not be read. `pushdown(sql)` does
 the same for an arbitrary statement. The counter is server-wide, so the delta is attributable to
-one query only while a single stream runs (the power run); under concurrent streams it can be
-ambiguous.
+one query only while a single stream runs (the power run); under concurrent streams it is
+ambiguous, so the throughput run (M4) records `pushed = "unknown"` for Percona when streams > 1
+(`pushdown_counter_scope = "global"`).
 
 ## Timeouts on pushed queries
 

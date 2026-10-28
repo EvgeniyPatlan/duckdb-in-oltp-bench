@@ -19,6 +19,9 @@ if TYPE_CHECKING:
 Family = Literal["mysql", "mariadb", "alisql", "postgres", "duckdb", "villagesql"]
 QueryStatus = Literal["ok", "timeout", "error", "crashed"]
 Pushed = Literal["duckdb", "fallback", "unknown", "n/a"]
+# Where an adapter reads pushdown from: a per-session counter, a server-wide counter (ambiguous
+# when several streams run), the plan-only EXPLAIN, or nowhere (n/a or a constant).
+CounterScope = Literal["session", "global", "explain", "none"]
 LoadStatus = Literal["ok", "timeout", "error", "crashed", "n/a"]
 
 _NUMERIC_TYPE = re.compile(
@@ -66,6 +69,7 @@ class SystemAdapter(ABC):
     config_dir: str  # directory under systems/ holding this system's config and README
     # Schema the benchmark creates: "engine" (PKs only) or "rowstore" (PKs + FK indexes).
     bench_schema_kind: Literal["engine", "rowstore"] = "engine"
+    pushdown_counter_scope: CounterScope = "none"
 
     # lifecycle
     @abstractmethod
@@ -85,6 +89,16 @@ class SystemAdapter(ABC):
     @abstractmethod
     def connect(self) -> Any:
         """A new client connection (one per throughput stream)."""
+
+    def prepare_streams(self, n: int) -> None:  # noqa: B027 - optional hook, no-op by default
+        """Called by the throughput run before it opens ``n`` concurrent streams and again with
+        ``1`` afterwards. Adapters whose backends each own a DuckDB instance divide its memory
+        by ``n``; the default does nothing."""
+
+    def memory_per_backend(self) -> str | None:
+        """DuckDB memory each backend gets under the current ``prepare_streams`` (None when
+        streams share one instance or the setting is not divided)."""
+        return None
 
     def crash_info(self) -> dict:
         """Exit status and log tail of a dead server, recorded with ``crashed`` results."""

@@ -32,6 +32,7 @@ class PgDuckBase(PostgresFamilyAdapter):
     """Container, config and pushdown glue shared by pg_duckdb and pg_ducklake."""
 
     track = "A"
+    pushdown_counter_scope = "explain"
     mode: str  # duckdb_pg_settings mode
     datadir = "/var/lib/postgresql"
     du_command = 'du -sb "$PGDATA"'
@@ -53,6 +54,25 @@ class PgDuckBase(PostgresFamilyAdapter):
         conn = self._connect()
         self._session_setup(conn)
         return conn
+
+    # Each backend owns a DuckDB instance, so N concurrent streams would otherwise each get the
+    # whole memory formula. The throughput run divides it by N per session.
+    _streams = 1
+
+    def prepare_streams(self, n: int) -> None:
+        self._streams = max(1, int(n))
+        self._invalidate_sessions()  # open sessions were set up for the old stream count
+
+    def _duck_memory_mib(self) -> int | None:
+        """The memory formula (MiB), divided by the stream count; None before ``start()``."""
+        if self._limits is None:
+            return None
+        return baseline_conf.duckdb_pg_settings(self._limits, self.mode)[
+            "duck_memory_mib"] // self._streams
+
+    def memory_per_backend(self) -> str | None:
+        mib = self._duck_memory_mib()
+        return None if mib is None else f"{mib}MB"  # Postgres' MB is 2^20 bytes
 
     def _query_begin(self, conn, sql: str) -> Pushed:
         return self._explain_pushed(conn, sql)
@@ -110,3 +130,5 @@ class PgDuckDB(PgDuckBase):
     # pushdown
     def _session_setup(self, conn) -> None:
         conn.execute("SET duckdb.force_execution = true")
+        if self._streams > 1:  # superuser-settable per session; takes effect as DuckDB starts
+            conn.execute(f"SET duckdb.max_memory = '{self.memory_per_backend()}'")

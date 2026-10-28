@@ -63,6 +63,7 @@ class PgDuckDBTrackB(PgDuckDB):
 
     name = "pg_duckdb-trackb"
     track = "B"
+    pushdown_counter_scope = "none"  # raw DuckDB entry point: pushed is a constant
     dialect = "duckdb"
 
     def _statement(self, sql: str) -> str:
@@ -84,6 +85,7 @@ class MariaDBTrackB(MariaDBDuckDB):
 
     name = "mariadb-trackb"
     track = "B"
+    pushdown_counter_scope = "none"  # raw DuckDB entry point: pushed is a constant
     dialect = "duckdb"
 
     def config_mounts(self, limits: Limits) -> dict:

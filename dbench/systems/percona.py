@@ -60,6 +60,7 @@ class PerconaEngine(ConvertToDuckDBMixin, MySQLFamilyAdapter):
 
     name = "percona"
     track = "A"
+    pushdown_counter_scope = "global"
     config_dir = "percona"
     image = IMAGE
     engine_clause = "ENGINE=DuckDB"

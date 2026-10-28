@@ -30,11 +30,13 @@ def render_config(limits: Limits) -> str:
     return pgduckdb.render_config(limits, "pgducklake", "pgducklake")
 
 
-def duckdb_session_sql(limits: Limits) -> str:
+def duckdb_session_sql(limits: Limits, streams: int = 1) -> str:
     """DuckDB-side settings for one session. Memory goes in MiB so ``0.75 * mem_gb`` GB is exact
-    (DuckDB reads 'GB' as 10^9 bytes)."""
+    (DuckDB reads 'GB' as 10^9 bytes); with ``streams`` concurrent streams each backend gets
+    the formula divided by ``streams``."""
     s = baseline_conf.duckdb_pg_settings(limits, "pgducklake")
-    return (f"SET threads = {s['duck_threads']}; SET memory_limit = '{s['duck_memory_mib']}MiB'; "
+    return (f"SET threads = {s['duck_threads']}; "
+            f"SET memory_limit = '{s['duck_memory_mib'] // max(1, streams)}MiB'; "
             f"SET temp_directory = '{s['spill_dir']}'")
 
 
@@ -63,6 +65,10 @@ class PgDuckLake(PgDuckBase):
     def _duckdb_version_sql(self) -> str:
         return DUCKDB_VERSION_SQL
 
+    def memory_per_backend(self) -> str | None:
+        mib = self._duck_memory_mib()
+        return None if mib is None else f"{mib}MiB"
+
     def supports(self, measure: str) -> tuple[bool, str | None]:
         # M11 is freshness. The project documents heap-to-DuckLake CDC (pg_duckpipe, a separate
         # project that is not in this image), so the measure applies; the mechanism is to be
@@ -73,7 +79,8 @@ class PgDuckLake(PgDuckBase):
     def _session_setup(self, conn) -> None:
         if self._limits is None:
             raise RuntimeError("session setup before start()")
-        conn.execute("SELECT ducklake.raw_query(%s)", (duckdb_session_sql(self._limits),))
+        conn.execute("SELECT ducklake.raw_query(%s)",
+                     (duckdb_session_sql(self._limits, self._streams),))
 
     # loading
     def _load_parts(self, conn, data: DatasetPaths) -> None:

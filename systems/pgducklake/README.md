@@ -47,9 +47,9 @@ catalog. Maintenance can use CPU during a run; it was not disabled (no tuning be
 Each Postgres backend holds its own DuckDB instance (and its cache). `execute()` and `pushdown()`
 run on one persistent session connection per calling thread, with the DuckDB settings applied once
 when it opens; it is dropped and reopened after an error, a timeout, a restart or a crash. The
-settings apply per backend: with N concurrent streams the memory in use can reach N times the
-limit, so for the throughput run (Task 16) the per-backend memory will be the formula divided by
-the number of streams.
+settings apply per backend: with N concurrent streams the memory in use could reach N times the
+limit, so the throughput run (M4) divides it: with N streams each session's `memory_limit` is
+`0.75 * mem_gb / N` (in MiB; recorded as `memory_per_backend`). Threads are not divided.
 
 ## Schema and loading
 

@@ -42,6 +42,7 @@ class MariaDBDuckDB(ConvertToDuckDBMixin, MySQLFamilyAdapter):
 
     name = "mariadb"
     track = "A"
+    pushdown_counter_scope = "session"
     config_dir = "mariadb"
     image = IMAGE
     engine_clause = "ENGINE=DuckDB"

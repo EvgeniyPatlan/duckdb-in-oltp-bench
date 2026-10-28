@@ -1,7 +1,7 @@
 """Measure id -> runner. Every runner has the signature ``run(adapter, ctx) -> list[ResultRecord]``.
 
 A campaign may only name registered measures (checked when its YAML is loaded). Later tasks
-register M4..M10 here.
+register M5..M10 here.
 
 ``Measure.phase`` says when the campaign runs a measure on a system: ``query`` (after the bulk
 load, M1), ``after_load`` (right after the bulk load, before any query: M3) or ``last`` (after
@@ -13,15 +13,16 @@ section.
 """
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from dbench import dockerctl, hostinfo
-from dbench.config import QUERY_TIMEOUT_S, Limits
+from dbench.config import QUERY_TIMEOUT_S, STREAMS, Limits
 from dbench.datagen import DatasetPaths
 from dbench.measures import load, storage
 from dbench.measures.power import QUERY_NUMBERS, run_power
+from dbench.measures.throughput import ITEM_FORMAT, run_throughput
 from dbench.results import ResultRecord
 from dbench.systems.base import SystemAdapter
 
@@ -87,6 +88,23 @@ def _run_power(adapter: SystemAdapter, ctx: MeasureContext) -> list[ResultRecord
 
 
 register(Measure("M1", "s", _power_items, _run_power, needs_reference=True))
+
+
+def stream_items(streams: Iterable[int]) -> list[str]:
+    return [ITEM_FORMAT.format(n=n) for n in streams]
+
+
+def _throughput_items(sf: int) -> list[str]:
+    return stream_items(STREAMS)  # a campaign's ``streams:`` key narrows this (Campaign.planned)
+
+
+def _run_throughput(adapter: SystemAdapter, ctx: MeasureContext) -> list[ResultRecord]:
+    return [run_throughput(adapter, ctx.sf, int(item.removeprefix("streams=")), ctx.run_id,
+                           ctx.results, host=ctx.host, timeout_s=ctx.timeout_s)
+            for item in ctx.items]
+
+
+register(Measure("M4", "qph", _throughput_items, _run_throughput))
 
 
 LOAD_BULK_ITEM = "load_bulk"  # recorded by the campaign's own bulk load, not by M2's runner

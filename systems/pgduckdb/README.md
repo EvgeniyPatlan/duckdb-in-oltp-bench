@@ -42,9 +42,12 @@ Each Postgres backend holds its own DuckDB instance (and its cache). `execute()`
 therefore run on one persistent session connection per calling thread, set up once
 (`SET duckdb.force_execution`), so warm runs keep the backend's DuckDB state. The session is
 dropped and reopened after an error, a timeout, a restart or a crash. `duckdb.max_memory` and
-`duckdb.threads` apply per backend: with N concurrent streams the memory in use can reach N times
-the limit, so for the throughput run (Task 16) the per-backend memory will be the formula divided
-by the number of streams.
+`duckdb.threads` apply per backend: with N concurrent streams the memory in use could reach N times
+the limit, so the throughput run (M4) divides it: before opening N streams (N > 1) the adapter
+runs `SET duckdb.max_memory = '<0.5 * mem_gb / N>MB'` on every session (the GUC is
+superuser-settable per session, checked on the real server, and DuckDB picks it up when the
+backend's instance starts). The value in force is recorded as `memory_per_backend` in the M4 record.
+Threads are not divided. With one stream the `postgresql.conf` value applies.
 
 ## Schema and loading
 

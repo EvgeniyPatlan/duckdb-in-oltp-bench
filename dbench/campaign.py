@@ -1,11 +1,12 @@
 """Campaign runner: one YAML file runs every system and measure of a benchmark pass.
 
-Schema (all keys but ``timeout_s``, ``reference`` and ``track_b`` are required)::
+Schema (all keys but ``timeout_s``, ``reference``, ``streams`` and ``track_b`` are required)::
 
     run_id: gate-sf10
     sf: 10
     systems: [duckdb-1.5.5, innodb, postgres, alisql, ...]
     measures: [M1]                      # must be registered in dbench.measures.registry
+    streams: [1, 4, 8, 16, 32]          # optional: M4's stream counts (default config.STREAMS)
     limits: {db_cpuset: "0-15", runner_cpuset: "16-23", mem_gb: 64}
     timeout_s: 900
     reference: {system: duckdb-1.5.5, cross_check: [duckdb-1.4.3]}
@@ -42,7 +43,7 @@ from pathlib import Path
 import yaml
 
 from dbench import dockerctl, hostinfo, lock
-from dbench.config import QUERY_TIMEOUT_S, Limits
+from dbench.config import QUERY_TIMEOUT_S, STREAMS, Limits
 from dbench.correctness import compare
 from dbench.datagen import DatasetPaths
 from dbench.measures import registry as measures
@@ -58,7 +59,8 @@ GATE_SYSTEMS = ("innodb", "postgres")
 GATE_MAX_SF = 10  # up to here InnoDB and Postgres gate the run; above, cross-check
 QUERIES = range(1, 23)
 TRACK_B_JOIN_ITEM = "join_innodb"
-KEYS = {"run_id", "sf", "systems", "measures", "limits", "timeout_s", "reference", "track_b"}
+KEYS = {"run_id", "sf", "systems", "measures", "limits", "timeout_s", "reference", "track_b",
+        "streams"}
 LIMIT_KEYS = ("db_cpuset", "runner_cpuset", "mem_gb")
 
 
@@ -82,6 +84,7 @@ class Campaign:
     cross_check: tuple[str, ...] = ()
     track_b_enabled: bool = False
     track_b_systems: tuple[str, ...] = ()
+    streams: tuple[int, ...] = STREAMS  # M4's stream counts
 
     @property
     def trackb_run_id(self) -> str:
@@ -108,12 +111,18 @@ class Campaign:
     def cross_check_systems(self) -> tuple[str, ...]:
         return () if self.gated else self.cross_check
 
+    def items(self, measure: str) -> list[str]:
+        """Planned items of a measure at this campaign's scale factor (M4: its stream counts)."""
+        if measure == "M4":
+            return measures.stream_items(self.streams)
+        return measures.get(measure).items(self.sf)
+
     def planned(self, system: str) -> list[tuple[str, str, str, str]]:
         """Planned cells of ``system`` as (run_id, measure, item, track label or "")."""
         cells = []
         if system in self.systems:
             for m in self.measures:
-                cells += [(self.run_id, m, item, "") for item in measures.get(m).items(self.sf)]
+                cells += [(self.run_id, m, item, "") for item in self.items(m)]
         if self.track_b_enabled and system in self.track_b_systems:
             cells += [(self.trackb_run_id, "M1", item, "B") for item in trackb_items()]
         return cells
@@ -212,6 +221,15 @@ def _measures(value) -> tuple[str, ...]:
     return tuple(value)
 
 
+def _streams(value) -> tuple[int, ...]:
+    if not isinstance(value, list) or not value:
+        raise CampaignError("streams must be a non-empty list of positive integers")
+    counts = tuple(_positive_int(v, "streams") for v in value)
+    if len(set(counts)) != len(counts):
+        raise CampaignError("streams must not repeat a count")
+    return counts
+
+
 def _track_b(value) -> tuple[bool, tuple[str, ...]]:
     from dbench.measures.villagesql import TRACK_B_SYSTEMS
 
@@ -254,7 +272,8 @@ def load_campaign(path: Path) -> Campaign:
         limits=_limits(_need(doc, "limits")),
         timeout_s=_positive_int(doc.get("timeout_s", QUERY_TIMEOUT_S), "timeout_s"),
         reference_system=ref_system, cross_check=cross, track_b_enabled=enabled,
-        track_b_systems=trackb_systems)
+        track_b_systems=trackb_systems,
+        streams=_streams(doc["streams"]) if "streams" in doc else STREAMS)
     missing = [s for s in GATE_SYSTEMS if s not in systems]
     if campaign.gated and missing:
         raise CampaignError(
@@ -443,7 +462,7 @@ class _Run:
         todo: list[tuple[measures.Measure, list[str]]] = []
         for m in c.measures:
             measure = measures.get(m)
-            items = measure.items(c.sf)
+            items = c.items(m)
             pending = [i for i in items if not is_done(self.root, name, m, c.sf, i, c.run_id)]
             self.summary.skipped += len(items) - len(pending)
             if not pending:
@@ -486,7 +505,7 @@ class _Run:
         reference = self.reference() if any(m.needs_reference for m, _ in todo) else None
         bulk_pending = any(m.id == "M2" and measures.LOAD_BULK_ITEM in p for m, p in todo)
         phases = {"after_load": [], "query": [], "last": []}
-        for measure, pending in todo:
+        for measure, pending in sorted(todo, key=lambda t: int(t[0].id[1:])):  # M1 before M4
             items = [i for i in pending
                      if not (measure.id == "M2" and i == measures.LOAD_BULK_ITEM)]
             if items:

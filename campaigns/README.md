@@ -127,7 +127,9 @@ from the lock or when a running image differs from it.
 `$DBENCH_RESULTS/<run_id>/<system>/M1-sf<N>-q<NN>.json` (power run), `M2-sf<N>-load_bulk.json` /
 `M2-sf<N>-load_convert.json` (load paths) and `M3-sf<N>-after_load.json` /
 `M3-sf<N>-after_checkpoint.json` (storage; see `docs/methodology/storage.md`), plus `<run_id>/_reference/` with the
-cached reference rows. Track B results are under `<run_id>-trackb/`.
+cached reference rows. Throughput (M4) writes one `M4-sf<N>-streams=<S>.json` per stream count, in
+the campaign's optional `streams:` list (default 1, 4, 8, 16, 32; the smoke file uses 1 and 4);
+see `docs/methodology/throughput.md`. Track B results are under `<run_id>-trackb/`.
 
 ## Committing the results
 

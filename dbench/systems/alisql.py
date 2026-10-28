@@ -50,6 +50,7 @@ class AliSQLDuckDB(ConvertToDuckDBMixin, MySQLFamilyAdapter):
 
     name = "alisql"
     track = "A"
+    pushdown_counter_scope = "session"
     config_dir = "alisql"
     image = IMAGE
     engine_clause = "ENGINE=DuckDB"
