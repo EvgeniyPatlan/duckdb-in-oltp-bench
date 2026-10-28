@@ -61,14 +61,21 @@ def _totals(cells: dict[str, dict[str, dict]], queries: list[str], common: list[
     return out
 
 
+NO_M1 = "no M1 records at this scale factor"
+NO_OK = "no ok query on this system, so it is outside the common set"
+
+
 def common_queries(cells: dict[str, dict[str, dict]], queries: list[str],
-                   members: set[str]) -> tuple[list[str], list[str]]:
-    """Queries ok on every member that has any ok query, and the members left out for having
-    none (they would otherwise empty the set for everyone else)."""
+                   members: set[str]) -> tuple[list[str], list[dict]]:
+    """Queries ok on every member that has any ok query, and the members left out (with the
+    reason): one with no M1 records here, or with no ok query, would otherwise empty the set
+    for everyone else."""
     ok = {s: {q for q, c in cells[s].items() if c["s"] == "ok"} for s in members if s in cells}
-    left_out = sorted(s for s, qs in ok.items() if not qs)
+    left_out = [{"system": s, "reason": NO_M1} for s in sorted(members) if s not in cells]
+    left_out += [{"system": s, "reason": NO_OK} for s in sorted(ok) if not ok[s]]
     sets = [qs for qs in ok.values() if qs]
-    return ([q for q in queries if all(q in qs for qs in sets)] if sets else []), left_out
+    common = [q for q in queries if all(q in qs for qs in sets)] if sets else []
+    return common, sorted(left_out, key=lambda x: x["system"])
 
 
 def power(records: list[ResultRecord], members: set[str]) -> dict:

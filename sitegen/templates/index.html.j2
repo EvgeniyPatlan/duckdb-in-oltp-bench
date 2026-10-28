@@ -13,6 +13,10 @@
 <h2>Track A headlines</h2>
 <p class="note">Systems appear in the same order everywhere: database integrations A to Z, plain DuckDB, row-store baselines.
   Totals use only the queries every integration completed correctly, so everyone is scored on the same work.</p>
+{% if left_out %}
+<p class="note">Left out of the common query set (SF{{ default_sf }}):
+  {% for e in left_out %}{{ e.label }} ({{ e.reason }}){{ "; " if not loop.last }}{% endfor %}. Their own totals are still shown.</p>
+{% endif %}
 <div class="grid">
 {{ chart("headline_power", "Total query time, common queries (s)", "Sum of warm medians over the queries that every Track A integration ran correctly. Lower is better.", 340) }}
 {{ chart("headline_qph", "Throughput at 16 streams (queries per hour)", "Concurrent TPC-H streams, warm cache. Higher is better.", 340) }}

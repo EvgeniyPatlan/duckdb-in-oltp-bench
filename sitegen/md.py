@@ -6,20 +6,37 @@ import re
 
 _CODE = re.compile(r"`([^`]+)`")
 _BOLD = re.compile(r"\*\*(.+?)\*\*")
-_LINK = re.compile(r"\[([^\]]+)\]\((https?://[^)\s]+)\)")
+_LINK = re.compile(r"\[([^\]\x00]+)\]\(([^)\s\x00]+)\)")
+
+
+_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
+
+
+def _safe_url(url: str) -> bool:
+    """http(s), relative and fragment links only."""
+    if not _SCHEME.match(url):
+        return True
+    return url.lower().startswith(("http://", "https://"))
 
 
 def inline(text: str) -> str:
-    codes: list[str] = []
+    """Escaped inline HTML; code spans and links are stashed first so each part is escaped once."""
+    stash: list[str] = []
 
-    def stash(m: re.Match) -> str:
-        codes.append(f"<code>{html.escape(m.group(1))}</code>")
-        return f"\x00{len(codes) - 1}\x00"
+    def keep(html_text: str) -> str:
+        stash.append(html_text)
+        return f"\x00{len(stash) - 1}\x00"
 
-    out = html.escape(_CODE.sub(stash, text), quote=False)
-    out = _LINK.sub(lambda m: f'<a href="{m.group(2)}" rel="noopener">{m.group(1)}</a>', out)
-    out = _BOLD.sub(r"<strong>\1</strong>", out)
-    return re.sub(r"\x00(\d+)\x00", lambda m: codes[int(m.group(1))], out)
+    def link(m: re.Match) -> str:
+        label, url = html.escape(m.group(1), quote=False), m.group(2)
+        if not _safe_url(url):
+            return keep(label)
+        return keep(f'<a href="{html.escape(url, quote=True)}" rel="noopener">{label}</a>')
+
+    out = _CODE.sub(lambda m: keep(f"<code>{html.escape(m.group(1))}</code>"), text)
+    out = _LINK.sub(link, out)
+    out = _BOLD.sub(r"<strong>\1</strong>", html.escape(out, quote=False))
+    return re.sub(r"\x00(\d+)\x00", lambda m: stash[int(m.group(1))], out)
 
 
 def _cells(line: str) -> list[str]:

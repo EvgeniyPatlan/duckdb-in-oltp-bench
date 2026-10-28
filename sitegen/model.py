@@ -73,22 +73,39 @@ class Loaded:
     records: list[ResultRecord]
     synthetic: bool
     run_ids: list[str]
+    excluded: list[dict]
 
 
 def is_synthetic(rec: ResultRecord) -> bool:
     return bool(rec.extra.get(SYNTHETIC_KEY))
 
 
+def pick_runs(records: list[ResultRecord]) -> tuple[list[ResultRecord], list[dict]]:
+    """For each (track, system, sf) keep only the run with the most records (the newest on a
+    tie), so one system's numbers never mix runs with different versions or digests. The other
+    runs are returned as ``excluded`` entries for the page footnote."""
+    runs: dict[tuple, dict[str, list[ResultRecord]]] = defaultdict(lambda: defaultdict(list))
+    for r in records:
+        runs[(r.track, r.system, r.sf)][r.run_id].append(r)
+    kept: list[ResultRecord] = []
+    excluded: list[dict] = []
+    for (track, system, sf), by_run in sorted(runs.items()):
+        best = max(by_run, key=lambda rid: (len(by_run[rid]),
+                                            max(r.started_at for r in by_run[rid])))
+        kept += by_run[best]
+        excluded += [{"track": track, "system": system, "sf": sf, "run_id": rid,
+                      "records": len(recs)} for rid, recs in sorted(by_run.items())
+                     if rid != best]
+    return kept, excluded
+
+
 def load(results_root: Path) -> Loaded:
-    """All records; fixture records are dropped as soon as one real record exists."""
+    """The records the site shows; fixture records are dropped as soon as one real record exists."""
     records = list(iter_records(Path(results_root)))
     real = [r for r in records if not is_synthetic(r)]
-    kept = real or records
-    latest: dict[tuple, ResultRecord] = {}
-    for r in sorted(kept, key=lambda r: r.started_at):
-        latest[(r.track, r.system, r.measure, r.sf, r.item)] = r
-    out = sorted(latest.values(), key=lambda r: (r.system, r.measure, r.sf, r.item))
-    return Loaded(out, bool(records) and not real, sorted({r.run_id for r in out}))
+    kept, excluded = pick_runs(real or records)
+    out = sorted(kept, key=lambda r: (r.system, r.measure, r.sf, r.item))
+    return Loaded(out, bool(records) and not real, sorted({r.run_id for r in out}), excluded)
 
 
 def system_entries(records: Iterable[ResultRecord]) -> list[dict]:

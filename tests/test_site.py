@@ -148,12 +148,12 @@ def test_no_system_is_marked_as_ours(built):
         assert not re.search(word, blob)
 
 
-def test_charts_js_has_exports_and_cdn(built):
+def test_charts_js_has_exports_and_local_echarts(built):
     _, out = built
     js = (out / "static" / "charts.js").read_text(encoding="utf-8")
     assert "saveAsImage" in js and "svg" in js
     html = text(out, "track_a.html")
-    assert "cdnjs.cloudflare.com/ajax/libs/echarts/5.5.0/echarts.min.js" in html
+    assert 'src="static/echarts.min.js"' in html
 
 
 def test_track_b_page_explains_separate_track(built):

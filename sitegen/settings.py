@@ -51,7 +51,12 @@ def _entry(line: str) -> tuple[str, str] | None:
 
 
 def parse(text: str) -> list[dict]:
-    """(key, value, reason) of each setting line; comments directly above it are the reason."""
+    """(key, value, reason) of each setting line.
+
+    The comment lines directly above a setting are its reason. A blank line or a ``[section]``
+    header ends a comment block, so a file header followed by a blank line is never attached to
+    the first setting; a comment block with no blank line before the setting belongs to it.
+    """
     out, reason = [], []
     for raw in text.splitlines():
         line = raw.strip()

@@ -29,6 +29,10 @@
 <footer>
   <p>All systems are shown with the same layout, scales and limits. Raw result files are in the repository; this site is generated from them.
   {% if run_ids %}Runs: {{ run_ids | join(", ") }}.{% endif %}</p>
+  {% if excluded_runs %}
+  <p>Each system, track and scale factor shows one run, the one with the most records (the newest on a tie); also present, not shown:
+    {% for e in excluded_runs %}{{ e.system }} SF{{ e.sf }}: run {{ e.run_id }} ({{ e.records }} records){{ "; " if not loop.last }}{% endfor %}.</p>
+  {% endif %}
 </footer>
 {% block scripts %}{% endblock %}
 </body>

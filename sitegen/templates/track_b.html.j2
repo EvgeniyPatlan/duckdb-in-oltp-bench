@@ -20,6 +20,10 @@
 {% else %}
 {{ key() }}
 <div class="controls" id="controls" data-controls="sf,systems,metric"></div>
+{% if left_out %}
+<p class="note">Left out of the common query set (SF{{ default_sf }}):
+  {% for e in left_out %}{{ e.label }} ({{ e.reason }}){{ "; " if not loop.last }}{% endfor %}. Their own totals are still shown.</p>
+{% endif %}
 {{ chart("trackb_total", "Total query time, common queries (s)", "Sum of warm medians over the queries every system ran correctly.", 320) }}
 {{ chart("trackb_query", "Per-query time (s, log scale)", "Same layout as Track A. The join item exists only for VillageSQL (its documented pattern).", 460, true) }}
 {% endif %}
