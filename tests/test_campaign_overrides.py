@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -87,3 +88,38 @@ def test_committed_campaigns_load(name):
 
     c = load_campaign(Path(__file__).resolve().parents[1] / "campaigns" / f"{name}.yaml")
     assert c.planned("innodb")
+
+
+@pytest.mark.parametrize("overrides,missing", [
+    ({"innodb": {"measures": ["M1"]}}, "innodb"),
+    ({"postgres": {"measures": ["M1", "M2"]}}, "postgres"),
+])
+def test_engine_probes_need_their_dialect_baseline_probes(tmp_path, overrides, missing):
+    """An engine's M5 probes are compared with the same-dialect baseline's results, so a
+    campaign that runs engine M5 without the baseline's M5 would leave every probe unchecked."""
+    path = write_yaml(tmp_path, systems=["duckdb-1.5.5", "innodb", "postgres", "alisql",
+                                         "pg_duckdb"],
+                      measures=["M1", "M5"], overrides=overrides)
+    with pytest.raises(CampaignError, match=f"{missing}.*M5"):
+        load_campaign(path)
+
+
+def test_baseline_probes_not_needed_without_engine_probes(tmp_path):
+    over = {"innodb": {"measures": ["M1"]}, "alisql": {"measures": ["M1"]}}
+    c = load_campaign(write_yaml(tmp_path, measures=["M1", "M5"], overrides=over))
+    assert c.measures_for("innodb") == ("M1",)
+
+
+def test_committed_campaigns_keep_baseline_probes():
+    for name in ("gate-sf10", "talk-sf100"):
+        c = load_campaign(Path(__file__).parents[1] / "campaigns" / f"{name}.yaml")
+        for baseline in ("innodb", "postgres"):
+            assert "M5" in c.measures_for(baseline), (name, baseline)
+            assert "M4" not in c.measures_for(baseline), (name, baseline)
+
+
+def test_baseline_probes_must_run_before_engine_probes(tmp_path):
+    path = write_yaml(tmp_path, sf=100, measures=["M1", "M5"],
+                      systems=["duckdb-1.5.5", "alisql", "innodb", "postgres"])
+    with pytest.raises(CampaignError, match="innodb.*before alisql"):
+        load_campaign(path)

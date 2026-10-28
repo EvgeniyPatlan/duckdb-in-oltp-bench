@@ -1,5 +1,6 @@
 # Conference-talk campaign at SF100 on the 80-core bench host.
-# Track A engines run every measure; the row-store baselines only M1; plain DuckDB M1 and M4.
+# Track A engines run every measure; plain DuckDB M1 and M4; the row-store baselines M1, the
+# load (M2, M3) and M5, which builds the probe reference, so they must run before the engines.
 # M7 (integration overhead) is computed automatically at the end from the M1 records.
 run_id: talk-sf100
 sf: 100
@@ -8,21 +9,21 @@ systems:
   - duckdb-1.4.3        # cross-check of the reference
   - duckdb-1.5.3
   - duckdb-1.5.2-dev736
+  - innodb              # probe reference (MySQL dialect)
+  - postgres            # probe reference (PostgreSQL dialect)
   - alisql
   - mariadb
   - percona
   - pg_duckdb
   - pg_ducklake
-  - innodb
-  - postgres
 measures: [M1, M2, M3, M4, M5, M8]
 overrides:
   duckdb-1.5.5: {measures: [M1, M4]}
   duckdb-1.4.3: {measures: [M1, M4]}
   duckdb-1.5.3: {measures: [M1, M4]}
   duckdb-1.5.2-dev736: {measures: [M1, M4]}
-  innodb: {measures: [M1]}
-  postgres: {measures: [M1]}
+  innodb: {measures: [M1, M2, M3, M5]}     # M5: reference for MySQL-dialect probes
+  postgres: {measures: [M1, M2, M3, M5]}   # M5: reference for PostgreSQL-dialect probes
 limits:
   db_cpuset: "0-15"
   runner_cpuset: "16-23"

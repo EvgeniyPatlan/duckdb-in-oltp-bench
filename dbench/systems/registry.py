@@ -30,6 +30,16 @@ def known_systems() -> list[str]:
     return [f"{DUCKDB_PREFIX}<version>", *sorted(_factories())]
 
 
+def system_dialect(name: str) -> str:
+    """The SQL dialect of a system, without starting it (``duckdb`` for plain DuckDB)."""
+    if name.startswith(DUCKDB_PREFIX) and len(name) > len(DUCKDB_PREFIX):
+        return "duckdb"
+    factory = _factories().get(name)
+    if factory is None:
+        raise ValueError(f"unknown system {name!r}; expected one of {known_systems()}")
+    return factory.dialect
+
+
 def get_adapter(name: str, data_dir: Path | str | None) -> SystemAdapter:
     if name.startswith(DUCKDB_PREFIX) and len(name) > len(DUCKDB_PREFIX):
         from dbench.systems.duckdb_native import DuckDBNative

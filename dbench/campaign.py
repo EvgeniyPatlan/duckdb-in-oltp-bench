@@ -57,10 +57,11 @@ from dbench.measures import registry as measures
 from dbench.measures.load import run_load_bulk
 from dbench.measures.overhead import SUMMARY_ITEMS, format_summary, run_overhead
 from dbench.measures.power import SUSPEND_REASON, HostSuspended
+from dbench.measures.sqlcompat import BASELINES
 from dbench.reference import build_reference, cached_reference
 from dbench.results import ResultRecord, cell_record, is_done, iter_records, write
 from dbench.systems.base import SystemAdapter
-from dbench.systems.registry import DUCKDB_PREFIX, get_adapter, known_systems
+from dbench.systems.registry import DUCKDB_PREFIX, get_adapter, known_systems, system_dialect
 
 REFERENCE_SYSTEM = "duckdb-1.5.5"
 GATE_SYSTEMS = ("innodb", "postgres")
@@ -277,6 +278,25 @@ def _overrides(value, systems: tuple[str, ...]) -> dict[str, tuple[str, ...]]:
     return out
 
 
+def _check_probe_baselines(c: Campaign) -> None:
+    """Engine M5 probes are compared with their dialect's row-store baseline (sqlcompat), so a
+    campaign running engine M5 must run the baseline's M5 too, or every probe goes unchecked."""
+    for system in c.systems:
+        dialect = system_dialect(system)
+        baseline = BASELINES.get(dialect)
+        if baseline is None or baseline == system or "M5" not in c.measures_for(system):
+            continue
+        if baseline not in c.systems or "M5" not in c.measures_for(baseline):
+            raise CampaignError(
+                f"{system} runs M5, whose probes are compared with {baseline}; {baseline} must "
+                f"run M5 too")
+        order = c.ordered_systems()
+        if order.index(baseline) > order.index(system):
+            raise CampaignError(
+                f"{system} runs M5, whose probes are compared with {baseline}; list {baseline} "
+                f"before {system} so its reference exists when {system} runs")
+
+
 def load_campaign(path: Path) -> Campaign:
     try:
         doc = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
@@ -307,6 +327,7 @@ def load_campaign(path: Path) -> Campaign:
         track_b_systems=trackb_systems,
         streams=_streams(doc["streams"]) if "streams" in doc else STREAMS,
         overrides=_overrides(doc.get("overrides", {}), systems))
+    _check_probe_baselines(campaign)
     missing = [s for s in GATE_SYSTEMS if s not in systems]
     if campaign.gated and missing:
         raise CampaignError(

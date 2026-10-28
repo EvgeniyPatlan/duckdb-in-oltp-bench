@@ -20,6 +20,11 @@ timeout_s: 900
 reference:
   system: duckdb-1.5.5
   cross_check: [duckdb-1.4.3]   # used at SF100 and above
+overrides:
+  # Row-store baselines: no M4 (hours of concurrent streams on a row store tell nothing)
+  # and no M8; M5 stays because it builds the probe reference for each dialect.
+  innodb: {measures: [M1, M2, M3, M5]}
+  postgres: {measures: [M1, M2, M3, M5]}
 track_b:
   enabled: true
   systems: [duckdb-1.5.5, villagesql, pg_duckdb-trackb, mariadb-trackb]

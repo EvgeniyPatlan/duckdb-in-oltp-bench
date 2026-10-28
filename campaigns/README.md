@@ -136,8 +136,15 @@ overrides:
 
 Each key must be in `systems` and each measure registered, otherwise the campaign refuses to
 start. A system whose list leaves out M2 is still bulk-loaded (it needs the data), but that load
-is setup and is not recorded. `talk-sf100.yaml` uses this: Track A engines run M1-M5 and M8, the
-row-store baselines only M1, plain DuckDB (1.5.5, 1.4.3, 1.5.3, 1.5.2-dev736) M1 and M4.
+is setup and is not recorded. Both committed campaigns use this: the row-store baselines run M1,
+M2, M3 and M5 (no M4: hours of concurrent streams on a row store say nothing about the
+integrations; no M8). `talk-sf100.yaml` also gives plain DuckDB (1.5.5, 1.4.3, 1.5.3,
+1.5.2-dev736) only M1 and M4.
+
+An engine's M5 probes are compared with its dialect's row-store baseline (InnoDB for MySQL,
+Postgres for PostgreSQL). A campaign where an engine runs M5 but its baseline does not, or where
+the baseline is listed after the engine, refuses to start: every probe would go unchecked. At SF10
+and below the baselines always go first; above that the listed order is kept.
 
 ## M7: integration overhead
 
