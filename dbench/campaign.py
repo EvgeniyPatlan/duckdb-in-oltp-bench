@@ -49,7 +49,7 @@ from dbench.measures import registry as measures
 from dbench.measures.load import run_load_bulk
 from dbench.measures.power import SUSPEND_REASON, HostSuspended
 from dbench.reference import build_reference, cached_reference
-from dbench.results import ResultRecord, is_done, iter_records, write
+from dbench.results import ResultRecord, cell_record, is_done, iter_records, write
 from dbench.systems.base import SystemAdapter
 from dbench.systems.registry import DUCKDB_PREFIX, get_adapter, known_systems
 
@@ -464,6 +464,9 @@ class _Run:
             for item in pending:
                 if is_done(self.root, adapter.name, measure.id, self.c.sf, item, self.c.run_id):
                     continue
+                if (measure.id, item) == ("M2", measures.LOAD_BULK_ITEM) and cell_record(
+                        self.root, adapter.name, "M2", self.c.sf, item, self.c.run_id):
+                    continue  # the load's own (transient) result is more informative
                 self.write(_record(adapter, self.c, self.deps, self.host(), run_id=self.c.run_id,
                                    measure=measure.id, item=item, status="failed",
                                    reason=reason, error=reason[:2000], extra={"auto": True}))

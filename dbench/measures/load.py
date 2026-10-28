@@ -55,6 +55,8 @@ def run_load_bulk(
     elapsed = timer() - t0
     checked = outcome.status == "ok" or outcome.extra.get("kind") == "row_count"
     extra = {**outcome.extra, "rows_checked": checked}
+    if outcome.status not in ("ok", "n/a") and outcome.extra.get("kind") != "row_count":
+        extra["auto"] = True  # transient: resume measures the load again
     return _from_outcome(
         adapter, outcome, "load_bulk", elapsed_s=elapsed, extra=extra, measure="M2", sf=sf,
         run_id=run_id, root=root, unit="s", clock=clock, host=host, started=started_at)

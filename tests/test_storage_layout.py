@@ -40,10 +40,10 @@ def test_parse_listing_reads_type_size_and_path():
 def test_mysql_classification():
     got = summarize(parse_listing(MYSQL_LISTING), classify_mysql)
     assert got == {
-        "data_bytes": 12582912 + 25165824 + 8388608 + 98304 + 52428800,
+        "data_bytes": 12582912 + 8388608 + 98304 + 52428800,
         "redo_wal_bytes": 4096 + 104857600 * 2 + 4096,  # redo dir entry, redo files, duckdb wal
         "temp_bytes": 4096 + 1000,
-        "other_bytes": 4096 * 2 + 56 + 1048576,  # datadir, tpch, and the files nothing claims
+        "other_bytes": 4096 * 2 + 56 + 1048576 + 25165824,  # dirs, undo, other
     }
 
 
@@ -57,8 +57,8 @@ def test_mysql_binlog_is_excluded_from_every_bucket():
     ("ib_logfile0", "redo_wal_bytes"),
     ("ibdata1", "data_bytes"),
     ("tpch/lineitem.ibd", "data_bytes"),
-    ("undo_002", "data_bytes"),
-    ("undo003", "data_bytes"),
+    ("undo_002", "other_bytes"),
+    ("undo003", "other_bytes"),
     ("ibtmp1", "temp_bytes"),
     ("tpch.duckdb", "data_bytes"),
     ("duckdb.db", "data_bytes"),

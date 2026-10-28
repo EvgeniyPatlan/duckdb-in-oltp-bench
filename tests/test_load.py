@@ -230,12 +230,15 @@ class LoadTracked(Tracked):
     def __init__(self, name, events, **kw):
         super().__init__(name, events, **kw)
         self.bulk_ok = True
+        self.transient = False
 
     def create_schema(self, sf, kind): self._events.append(("schema", self.name))
 
     def load_bulk(self, data):
         self._events.append(("load_bulk", self.name))
         if not self.bulk_ok:
+            if self.transient:
+                return LoadOutcome("error", 1.0, "server has gone away", {})
             return LoadOutcome("error", 1.0, "row count does not match the manifest",
                                {"kind": "row_count"})
         return LoadOutcome("ok", 2.0, None, {"rows": {"t": 1}})
@@ -270,6 +273,7 @@ class LoadEnv(Env):
     def factory(self, name, data_dir):
         a = LoadTracked(name, self.events, rows=self.rows.get(name), supported=True)
         a.bulk_ok = name not in self.failing_bulk
+        a.transient = getattr(self, "fail_kind", "") == "transient"
         return a
 
 
@@ -377,3 +381,18 @@ def test_bulk_load_failure_records_error_and_fails_the_rest(tmp_path):
     assert others and {r.status for r in others} == {"failed"}
     assert all(r.extra.get("auto") for r in others)
     assert "query" not in [k for k, n in env.events if n == "alisql"]
+
+
+def test_transient_bulk_failure_is_retried_on_resume(tmp_path):
+    env = LoadEnv(tmp_path, failing_bulk={"alisql"})
+    env.fail_kind = "transient"
+    res = campaign(tmp_path, env)
+    first = of(res, "alisql", "M2")["load_bulk"]
+    assert first.status == "error" and first.extra["auto"] is True
+    assert first.extra.get("kind") != "row_count"
+
+    env2 = LoadEnv(tmp_path)  # the server recovers
+    campaign(tmp_path, env2)
+    again = of(res, "alisql", "M2")["load_bulk"]
+    assert again.status == "ok" and again.value > 0 and not again.extra.get("auto")
+    assert of(res, "alisql", "M3")["after_load"].status == "ok"

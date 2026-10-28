@@ -114,8 +114,9 @@ def cell_record(root: Path, system: str, measure: str, sf: int, item: str,
 
 
 def is_auto_failed(rec: ResultRecord) -> bool:
-    """A failure the campaign recorded itself (start, load or measure abort): retried on resume."""
-    return rec.status == "failed" and bool(rec.extra.get("auto"))
+    """A failure the campaign recorded itself (start, load or measure abort, or a transient
+    bulk-load error or crash): retried on resume."""
+    return bool(rec.extra.get("auto"))
 
 
 def is_done(root: Path, system: str, measure: str, sf: int, item: str, run_id: str) -> bool:

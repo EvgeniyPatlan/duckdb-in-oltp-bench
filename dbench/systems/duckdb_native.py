@@ -218,7 +218,7 @@ class DuckDBNative(SystemAdapter):
         return self._check_rows(data, total)
 
     def _check_rows(self, data: DatasetPaths, loaded_s: float) -> LoadOutcome:
-        """Row counts against the manifest (not part of the load time)."""
+        """Row counts against the manifest (not in the adapter's elapsed_s)."""
         expected = expected_rows(data)
         actual = {}
         for table in TPCH_DDL:
@@ -298,7 +298,7 @@ class DuckDBNative(SystemAdapter):
         return summarize(parse_listing(out.decode(errors="replace")), classify_duckdb)
 
     def checkpoint(self) -> str | None:
-        resp = self._run("CHECKPOINT")
+        resp = self._run("CHECKPOINT", LOAD_TIMEOUT_S)
         if resp["status"] != "ok":
             raise RuntimeError(f"CHECKPOINT failed: {resp['error']}")
         return None

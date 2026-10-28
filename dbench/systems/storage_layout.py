@@ -54,8 +54,8 @@ def classify_mysql(path: str, kind: str) -> str | None:
     """MySQL-family datadir (MySQL, Percona, MariaDB, AliSQL).
 
     data: DuckDB files (``*.duckdb``, ``duckdb.db*``) and InnoDB tablespaces (``ibdata*``,
-    ``*.ibd``, ``undo*``). The InnoDB system and undo tablespaces count as data: they hold
-    rows, the dictionary and undo, and are not preallocated logs.
+    ``*.ibd``). The InnoDB system tablespace and user tablespaces hold rows and the
+    dictionary and are not logs. Undo tablespaces (``undo*``) are transient and count as other.
     redo_wal: ``#innodb_redo/`` (MySQL 8.0.30+), ``ib_logfile*`` (MariaDB), and DuckDB ``*.wal``.
     temp: ``duckdb_tmp/``, DuckDB's ``*.tmp`` spill directories, and the InnoDB temporary
     tablespace (``ibtmp1``, ``#innodb_temp/``).
@@ -72,7 +72,7 @@ def classify_mysql(path: str, kind: str) -> str | None:
     if name.endswith(".wal"):
         return "redo_wal_bytes"
     if (name.endswith(".duckdb") or name.startswith("duckdb.db") or name.startswith("ibdata")
-            or name.endswith(".ibd") or name.startswith("undo")):
+            or name.endswith(".ibd")):
         return "data_bytes"
     return "other_bytes"
 

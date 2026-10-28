@@ -49,9 +49,11 @@ MySQL family (MySQL, Percona, MariaDB, AliSQL), under `/var/lib/mysql`:
 - `redo_wal_bytes`: `#innodb_redo/` (MySQL 8.0.30 and later, including its spare files),
   `ib_logfile*` (MariaDB), and DuckDB `*.wal`
 - `temp_bytes`: `duckdb_tmp/`, directories ending in `.tmp`, `ibtmp1`, `#innodb_temp/`
-- `data_bytes`: `*.duckdb` and `duckdb.db*` (DuckDB files), `ibdata*`, `*.ibd`, `undo*`
-  (InnoDB system, user and undo tablespaces: they hold rows, the dictionary and undo, and are not
-  logs)
+- `data_bytes`: `*.duckdb` and `duckdb.db*` (DuckDB files), `ibdata*`, `*.ibd`
+  (InnoDB system and user tablespaces: they hold rows and the dictionary, and are not logs)
+- undo tablespaces (`undo*`) are transient and count as `other_bytes`
+- a DuckDB `.wal` file counts as `redo_wal_bytes`; engines without a checkpoint statement may
+  keep rows that are not yet checkpointed there
 - excluded: `binlog.*`
 - everything else is `other_bytes`
 
