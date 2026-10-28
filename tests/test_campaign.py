@@ -599,3 +599,37 @@ def test_cli_mark_failed(tmp_path, capsys, monkeypatch):
     rc = cli.main(["mark-failed", "--system", "nope", "--error", "e", "--repro", "r",
                    "--campaign", str(path), "--results", str(tmp_path / "res")])
     assert rc == 2
+
+
+def _sleeps_from_query(env: Env, system: str, first: int):
+    """A host-sleep clock that grows by 60 s on every query of ``system`` from its ``first``-th
+    execute on, so every attempt from then on looks interrupted by a suspend."""
+    def clock() -> float:
+        n = sum(1 for kind, name in env.events if kind == "query" and name == system)
+        return 60.0 * max(0, n - first + 1)
+    return clock
+
+
+def test_host_suspend_abort_keeps_measured_cells_and_resume_retries_the_rest(tmp_path,
+                                                                            monkeypatch):
+    from dbench.measures.power import SUSPEND_REASON
+    res, path = tmp_path / "res", write_yaml(tmp_path)
+    env = Env(tmp_path)
+    monkeypatch.setattr("dbench.hostinfo.suspended_s", _sleeps_from_query(env, "alisql", 9))
+    run_campaign(path, res, env.deps())  # q01, q02 measured; q03 slept through every attempt
+    by = {r.item: r for r in records(res, "alisql")}
+    assert by["q01"].status == by["q02"].status == "ok"
+    assert "auto" not in by["q01"].extra
+    kept = {p: p.read_bytes() for p in (res / "r1" / "alisql").glob("M1-sf1-q0[12].json")}
+    assert len(kept) == 2
+    rest = [by[f"q{n:02d}"] for n in range(3, 23)]
+    assert all(r.status == "failed" and r.extra["auto"] is True for r in rest)
+    assert all(r.reason.startswith(SUSPEND_REASON) for r in rest)
+
+    monkeypatch.setattr("dbench.hostinfo.suspended_s", lambda: 0.0)
+    env2 = Env(tmp_path)
+    run_campaign(path, res, env2.deps())
+    assert env2.started() == ["alisql"]
+    assert sum(1 for kind, n in env2.events if kind == "query" and n == "alisql") == 20 * 4
+    assert {p: p.read_bytes() for p in kept} == kept  # byte-identical
+    assert {r.status for r in records(res, "alisql")} == {"ok"}

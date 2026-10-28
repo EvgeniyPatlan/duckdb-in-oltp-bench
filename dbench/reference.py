@@ -12,7 +12,9 @@ import json
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
+from dbench import hostinfo
 from dbench.config import QUERY_TIMEOUT_S
+from dbench.measures.power import SUSPEND_RETRIES, SUSPEND_TOLERANCE_S
 from dbench.queries.dialect import load_query, translate
 from dbench.systems.base import SystemAdapter
 from dbench.systems.duckdb_native import decode
@@ -79,6 +81,18 @@ def cached_reference(
     return out
 
 
+def _run_awake(adapter: SystemAdapter, sql: str, timeout_s: int,
+               suspended_s: Callable[[], float]):
+    """``adapter.execute`` until a run is not interrupted by a host suspend; None if every
+    attempt was."""
+    for _ in range(SUSPEND_RETRIES + 1):
+        before = suspended_s()
+        res = adapter.execute(sql, timeout_s)
+        if suspended_s() - before <= SUSPEND_TOLERANCE_S:
+            return res
+    return None
+
+
 def build_reference(
     adapter: SystemAdapter,
     sf: float,
@@ -87,18 +101,21 @@ def build_reference(
     queries: Iterable[int] = range(1, 23),
     timeout_s: int = QUERY_TIMEOUT_S,
     query_text: Callable[[int], str] | None = None,
+    suspended_s: Callable[[], float] | None = None,
 ) -> dict[int, dict]:
     """Run each query once on ``adapter`` (cached ones are reused). Queries that do
     not finish ``ok`` are left out of the result and not cached. ``query_text(n)`` replaces the
-    default ``translate(load_query(n), adapter.dialect)`` (Track B reads Parquet)."""
+    default ``translate(load_query(n), adapter.dialect)`` (Track B reads Parquet). A run during
+    which the host slept (``suspended_s()`` grew) is run again, up to SUSPEND_RETRIES times."""
     text = query_text or (lambda n: translate(load_query(n), adapter.dialect))
+    slept = suspended_s or hostinfo.suspended_s
     out: dict[int, dict] = {}
     for n in queries:
         path = _file(root, run_id, n)
         entry = _read(path, adapter.name, sf)
         if entry is None:
-            res = adapter.execute(text(n), timeout_s)
-            if res.status != "ok":
+            res = _run_awake(adapter, text(n), timeout_s, slept)
+            if res is None or res.status != "ok":
                 continue
             entry = {"rows": list(res.rows or []), "numeric_cols": set(res.numeric_cols),
                      "columns": list(res.columns)}

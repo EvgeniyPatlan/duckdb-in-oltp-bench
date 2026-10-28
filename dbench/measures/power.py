@@ -13,7 +13,8 @@ own deadlines run on the wall clock, which jumps forward across the sleep, so Po
 ``statement_timeout`` on resume for a query that had run for under a second. The attempt is
 discarded (after the usual cancel/restart handling) and the query is measured again from its
 cold run, up to SUSPEND_RETRIES more times; the record lists the sleeps in
-``extra["host_suspended_s"]``. If the host sleeps through every attempt, ``HostSuspended`` is
+``extra["host_suspended_s"]`` and, per discarded attempt, the sleep and any cancel/restart flags
+in ``extra["discarded_attempts"]``. If the host sleeps through every attempt, ``HostSuspended`` is
 raised and nothing is recorded for that query (the campaign records an auto-failure that a
 resume retries).
 """
@@ -37,6 +38,7 @@ LINGER_WAIT_S = 10.0
 LINGER_POLL_S = 1.0
 SUSPEND_TOLERANCE_S = 1.0  # BOOTTIME - MONOTONIC only moves across a suspend
 SUSPEND_RETRIES = 2
+SUSPEND_REASON = "host suspended during measurement; retried on resume"
 
 
 class HostSuspended(RuntimeError):
@@ -46,9 +48,9 @@ class HostSuspended(RuntimeError):
 class _Interrupted(Exception):
     """The host slept while a run was in flight; the attempt is discarded."""
 
-    def __init__(self, slept_s: float, restart: bool):
+    def __init__(self, slept_s: float, restart: bool, flags: dict):
         super().__init__(f"host suspended for {slept_s:.1f}s")
-        self.slept_s, self.restart = slept_s, restart
+        self.slept_s, self.restart, self.flags = slept_s, restart, flags
 
 
 def _utcnow() -> datetime:
@@ -111,8 +113,9 @@ def _execute(adapter: SystemAdapter, sql: str, timeout_s: int,
     gap = slept() - before
     if gap <= SUSPEND_TOLERANCE_S:
         return out
-    restart = _diagnose(adapter, out, {})[2] if out.status != "ok" else False
-    raise _Interrupted(gap, restart)
+    flags: dict = {}
+    restart = _diagnose(adapter, out, flags)[2] if out.status != "ok" else False
+    raise _Interrupted(gap, restart, flags)
 
 
 def _diff_rows(diffs: list[tuple]) -> list[list]:
@@ -171,19 +174,22 @@ def _restart(adapter: SystemAdapter) -> str | None:
 
 
 def _measure_valid(adapter: SystemAdapter, item: str, measure: Callable[[], tuple],
-                   clock: Callable[[], datetime]) -> tuple[str, tuple, list[float], str | None]:
+                   clock: Callable[[], datetime]) -> tuple[str, tuple, list[dict], str | None]:
     """``measure()`` until no attempt was interrupted by a host suspend:
-    (started_at, its result, the sleeps of the discarded attempts, a restart error)."""
-    sleeps: list[float] = []
+    (started_at, its result, one entry per discarded attempt, a restart error). An entry has
+    ``host_suspended_s`` and the attempt's ``_diagnose`` flags (``restarted_after_timeout``,
+    ``lingering``, ``cancel_unavailable``)."""
+    discarded: list[dict] = []
     restart_error: str | None = None
     for _ in range(SUSPEND_RETRIES + 1):
         started = clock().isoformat()
         try:
-            return started, measure(), sleeps, restart_error
+            return started, measure(), discarded, restart_error
         except _Interrupted as exc:
-            sleeps.append(round(exc.slept_s, 1))
+            discarded.append({"host_suspended_s": round(exc.slept_s, 1), **exc.flags})
             if exc.restart:
                 restart_error = _restart(adapter) or restart_error
+    sleeps = [d["host_suspended_s"] for d in discarded]
     raise HostSuspended(
         f"{adapter.name} {item}: the host was suspended during each of {len(sleeps)} attempts "
         f"({sleeps} s); keep it awake and resume the run")
@@ -204,7 +210,7 @@ def run_power(
     warm_runs: int = WARM_RUNS,
     query_text: Callable[[int], str] | None = None,
     extra_queries: Iterable[tuple[str, str, dict | None]] = (),
-    suspended_s: Callable[[], float] = hostinfo.suspended_s,
+    suspended_s: Callable[[], float] | None = None,
 ) -> list[ResultRecord]:
     """Run the queries, write one M1 record per query under ``root`` and return them.
 
@@ -217,8 +223,10 @@ def run_power(
     substitutes Parquet readers for the table names). ``extra_queries`` are further
     ``(item, sql, expected)`` entries measured after the numbered queries, with the same
     cold/warm, timeout and restart handling. ``suspended_s()`` reports the host's total sleep
-    time; a run during which it grows is discarded and the query measured again.
+    time (default ``hostinfo.suspended_s``); a run during which it grows is discarded and the
+    query measured again.
     """
+    slept = suspended_s or hostinfo.suspended_s
     host_facts = host()
     versions = adapter.versions()
     records: list[ResultRecord] = []
@@ -230,14 +238,15 @@ def run_power(
     work.extend(extra_queries)
 
     for item, sql, expected in work:
-        started, result, sleeps, retry_error = _measure_valid(
+        started, result, discarded, retry_error = _measure_valid(
             adapter, item,
             lambda sql=sql, expected=expected: _measure(
-                adapter, sql, expected, drop_caches, timeout_s, warm_runs, suspended_s),
+                adapter, sql, expected, drop_caches, timeout_s, warm_runs, slept),
             clock)
         status, value, error, extra, restart = result
-        if sleeps:
-            extra["host_suspended_s"] = sleeps
+        if discarded:
+            extra["host_suspended_s"] = [d["host_suspended_s"] for d in discarded]
+            extra["discarded_attempts"] = discarded
         restart_error = restart_error or retry_error
         if restart_error:
             extra["restart_error"] = restart_error

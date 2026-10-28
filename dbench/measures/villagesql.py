@@ -17,10 +17,10 @@ from pathlib import Path
 from dbench import dockerctl, hostinfo
 from dbench.config import QUERY_TIMEOUT_S, WARM_RUNS, Limits
 from dbench.datagen import DatasetPaths
-from dbench.measures.power import QUERY_NUMBERS, run_power
+from dbench.measures.power import QUERY_NUMBERS, SUSPEND_REASON, HostSuspended, run_power
 from dbench.queries.trackb import default_globs, trackb_query
 from dbench.reference import build_reference
-from dbench.results import ResultRecord, write
+from dbench.results import ResultRecord, is_done, write
 from dbench.systems.base import SystemAdapter
 from dbench.systems.registry import get_adapter
 from dbench.systems.trackb import DuckDBTrackB
@@ -97,15 +97,25 @@ def _all_items(queries: Iterable[int]) -> list[str]:
     return [f"q{n:02d}" for n in queries] + [JOIN_ITEM]
 
 
+def _pending(adapter: SystemAdapter, plan) -> list[str]:
+    """Items of this system with no record yet (or only an automatic failure)."""
+    return [item for item in _all_items(plan.queries)
+            if not is_done(plan.root, adapter.name, "M1", plan.sf, item, plan.run_id)]
+
+
 def _failed_records(adapter: SystemAdapter, plan, exc: Exception,
                     host: dict) -> list[ResultRecord]:
-    """Every item of a system that did not start or finish: ``failed`` with the error.
-    ``extra.auto`` marks it as the runner's own finding, which a resumed campaign retries."""
-    reason = f"{adapter.name} did not start or load: {type(exc).__name__}: {exc}"
+    """Every item still pending for a system that did not start or finish: ``failed`` with the
+    error. Items already measured are left alone. ``extra.auto`` marks it as the runner's own
+    finding, which a resumed campaign retries."""
+    if isinstance(exc, HostSuspended):
+        reason = f"{SUSPEND_REASON}: {exc}"
+    else:
+        reason = f"{adapter.name} did not start or load: {type(exc).__name__}: {exc}"
     return [
         _record(adapter, plan, item, "failed", host, reason=reason, error=str(exc)[:2000],
                 extra={"auto": True})
-        for item in _all_items(plan.queries)
+        for item in _pending(adapter, plan)
     ]
 
 
@@ -146,6 +156,9 @@ def _start(adapter: SystemAdapter, plan: _Plan) -> None:
 def _run_system(adapter: SystemAdapter, plan: _Plan) -> list[ResultRecord]:
     """Start one system, measure the 22 queries (and the join where it applies), always clean up."""
     host_facts = plan.host()
+    pending = _pending(adapter, plan)
+    if not pending:
+        return []
     adapter.remove_data()
     try:
         try:
@@ -156,10 +169,11 @@ def _run_system(adapter: SystemAdapter, plan: _Plan) -> list[ResultRecord]:
                 write(rec, plan.root)
             return records
         joins = [(JOIN_ITEM, JOIN_VILLAGESQL, plan.join_reference)] \
-            if adapter.name == "villagesql" else []
+            if adapter.name == "villagesql" and JOIN_ITEM in pending else []
+        queries = [n for n in plan.queries if f"q{n:02d}" in pending]
         try:
             records = run_power(
-                adapter, plan.sf, plan.run_id, plan.root, plan.reference, queries=plan.queries,
+                adapter, plan.sf, plan.run_id, plan.root, plan.reference, queries=queries,
                 drop_caches=plan.drop_caches, clock=plan.clock, host=plan.host,
                 timeout_s=plan.timeout_s, warm_runs=plan.warm_runs, query_text=plan.text,
                 extra_queries=joins)
@@ -168,7 +182,7 @@ def _run_system(adapter: SystemAdapter, plan: _Plan) -> list[ResultRecord]:
             for rec in records:
                 write(rec, plan.root)
             return records
-        if not joins:
+        if not joins and JOIN_ITEM in pending and adapter.name != "villagesql":
             rec = _na_join_record(adapter, plan, host_facts)
             write(rec, plan.root)
             records.append(rec)

@@ -341,3 +341,57 @@ def test_run_track_b_failed_start_is_auto(tmp_path):
                        drop_caches=lambda: None, clock=lambda: datetime(2026, 1, 1, tzinfo=UTC),
                        host=lambda: HOST, adapter_factory=factory)
     assert all(r.extra["auto"] is True for r in recs)
+
+
+class _Counting(Reference):
+    name = "pg_duckdb-trackb"
+    config_dir = "pgduckdb"
+
+    def __init__(self, log):
+        super().__init__([])
+        self.log = log
+
+    def execute(self, sql, timeout_s):
+        self.log.append(sql)
+        return ok(1.0, [(1,)])
+
+
+def _trackb(tmp_path, log, clock, monkeypatch):
+    from dbench.config import Limits
+    from dbench.measures.villagesql import run_track_b
+    monkeypatch.setattr("dbench.hostinfo.suspended_s", clock)
+
+    def factory(name, data_dir):
+        return _Counting(log) if name == "pg_duckdb-trackb" else Reference([ok(1.0, [(1,)])] * 40)
+
+    class Data:
+        root = tmp_path
+
+    return run_track_b(1, "r", tmp_path, ["pg_duckdb-trackb"], data=Data,
+                       limits=Limits("0-7", "8-11", 16), queries=[1, 2, 3], warm_runs=0,
+                       drop_caches=lambda: None, clock=lambda: datetime(2026, 1, 1, tzinfo=UTC),
+                       host=lambda: HOST, adapter_factory=factory)
+
+
+def test_track_b_host_suspend_keeps_measured_cells_and_resume_retries_the_rest(tmp_path,
+                                                                              monkeypatch):
+    from dbench.measures.power import SUSPEND_REASON
+    from dbench.results import iter_records
+    log: list[str] = []
+    # from the 2nd query on, the host "sleeps" 60 s during every run: q02 and q03 abort
+    _trackb(tmp_path, log, lambda: 60.0 * max(0, len(log) - 1), monkeypatch)
+    q01 = tmp_path / "r" / "pg_duckdb-trackb" / "M1-sf1-q01.json"
+    kept = q01.read_bytes()
+    by = {r.item: r for r in iter_records(tmp_path) if r.system == "pg_duckdb-trackb"}
+    assert by["q01"].status == "ok" and "auto" not in by["q01"].extra
+    for item in ("q02", "q03", "join_innodb"):
+        assert by[item].status == "failed" and by[item].extra["auto"] is True
+        assert by[item].reason.startswith(SUSPEND_REASON)
+
+    log.clear()
+    _trackb(tmp_path, log, lambda: 0.0, monkeypatch)
+    assert len(log) == 2  # q02 and q03 only
+    assert q01.read_bytes() == kept
+    by = {r.item: r for r in iter_records(tmp_path) if r.system == "pg_duckdb-trackb"}
+    assert [by[i].status for i in ("q01", "q02", "q03", "join_innodb")] == [
+        "ok", "ok", "ok", "n/a"]

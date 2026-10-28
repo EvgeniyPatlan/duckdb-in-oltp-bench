@@ -44,6 +44,7 @@ from dbench.config import QUERY_TIMEOUT_S, Limits
 from dbench.correctness import compare
 from dbench.datagen import DatasetPaths
 from dbench.measures import registry as measures
+from dbench.measures.power import SUSPEND_REASON, HostSuspended
 from dbench.reference import build_reference, cached_reference
 from dbench.results import ResultRecord, is_done, iter_records, write
 from dbench.systems.base import SystemAdapter
@@ -473,6 +474,8 @@ class _Run:
                     timeout_s=c.timeout_s, limits=c.limits, items=pending,
                     drop_caches=self.deps.drop_caches, host=self.deps.host)
                 self.summary.written += len(measure.run(started, ctx))
+        except HostSuspended as exc:  # cells already measured stay; the rest retry on resume
+            self._failed(adapter, todo, f"{SUSPEND_REASON}: {exc}")
         except Exception as exc:  # noqa: BLE001 - record what did not finish, then go on
             self._failed(adapter, todo, f"{adapter.name} aborted {measure.id}: "
                                         f"{type(exc).__name__}: {exc}")

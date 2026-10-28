@@ -22,6 +22,10 @@ def suspended_s() -> float:
 
     Linux ``CLOCK_BOOTTIME`` keeps counting while the machine sleeps and ``CLOCK_MONOTONIC``
     does not, so their difference only grows across a suspend. Containers share the host's
-    clocks, so this works inside the runner container too.
+    clocks, so this works inside the runner container too. Where ``CLOCK_BOOTTIME`` does not
+    exist (not Linux) a suspend cannot be seen and 0.0 is returned.
     """
-    return time.clock_gettime(time.CLOCK_BOOTTIME) - time.clock_gettime(time.CLOCK_MONOTONIC)
+    boottime = getattr(time, "CLOCK_BOOTTIME", None)
+    if boottime is None:
+        return 0.0
+    return time.clock_gettime(boottime) - time.clock_gettime(time.CLOCK_MONOTONIC)

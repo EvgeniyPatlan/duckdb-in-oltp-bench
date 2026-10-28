@@ -211,3 +211,35 @@ def test_suspend_on_every_attempt_aborts_instead_of_recording(tmp_path):
 
 def test_suspended_s_is_boottime_minus_monotonic():
     assert suspended_s() >= 0.0
+
+
+def test_discarded_attempt_keeps_its_cancel_and_restart_flags(tmp_path, monkeypatch):
+    monkeypatch.setattr("dbench.measures.power.LINGER_WAIT_S", 0.0)
+    clock = SleepClock({0: 50.0})
+    a = SleepingAdapter([timeout()], clock, lingering=[1])
+    (rec,) = sleeping_power(a, tmp_path, [1], clock)
+    assert rec.status == "ok"
+    assert rec.extra["discarded_attempts"] == [
+        {"host_suspended_s": 50.0, "lingering": 1, "restarted_after_timeout": True}]
+    assert a.restarts == 1
+
+
+def test_suspended_s_is_zero_without_boottime(monkeypatch):
+    import dbench.hostinfo as hi
+    monkeypatch.delattr(hi.time, "CLOCK_BOOTTIME")
+    assert hi.suspended_s() == 0.0
+
+
+def test_reference_build_reruns_a_query_the_host_slept_through(tmp_path):
+    from dbench.reference import build_reference
+    clock = SleepClock({0: 40.0})
+    a = SleepingAdapter([ok(rows=[(9,)]), ok(rows=[(1,)])], clock)
+    ref = build_reference(a, 1, "r", tmp_path, [1], 900, query_text=lambda n: "q",
+                          suspended_s=clock)
+    assert ref[1]["rows"] == [(1,)] and len(a.executed) == 2
+
+    always = SleepClock({i: 40.0 for i in range(10)})
+    b = SleepingAdapter([], always)
+    assert build_reference(b, 1, "r2", tmp_path, [1], 900, query_text=lambda n: "q",
+                           suspended_s=always) == {}
+    assert len(b.executed) == 3
