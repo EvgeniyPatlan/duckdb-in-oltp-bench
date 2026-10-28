@@ -67,6 +67,8 @@ class PostgresFamilyAdapter(ContainerServerAdapter):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._sessions = threading.local()
+        # Orders a watchdog's decision to cancel against the query's own end (see execute).
+        self._watchdog_lock = threading.Lock()
 
     def _connect(self, connect_timeout: float = PROBE_TIMEOUT_S):
         return psycopg.connect(
@@ -242,8 +244,18 @@ class PostgresFamilyAdapter(ContainerServerAdapter):
 
     def _watchdog(self, pid: int, done: threading.Event, fired: threading.Event) -> None:
         """Client-side deadline for servers that ignore statement_timeout: cancel the
-        backend, and terminate it if it is still busy after WATCHDOG_GRACE_S."""
-        fired.set()
+        backend, and terminate it if it is still busy after WATCHDOG_GRACE_S.
+
+        Nothing is sent once the query is done: the session is persistent, so a cancel sent
+        after that would hit the next query on the same backend. ``fired`` is set under the
+        same lock that ``execute`` takes to mark the query done, so a query that finished while
+        the watchdog was firing drops its session instead of keeping a backend that a cancel
+        may still reach.
+        """
+        with self._watchdog_lock:
+            if done.is_set():
+                return
+            fired.set()
         try:
             conn = self._connect()
         except Exception:  # noqa: BLE001 - nothing more we can do
@@ -304,10 +316,11 @@ class PostgresFamilyAdapter(ContainerServerAdapter):
             return QueryOutcome("error", elapsed, None, set(), f"{type(exc).__name__}: {exc}",
                                 token or "n/a")
         finally:
-            done.set()
+            with self._watchdog_lock:
+                done.set()
             timer.cancel()
             self.active.remove(pid)
-            if not keep:
+            if not keep or fired.is_set():  # a fired watchdog's cancel may still be in flight
                 self._drop_session()
 
     def lingering_queries(self) -> int:

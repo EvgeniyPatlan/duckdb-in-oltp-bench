@@ -1,6 +1,9 @@
 from datetime import UTC, datetime
 
-from dbench.measures.power import run_power
+import pytest
+
+from dbench.hostinfo import suspended_s
+from dbench.measures.power import HostSuspended, run_power
 from dbench.results import iter_records
 from dbench.systems.base import QueryOutcome
 from tests.fakes import FakeAdapter, crashed, ok, timeout
@@ -136,3 +139,75 @@ def test_timeout_whose_query_stops_does_not_restart(tmp_path, monkeypatch):
     (rec,) = power(a, tmp_path, [1])
     assert rec.status == "timeout" and a.restarts == 0
     assert "restarted_after_timeout" not in rec.extra and "lingering" not in rec.extra
+
+
+class SleepClock:
+    """Seconds the host spent suspended, as ``hostinfo.suspended_s`` reports them; ``during``
+    maps an execute() index to the seconds the host sleeps while that run is in flight."""
+
+    def __init__(self, during: dict[int, float]):
+        self.during, self.total = during, 0.0
+
+    def __call__(self) -> float:
+        return self.total
+
+
+class SleepingAdapter(FakeAdapter):
+    def __init__(self, outcomes, clock: SleepClock, **kw):
+        super().__init__(outcomes, **kw)
+        self.clock = clock
+
+    def execute(self, sql, timeout_s):
+        self.clock.total += self.clock.during.get(len(self.executed), 0.0)
+        return super().execute(sql, timeout_s)
+
+
+def sleeping_power(adapter, tmp_path, queries, clock):
+    return run_power(
+        adapter, 1, "run1", tmp_path, None, queries=queries, drop_caches=lambda: None,
+        clock=lambda: datetime(2026, 1, 1, tzinfo=UTC), host=lambda: HOST, suspended_s=clock)
+
+
+STATEMENT_TIMEOUT = QueryOutcome(
+    "timeout", 0.4, None, set(),
+    "QueryCanceled: canceling statement due to statement timeout", "n/a")
+
+
+def test_host_suspend_during_a_warm_run_is_measured_again_not_a_timeout(tmp_path):
+    # The smoke-sf1 incident: q06 cold ok, then the host slept 24864 s during warm run 1 and
+    # Postgres, whose statement_timeout deadline is on the wall clock, cancelled it on resume.
+    clock = SleepClock({1: 24864.0})
+    a = SleepingAdapter([ok(0.92), STATEMENT_TIMEOUT], clock)
+    (rec,) = sleeping_power(a, tmp_path, [6], clock)
+    assert rec.status == "ok" and rec.error is None
+    assert rec.extra["host_suspended_s"] == [24864.0]
+    assert len(rec.extra["warm_s"]) == 3
+    assert len(a.executed) == 2 + 4  # the interrupted attempt, then a full cold + 3 warm
+    assert a.cancels == 1  # the interrupted query was still cleaned up before the retry
+
+
+def test_host_suspend_during_an_ok_run_is_measured_again(tmp_path):
+    clock = SleepClock({0: 30.0})
+    a = SleepingAdapter([], clock)
+    (rec,) = sleeping_power(a, tmp_path, [1], clock)
+    assert rec.status == "ok" and rec.extra["host_suspended_s"] == [30.0]
+    assert len(a.executed) == 1 + 4
+
+
+def test_no_suspend_leaves_records_unchanged(tmp_path):
+    clock = SleepClock({})
+    a = SleepingAdapter([ok(1.0), STATEMENT_TIMEOUT], clock)
+    (rec,) = sleeping_power(a, tmp_path, [1], clock)
+    assert rec.status == "timeout" and "host_suspended_s" not in rec.extra
+
+
+def test_suspend_on_every_attempt_aborts_instead_of_recording(tmp_path):
+    clock = SleepClock({i: 60.0 for i in range(100)})
+    a = SleepingAdapter([], clock)
+    with pytest.raises(HostSuspended, match="q01"):
+        sleeping_power(a, tmp_path, [1, 2], clock)
+    assert list(iter_records(tmp_path)) == []
+
+
+def test_suspended_s_is_boottime_minus_monotonic():
+    assert suspended_s() >= 0.0

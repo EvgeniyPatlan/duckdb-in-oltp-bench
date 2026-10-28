@@ -105,3 +105,21 @@ def test_rendered_settings_took_effect(adapter):
                            "max_parallel_workers_per_gather": "4"}
     finally:
         conn.close()
+
+
+def test_postgres_late_watchdog_does_not_cancel_the_next_query_on_the_session(adapter):
+    """A watchdog timer of a query that already finished must not cancel the next query on
+    the same persistent backend (it would be recorded as a false timeout)."""
+    if adapter.name != "postgres":
+        pytest.skip("Postgres-family only")
+    import threading
+    assert adapter.execute("SELECT 1", 900).status == "ok"
+    pid = adapter._session().info.backend_pid
+    done, fired = threading.Event(), threading.Event()
+    done.set()  # the earlier query on this backend is finished
+    late = threading.Timer(0.5, adapter._watchdog, (pid, done, fired))
+    late.start()
+    out = adapter.execute("SELECT pg_sleep(2)", 900)
+    late.join()
+    assert out.status == "ok", out.error
+    assert adapter._session().info.backend_pid == pid

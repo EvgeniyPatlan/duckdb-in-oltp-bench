@@ -7,6 +7,15 @@ record carries ``extra["restarted_after_timeout"]=True`` and ``extra["lingering"
 A ``cancel()`` that reports False (the server cannot reach the query, as with VillageSQL's
 ``duckdb_query()``, which ``KILL`` does not touch) forces the restart too, whatever the processlist
 shows, and is flagged ``extra["cancel_unavailable"]=True``.
+
+A host suspend (laptop sleep) while a run is in flight invalidates that attempt: the servers'
+own deadlines run on the wall clock, which jumps forward across the sleep, so Postgres reports
+``statement_timeout`` on resume for a query that had run for under a second. The attempt is
+discarded (after the usual cancel/restart handling) and the query is measured again from its
+cold run, up to SUSPEND_RETRIES more times; the record lists the sleeps in
+``extra["host_suspended_s"]``. If the host sleeps through every attempt, ``HostSuspended`` is
+raised and nothing is recorded for that query (the campaign records an auto-failure that a
+resume retries).
 """
 from __future__ import annotations
 
@@ -26,6 +35,20 @@ from dbench.systems.base import QueryOutcome, SystemAdapter
 QUERY_NUMBERS = range(1, 23)
 LINGER_WAIT_S = 10.0
 LINGER_POLL_S = 1.0
+SUSPEND_TOLERANCE_S = 1.0  # BOOTTIME - MONOTONIC only moves across a suspend
+SUSPEND_RETRIES = 2
+
+
+class HostSuspended(RuntimeError):
+    """The host slept during every attempt at one query, so it has no valid measurement."""
+
+
+class _Interrupted(Exception):
+    """The host slept while a run was in flight; the attempt is discarded."""
+
+    def __init__(self, slept_s: float, restart: bool):
+        super().__init__(f"host suspended for {slept_s:.1f}s")
+        self.slept_s, self.restart = slept_s, restart
 
 
 def _utcnow() -> datetime:
@@ -79,6 +102,19 @@ def _diagnose(adapter: SystemAdapter, outcome: QueryOutcome,
     return status, info, True
 
 
+def _execute(adapter: SystemAdapter, sql: str, timeout_s: int,
+             slept: Callable[[], float]) -> QueryOutcome:
+    """One run of ``sql``; raises _Interrupted if the host was suspended while it ran. A failed
+    interrupted run is still cancelled and diagnosed, so the retry starts on a usable server."""
+    before = slept()
+    out = adapter.execute(sql, timeout_s)
+    gap = slept() - before
+    if gap <= SUSPEND_TOLERANCE_S:
+        return out
+    restart = _diagnose(adapter, out, {})[2] if out.status != "ok" else False
+    raise _Interrupted(gap, restart)
+
+
 def _diff_rows(diffs: list[tuple]) -> list[list]:
     return [[pos, repr(a), repr(b)] for pos, a, b in diffs]
 
@@ -90,10 +126,11 @@ def _measure(
     drop_caches: Callable[[], None],
     timeout_s: int,
     warm_runs: int,
+    slept: Callable[[], float],
 ) -> tuple[str, float | None, str | None, dict, bool]:
     """One query: (status, value, error, extra, restart_needed)."""
     drop_caches()
-    cold = adapter.execute(sql, timeout_s)
+    cold = _execute(adapter, sql, timeout_s, slept)
     extra: dict = {**cold.extra, "cold_s": cold.elapsed_s, "warm_s": [], "pushed": cold.pushed}
     if cold.status != "ok":
         status, info, restart = _diagnose(adapter, cold, extra)
@@ -103,7 +140,7 @@ def _measure(
 
     extra["checksum"] = checksum(cold.rows or [], cold.numeric_cols)
     for _ in range(warm_runs):
-        warm = adapter.execute(sql, timeout_s)
+        warm = _execute(adapter, sql, timeout_s, slept)
         if warm.status != "ok":
             status, info, restart = _diagnose(adapter, warm, extra)
             if info:
@@ -124,6 +161,34 @@ def _measure(
     return status, value, None, extra, False
 
 
+def _restart(adapter: SystemAdapter) -> str | None:
+    """Restart the server; the error text if that fails (never raised)."""
+    try:
+        adapter.restart()
+    except Exception as exc:  # noqa: BLE001 - keep the campaign going
+        return f"{type(exc).__name__}: {exc}"
+    return None
+
+
+def _measure_valid(adapter: SystemAdapter, item: str, measure: Callable[[], tuple],
+                   clock: Callable[[], datetime]) -> tuple[str, tuple, list[float], str | None]:
+    """``measure()`` until no attempt was interrupted by a host suspend:
+    (started_at, its result, the sleeps of the discarded attempts, a restart error)."""
+    sleeps: list[float] = []
+    restart_error: str | None = None
+    for _ in range(SUSPEND_RETRIES + 1):
+        started = clock().isoformat()
+        try:
+            return started, measure(), sleeps, restart_error
+        except _Interrupted as exc:
+            sleeps.append(round(exc.slept_s, 1))
+            if exc.restart:
+                restart_error = _restart(adapter) or restart_error
+    raise HostSuspended(
+        f"{adapter.name} {item}: the host was suspended during each of {len(sleeps)} attempts "
+        f"({sleeps} s); keep it awake and resume the run")
+
+
 def run_power(
     adapter: SystemAdapter,
     sf: int,
@@ -139,6 +204,7 @@ def run_power(
     warm_runs: int = WARM_RUNS,
     query_text: Callable[[int], str] | None = None,
     extra_queries: Iterable[tuple[str, str, dict | None]] = (),
+    suspended_s: Callable[[], float] = hostinfo.suspended_s,
 ) -> list[ResultRecord]:
     """Run the queries, write one M1 record per query under ``root`` and return them.
 
@@ -150,7 +216,8 @@ def run_power(
     ``query_text(n)`` replaces the default ``translate(load_query(n), adapter.dialect)`` (Track B
     substitutes Parquet readers for the table names). ``extra_queries`` are further
     ``(item, sql, expected)`` entries measured after the numbered queries, with the same
-    cold/warm, timeout and restart handling.
+    cold/warm, timeout and restart handling. ``suspended_s()`` reports the host's total sleep
+    time; a run during which it grows is discarded and the query measured again.
     """
     host_facts = host()
     versions = adapter.versions()
@@ -163,10 +230,15 @@ def run_power(
     work.extend(extra_queries)
 
     for item, sql, expected in work:
-        started = clock().isoformat()
-        status, value, error, extra, restart = _measure(
-            adapter, sql, expected, drop_caches, timeout_s, warm_runs
-        )
+        started, result, sleeps, retry_error = _measure_valid(
+            adapter, item,
+            lambda sql=sql, expected=expected: _measure(
+                adapter, sql, expected, drop_caches, timeout_s, warm_runs, suspended_s),
+            clock)
+        status, value, error, extra, restart = result
+        if sleeps:
+            extra["host_suspended_s"] = sleeps
+        restart_error = restart_error or retry_error
         if restart_error:
             extra["restart_error"] = restart_error
             restart_error = None
@@ -192,8 +264,5 @@ def run_power(
         records.append(rec)
 
         if restart:
-            try:
-                adapter.restart()
-            except Exception as exc:  # noqa: BLE001 - keep the campaign going
-                restart_error = f"{type(exc).__name__}: {exc}"
+            restart_error = _restart(adapter)
     return records

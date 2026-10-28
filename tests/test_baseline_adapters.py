@@ -221,3 +221,59 @@ def test_postgres_load_vacuums_freezes_each_table_instead_of_analyze(tmp_path):
     vac = [s for s in stmts if s.startswith("VACUUM")]
     assert vac == [f"VACUUM (FREEZE, ANALYZE) {t}" for t in datagen.TABLES]
     assert "ANALYZE" not in stmts
+
+
+class _RaceConn:
+    """Fake server where the watchdog's cancel arrives just as the query completes: the query
+    still returns its rows, so a cancel that is not tied to it would hit the next query."""
+
+    def __init__(self, st, pid):
+        self.st, self.closed = st, False
+        self.info = type("I", (), {"backend_pid": pid})()
+
+    def execute(self, sql, params=None):
+        if "pg_cancel_backend" in sql or "pg_terminate_backend" in sql:
+            self.st.calls.append((sql.split("(")[0].split()[-1], params[0]))
+            self.st.released.set()
+            return self
+        if not sql.startswith("SET"):
+            self.st.ran_on.append((sql, self.info.backend_pid))
+            if sql == "SELECT race":
+                self.st.released.wait(10)
+        cur = type("Cur", (), {})()
+        cur.description = [type("D", (), {"type_code": 23, "name": "n"})()]
+        cur.fetchall = lambda: [(1,)]
+        return cur
+
+    def close(self):
+        self.closed = True
+
+
+def _race_adapter(monkeypatch):
+    st = _PgState()
+    st.ran_on = []
+    pids = iter(range(100, 200))
+    a = Postgres(None)
+    monkeypatch.setattr(a, "_connect", lambda *x, **k: _RaceConn(st, next(pids)))
+    monkeypatch.setattr(a, "crash_info", lambda: {"status": "running"})
+    return a, st
+
+
+def test_postgres_watchdog_does_nothing_once_the_query_is_done(monkeypatch):
+    a, st = _race_adapter(monkeypatch)
+    done, fired = threading.Event(), threading.Event()
+    done.set()
+    a._watchdog(100, done, fired)
+    assert st.calls == [] and not fired.is_set()
+
+
+def test_postgres_watchdog_racing_a_finished_query_never_reaches_the_next_one(monkeypatch):
+    a, st = _race_adapter(monkeypatch)
+    monkeypatch.setattr(postgres_family, "READ_MARGIN_S", 0.05)
+    monkeypatch.setattr(postgres_family, "WATCHDOG_GRACE_S", 0.5)
+    first = a.execute("SELECT race", 0)  # the watchdog fires, the query still returns rows
+    assert first.status == "ok"
+    assert st.calls and st.calls[0] == ("pg_cancel_backend", 100)
+    assert a.execute("SELECT next", 900).status == "ok"
+    (_, next_pid), = [r for r in st.ran_on if r[0] == "SELECT next"]
+    assert next_pid != 100  # the backend the cancel was sent to is not reused
