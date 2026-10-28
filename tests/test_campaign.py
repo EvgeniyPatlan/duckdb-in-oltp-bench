@@ -130,14 +130,16 @@ class Env:
 
 
 def records(root: Path, system: str | None = None):
-    return [r for r in iter_records(root) if system is None or r.system == system]
+    """Measured records; M7 is derived from them and has its own tests."""
+    return [r for r in iter_records(root)
+            if r.measure != "M7" and (system is None or r.system == system)]
 
 
 def test_campaign_runs_all_cells(tmp_path):
     env = Env(tmp_path)
     run_campaign(write_yaml(tmp_path), tmp_path / "res", env.deps())
     assert len(records(tmp_path / "res", "alisql")) == 22
-    assert {r.status for r in iter_records(tmp_path / "res")} == {"ok"}
+    assert {r.status for r in records(tmp_path / "res")} == {"ok"}
     assert len(records(tmp_path / "res")) == 4 * 22
     assert (tmp_path / "res" / "r1" / "_reference" / "q01.json").is_file()
 

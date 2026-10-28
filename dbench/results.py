@@ -123,3 +123,13 @@ def is_done(root: Path, system: str, measure: str, sf: int, item: str, run_id: s
     """A cell resume leaves alone: it has a record that is not an automatic failure."""
     rec = cell_record(root, system, measure, sf, item, run_id)
     return rec is not None and not is_auto_failed(rec)
+
+
+def remove(root: Path, rec: ResultRecord) -> bool:
+    """Delete the stored file of ``rec``'s cell; False when there was none."""
+    path = _path(root, rec.system, rec.measure, rec.sf, rec.item, rec.run_id)
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return False
+    return True

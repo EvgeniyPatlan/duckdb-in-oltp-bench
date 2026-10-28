@@ -11,6 +11,13 @@ Schema (all keys but ``timeout_s``, ``reference``, ``streams`` and ``track_b`` a
     timeout_s: 900
     reference: {system: duckdb-1.5.5, cross_check: [duckdb-1.4.3]}
     track_b: {enabled: true, systems: [duckdb-1.5.5, villagesql, ...]}   # or just ``true``
+    overrides: {innodb: {measures: [M1]}}   # optional: measures of one system replace the list
+
+``overrides`` replaces the measure list of the named systems (each must be in ``systems``; the
+measures must be registered). A system whose measures do not include M2 is still bulk-loaded,
+but the load is only setup and is not recorded. At the end M7 (integration overhead) is computed
+from the M1 records and the summary lists the cells whose result was not checked against the
+reference.
 
 Before any container starts the limits are validated against the CPUs and RAM the Docker daemon
 reports, and every image is checked against ``systems/versions.lock.json``. Systems then run one
@@ -48,6 +55,7 @@ from dbench.correctness import compare
 from dbench.datagen import DatasetPaths
 from dbench.measures import registry as measures
 from dbench.measures.load import run_load_bulk
+from dbench.measures.overhead import run_overhead
 from dbench.measures.power import SUSPEND_REASON, HostSuspended
 from dbench.reference import build_reference, cached_reference
 from dbench.results import ResultRecord, cell_record, is_done, iter_records, write
@@ -60,7 +68,8 @@ GATE_MAX_SF = 10  # up to here InnoDB and Postgres gate the run; above, cross-ch
 QUERIES = range(1, 23)
 TRACK_B_JOIN_ITEM = "join_innodb"
 KEYS = {"run_id", "sf", "systems", "measures", "limits", "timeout_s", "reference", "track_b",
-        "streams"}
+        "streams",
+        "overrides"}
 LIMIT_KEYS = ("db_cpuset", "runner_cpuset", "mem_gb")
 
 
@@ -85,6 +94,7 @@ class Campaign:
     track_b_enabled: bool = False
     track_b_systems: tuple[str, ...] = ()
     streams: tuple[int, ...] = STREAMS  # M4's stream counts
+    overrides: dict[str, tuple[str, ...]] = dataclasses.field(default_factory=dict)
 
     @property
     def trackb_run_id(self) -> str:
@@ -111,6 +121,10 @@ class Campaign:
     def cross_check_systems(self) -> tuple[str, ...]:
         return () if self.gated else self.cross_check
 
+    def measures_for(self, system: str) -> tuple[str, ...]:
+        """The measures planned for ``system``: its override, else the campaign's list."""
+        return self.overrides.get(system, self.measures)
+
     def items(self, measure: str) -> list[str]:
         """Planned items of a measure at this campaign's scale factor (M4: its stream counts)."""
         if measure == "M4":
@@ -121,7 +135,7 @@ class Campaign:
         """Planned cells of ``system`` as (run_id, measure, item, track label or "")."""
         cells = []
         if system in self.systems:
-            for m in self.measures:
+            for m in self.measures_for(system):
                 cells += [(self.run_id, m, item, "") for item in self.items(m)]
         if self.track_b_enabled and system in self.track_b_systems:
             cells += [(self.trackb_run_id, "M1", item, "B") for item in trackb_items()]
@@ -132,6 +146,8 @@ class Campaign:
 class Summary:
     written: int = 0
     skipped: int = 0
+    # (system, measure, item) of ok results that were not checked against the reference
+    unchecked: list[tuple[str, str, str]] = dataclasses.field(default_factory=list)
 
 
 def trackb_items() -> list[str]:
@@ -211,13 +227,14 @@ def _limits(value) -> Limits:
                   _positive_int(value["mem_gb"], "limits.mem_gb"))
 
 
-def _measures(value) -> tuple[str, ...]:
+def _measures(value, label: str = "measures") -> tuple[str, ...]:
     if not isinstance(value, list) or not value or not all(isinstance(m, str) for m in value):
-        raise CampaignError("measures must be a non-empty list of measure ids")
+        raise CampaignError(f"{label} must be a non-empty list of measure ids")
     missing = [m for m in value if m not in measures.registered()]
     if missing:
         raise CampaignError(
-            f"measure(s) {missing} are not registered; registered: {measures.registered()}")
+            f"{label}: measure(s) {missing} are not registered; "
+            f"registered: {measures.registered()}")
     return tuple(value)
 
 
@@ -243,6 +260,20 @@ def _track_b(value) -> tuple[bool, tuple[str, ...]]:
     systems = _system_list(value["systems"], "track_b.systems") \
         if "systems" in value else tuple(TRACK_B_SYSTEMS)
     return enabled, systems
+
+
+def _overrides(value, systems: tuple[str, ...]) -> dict[str, tuple[str, ...]]:
+    if not isinstance(value, dict):
+        raise CampaignError("overrides must be a mapping {system: {measures: [...]}}")
+    out: dict[str, tuple[str, ...]] = {}
+    for system, spec in value.items():
+        if system not in systems:
+            raise CampaignError(
+                f"overrides names {system!r}, which is not in systems {list(systems)}")
+        if not isinstance(spec, dict) or set(spec) != {"measures"}:
+            raise CampaignError(f"overrides.{system} must be {{measures: [...]}}")
+        out[system] = _measures(spec["measures"], f"overrides.{system}.measures")
+    return out
 
 
 def load_campaign(path: Path) -> Campaign:
@@ -273,7 +304,8 @@ def load_campaign(path: Path) -> Campaign:
         timeout_s=_positive_int(doc.get("timeout_s", QUERY_TIMEOUT_S), "timeout_s"),
         reference_system=ref_system, cross_check=cross, track_b_enabled=enabled,
         track_b_systems=trackb_systems,
-        streams=_streams(doc["streams"]) if "streams" in doc else STREAMS)
+        streams=_streams(doc["streams"]) if "streams" in doc else STREAMS,
+        overrides=_overrides(doc.get("overrides", {}), systems))
     missing = [s for s in GATE_SYSTEMS if s not in systems]
     if campaign.gated and missing:
         raise CampaignError(
@@ -460,7 +492,7 @@ class _Run:
         c = self.c
         adapter = self.deps.adapter_factory(name, self.data.root)
         todo: list[tuple[measures.Measure, list[str]]] = []
-        for m in c.measures:
+        for m in c.measures_for(name):
             measure = measures.get(m)
             items = c.items(m)
             stale = (measure.stale(adapter, self.root, c.run_id, c.sf)
@@ -555,6 +587,12 @@ class _Run:
             "continuing. The records carry extra.reference_disagreement; fix the cause, "
             "delete them and re-run to resume.")
 
+    def finish(self) -> None:
+        """M7 from the M1 records, then the list of cells nothing was checked against."""
+        version = self.c.reference_system.removeprefix(DUCKDB_PREFIX)
+        run_overhead(self.root, self.c.run_id, version)  # derived data: not counted as written
+        self.summary.unchecked = unchecked_cells(self.root, self.c.run_id)
+
     # track B
     def run_track_b(self) -> None:
         c = self.c
@@ -572,6 +610,21 @@ class _Run:
             c.sf, c.trackb_run_id, self.root, pending, data=self.data, limits=c.limits,
             timeout_s=c.timeout_s)
         self.summary.written += len(records)
+
+
+def _is_unchecked(r: ResultRecord) -> bool:
+    if r.status != "ok":
+        return False
+    if r.measure == "M1":
+        return not r.extra.get("compared")
+    return r.measure == "M5" and r.track == "A" and r.extra.get("compared") is False
+
+
+def unchecked_cells(root: Path, run_id: str) -> list[tuple[str, str, str]]:
+    """ok M1 queries (``extra.compared`` false or absent) and Track A M5 probes
+    (``extra.compared`` false) whose result was not checked against a reference."""
+    return sorted((r.system, r.measure, r.item) for r in iter_records(Path(root) / run_id)
+                  if r.run_id == run_id and _is_unchecked(r))
 
 
 def _check_affinity(limits: Limits, deps: Deps) -> None:
@@ -600,4 +653,5 @@ def run_campaign(path: Path, root: Path, deps: Deps | None = None) -> Summary:
         run.run_system(name)
     if c.track_b_enabled:
         run.run_track_b()
+    run.finish()
     return run.summary

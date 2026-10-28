@@ -1,0 +1,36 @@
+# Conference-talk campaign at SF100 on the 80-core bench host.
+# Track A engines run every measure; the row-store baselines only M1; plain DuckDB M1 and M4.
+# M7 (integration overhead) is computed automatically at the end from the M1 records.
+run_id: talk-sf100
+sf: 100
+systems:
+  - duckdb-1.5.5        # plain DuckDB first: also the reference
+  - duckdb-1.4.3        # cross-check of the reference
+  - duckdb-1.5.3
+  - duckdb-1.5.2-dev736
+  - alisql
+  - mariadb
+  - percona
+  - pg_duckdb
+  - pg_ducklake
+  - innodb
+  - postgres
+measures: [M1, M2, M3, M4, M5, M8]
+overrides:
+  duckdb-1.5.5: {measures: [M1, M4]}
+  duckdb-1.4.3: {measures: [M1, M4]}
+  duckdb-1.5.3: {measures: [M1, M4]}
+  duckdb-1.5.2-dev736: {measures: [M1, M4]}
+  innodb: {measures: [M1]}
+  postgres: {measures: [M1]}
+limits:
+  db_cpuset: "0-15"
+  runner_cpuset: "16-23"
+  mem_gb: 64
+timeout_s: 900
+reference:
+  system: duckdb-1.5.5
+  cross_check: [duckdb-1.4.3]
+track_b:
+  enabled: true
+  systems: [duckdb-1.5.5, villagesql, pg_duckdb-trackb, mariadb-trackb]

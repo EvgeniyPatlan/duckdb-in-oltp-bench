@@ -286,7 +286,7 @@ def campaign(tmp_path, env, **over):
 
 
 def of(res, system, measure=None):
-    return {r.item: r for r in iter_records(res) if r.system == system
+    return {r.item: r for r in iter_records(res) if r.system == system and r.measure != "M7"
             and (measure is None or r.measure == measure)}
 
 

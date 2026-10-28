@@ -8,6 +8,7 @@ one JSON record per cell under `$DBENCH_RESULTS/<run_id>/`.
 |---|---|---|
 | `smoke-sf1.yaml` | 20-core development machine | database `0-7`, runner `8-11`, 16 GB |
 | `gate-sf10.yaml` | 80-core / 180 GB bench host | database `0-15`, runner `16-23`, 64 GB |
+| `talk-sf100.yaml` | same host; SF100, multi-day | same as the gate |
 
 Results and data live outside the checkout. In the commands below `/srv/dbench/data` and
 `/srv/dbench/results` are examples; use any directories with enough space. Set the variables
@@ -121,6 +122,45 @@ name or any `build_inputs` (base image digests, pinned package versions, tarball
 git commits, read from the Dockerfiles and build scripts) relative to the committed lock; pass
 `--force` to move the pins on purpose. The campaign refuses to start when the build inputs differ
 from the lock or when a running image differs from it.
+
+## Per-system measures (`overrides`)
+
+By default every system runs the campaign's `measures`. `overrides` replaces that list for named
+systems:
+
+```yaml
+overrides:
+  innodb: {measures: [M1]}
+  duckdb-1.5.5: {measures: [M1, M4]}
+```
+
+Each key must be in `systems` and each measure registered, otherwise the campaign refuses to
+start. A system whose list leaves out M2 is still bulk-loaded (it needs the data), but that load
+is setup and is not recorded. `talk-sf100.yaml` uses this: Track A engines run M1-M5 and M8, the
+row-store baselines only M1, plain DuckDB (1.5.5, 1.4.3, 1.5.3, 1.5.2-dev736) M1 and M4.
+
+## M7: integration overhead
+
+For each Track A system and query, M7 is the system's M1 warm value divided by the M1 warm value
+of plain DuckDB at the same DuckDB version (the system's `versions.duckdb`, `v` prefix dropped, so
+`pg_duckdb` on 1.4.3 is compared with `duckdb-1.4.3`). Each system also gets a `geomean` item over
+its ok ratios (`extra.queries_used`, `extra.excluded`). Rules:
+
+- no plain run at that version: `n/a`, "no plain DuckDB run at version X" (never compared with
+  another version);
+- either side not `ok` (timeout, wrong_result, ...): `n/a` naming the status;
+- `extra.version_gap` is set when the version differs from the reference version (1.5.5), so the
+  reader knows the baseline is not the reference one.
+
+A campaign computes M7 when it ends. Recompute from the stored M1 records at any time (M7
+records of the run are replaced; nothing else is touched):
+
+```bash
+DBENCH_RESULTS=/srv/dbench/results scripts/dev.sh dbench overhead talk-sf100
+```
+
+The campaign's end summary also lists the cells that were not checked against the reference
+(`extra.compared` false: the reference had no result for the query).
 
 ## Where the results land
 

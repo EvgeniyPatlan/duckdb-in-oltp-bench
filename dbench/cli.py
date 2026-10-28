@@ -67,6 +67,13 @@ def build_parser() -> argparse.ArgumentParser:
     camp.add_argument("file", type=Path)
     camp.add_argument("--results", type=Path, help="default: $DBENCH_RESULTS or <repo>/results")
 
+    over = sub.add_parser(
+        "overhead", help="M7: rewrite the integration overhead of a run from its M1 records")
+    over.add_argument("run_id")
+    over.add_argument("--results", type=Path, help="default: $DBENCH_RESULTS or <repo>/results")
+    over.add_argument("--reference-version", default="1.5.5",
+                      help="campaign reference DuckDB version (default: %(default)s)")
+
     lk = sub.add_parser("lock", help="write systems/versions.lock.json from the local images")
     lk.add_argument("--force", action="store_true",
                     help="also change registry digests and build inputs (default: only refresh "
@@ -227,7 +234,26 @@ def _campaign(args: argparse.Namespace) -> int:
         return 1
     print(f"campaign {campaign.run_id}: {summary.written} records written, "
           f"{summary.skipped} cells skipped (already recorded)")
+    if summary.unchecked:
+        print(f"{len(summary.unchecked)} cells were not checked against the reference:")
+        for system, measure, item in summary.unchecked:
+            print(f"  {system} {measure} {item}")
     _status_table(root, run_ids)
+    return 0
+
+
+def _overhead(args: argparse.Namespace) -> int:
+    from dbench.measures.overhead import run_overhead
+
+    root = args.results or results_root()
+    if not (root / args.run_id).is_dir():
+        print(f"overhead: no results for run {args.run_id!r} under {root}")
+        return 2
+    records = run_overhead(root, args.run_id, args.reference_version)
+    for r in records:
+        shown = f"{r.value:.3f}x" if r.value is not None else f"n/a ({r.reason})"
+        print(f"  {r.system} {r.item}: {shown}")
+    print(f"run {args.run_id}: {len(records)} M7 records")
     return 0
 
 
@@ -269,6 +295,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _trackb(args)
     if args.command == "campaign":
         return _campaign(args)
+    if args.command == "overhead":
+        return _overhead(args)
     if args.command == "lock":
         return _lock(args)
     if args.command == "mark-failed":
