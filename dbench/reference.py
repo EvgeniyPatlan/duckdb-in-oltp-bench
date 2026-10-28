@@ -122,3 +122,15 @@ def build_reference(
             _write(path, adapter.name, sf, entry)
         out[n] = entry
     return out
+
+
+def reference_system(root: Path, run_id: str) -> str | None:
+    """The system the cached reference rows of ``run_id`` came from (None without a cache)."""
+    for path in sorted((Path(root) / run_id / "_reference").glob("q*.json")):
+        try:
+            system = json.loads(path.read_text(encoding="utf-8"))["system"]
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        if isinstance(system, str):
+            return system
+    return None

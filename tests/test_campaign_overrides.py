@@ -73,9 +73,11 @@ def test_cli_overhead(tmp_path, capsys):
     res = tmp_path / "res"
     write(m1("duckdb-1.5.5", "q01", 1.0, version="v1.5.5", track="baseline"), res)
     write(m1("alisql", "q01", 3.0, version="1.5.5"), res)
-    assert cli.main(["overhead", "r1", "--results", str(res)]) == 0
+    assert cli.main(["overhead", "r1", "--results", str(res),
+                     "--reference-version", "1.5.5"]) == 0
     assert "alisql q01: 3.000x" in capsys.readouterr().out
-    assert {r.item for r in iter_records(res) if r.measure == "M7"} == {"q01", "geomean"}
+    items = {r.item for r in iter_records(res) if r.measure == "M7"}
+    assert items == {"q01", "geomean", "geomean_common"}
     assert cli.main(["overhead", "missing", "--results", str(res)]) == 2
 
 

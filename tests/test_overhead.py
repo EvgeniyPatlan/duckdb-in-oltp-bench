@@ -114,7 +114,7 @@ def test_run_overhead_is_idempotent_and_only_touches_m7(tmp_path: Path):
     first = run_overhead(root, "r1")
     second = run_overhead(root, "r1")
     m7 = [r for r in iter_records(root / "r1") if r.measure == "M7"]
-    assert len(first) == len(second) == len(m7) == 2  # q01 + geomean
+    assert len(first) == len(second) == len(m7) == 3  # q01 + geomean + geomean_common
     after = {r.system: r for r in iter_records(root / "r1") if r.measure == "M1"}
     assert before == after
 

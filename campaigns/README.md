@@ -142,15 +142,27 @@ row-store baselines only M1, plain DuckDB (1.5.5, 1.4.3, 1.5.3, 1.5.2-dev736) M1
 ## M7: integration overhead
 
 For each Track A system and query, M7 is the system's M1 warm value divided by the M1 warm value
-of plain DuckDB at the same DuckDB version (the system's `versions.duckdb`, `v` prefix dropped, so
-`pg_duckdb` on 1.4.3 is compared with `duckdb-1.4.3`). Each system also gets a `geomean` item over
-its ok ratios (`extra.queries_used`, `extra.excluded`). Rules:
+of plain DuckDB at the same DuckDB version (the record's `versions.duckdb`, `v` prefix dropped, so
+`pg_duckdb` on 1.4.3 is compared with `duckdb-1.4.3`). The version is read per record. Rules:
 
 - no plain run at that version: `n/a`, "no plain DuckDB run at version X" (never compared with
   another version);
-- either side not `ok` (timeout, wrong_result, ...): `n/a` naming the status;
-- `extra.version_gap` is set when the version differs from the reference version (1.5.5), so the
-  reader knows the baseline is not the reference one.
+- no recorded version (`unknown`): `n/a`, "DuckDB version not recorded";
+- either side not `ok` (timeout, wrong_result, ...): `n/a` naming the status; a plain time of zero
+  is `n/a` too;
+- `extra.version_gap` is set when the version differs from the reference version, so the reader
+  knows the baseline is not the reference one.
+
+Two summary items per system:
+
+- `geomean`: geometric mean over the system's ok ratios, with `extra.queries_used`,
+  `extra.queries_total` and `extra.excluded`. A system that times out on its slow queries scores
+  better here, so `extra.partial` is true whenever any query is excluded; `dbench overhead` and the
+  campaign summary print `used/total queries` next to it. It is `n/a` ("mixed DuckDB versions: a,
+  b") when the ok ratios come from more than one DuckDB version.
+- `geomean_common`: geometric mean over the queries where every Track A system of the run has an ok
+  ratio (`extra.queries` lists them), so all systems are scored on the same queries. `n/a` with a
+  reason when no query is common. Compare systems on this item, not on `geomean`.
 
 A campaign computes M7 when it ends. Recompute from the stored M1 records at any time (M7
 records of the run are replaced; nothing else is touched):
@@ -158,6 +170,9 @@ records of the run are replaced; nothing else is touched):
 ```bash
 DBENCH_RESULTS=/srv/dbench/results scripts/dev.sh dbench overhead talk-sf100
 ```
+
+The reference version comes from the run's cached reference (`_reference/`); without it, pass
+`--reference-version`. The rewrite is not atomic: if it is interrupted, rerun to repair.
 
 The campaign's end summary also lists the cells that were not checked against the reference
 (`extra.compared` false: the reference had no result for the query).

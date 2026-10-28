@@ -55,7 +55,7 @@ from dbench.correctness import compare
 from dbench.datagen import DatasetPaths
 from dbench.measures import registry as measures
 from dbench.measures.load import run_load_bulk
-from dbench.measures.overhead import run_overhead
+from dbench.measures.overhead import SUMMARY_ITEMS, format_summary, run_overhead
 from dbench.measures.power import SUSPEND_REASON, HostSuspended
 from dbench.reference import build_reference, cached_reference
 from dbench.results import ResultRecord, cell_record, is_done, iter_records, write
@@ -148,6 +148,7 @@ class Summary:
     skipped: int = 0
     # (system, measure, item) of ok results that were not checked against the reference
     unchecked: list[tuple[str, str, str]] = dataclasses.field(default_factory=list)
+    overhead: list[str] = dataclasses.field(default_factory=list)  # one line per M7 geomean
 
 
 def trackb_items() -> list[str]:
@@ -587,11 +588,18 @@ class _Run:
             "continuing. The records carry extra.reference_disagreement; fix the cause, "
             "delete them and re-run to resume.")
 
-    def finish(self) -> None:
-        """M7 from the M1 records, then the list of cells nothing was checked against."""
-        version = self.c.reference_system.removeprefix(DUCKDB_PREFIX)
-        run_overhead(self.root, self.c.run_id, version)  # derived data: not counted as written
-        self.summary.unchecked = unchecked_cells(self.root, self.c.run_id)
+    def finish(self, aborting: bool = False) -> None:
+        """M7 from the M1 records, then the list of cells nothing was checked against. While an
+        exception is in flight (``aborting``) a failure here is logged, never raised over it."""
+        try:
+            version = self.c.reference_system.removeprefix(DUCKDB_PREFIX)
+            m7 = run_overhead(self.root, self.c.run_id, version)  # derived: not counted written
+            self.summary.overhead = [format_summary(r) for r in m7 if r.item in SUMMARY_ITEMS]
+            self.summary.unchecked = unchecked_cells(self.root, self.c.run_id)
+        except Exception as exc:  # noqa: BLE001
+            if not aborting:
+                raise
+            self.say(f"M7 could not be computed: {type(exc).__name__}: {exc}")
 
     # track B
     def run_track_b(self) -> None:
@@ -648,10 +656,14 @@ def run_campaign(path: Path, root: Path, deps: Deps | None = None) -> Summary:
     _check_affinity(c.limits, deps)
     deps.lock_check(sorted(c.lock_systems()))
     run = _Run(c, Path(root), deps, deps.dataset(c.sf))
-    for name in c.ordered_systems():
-        run.say(f"system {name}")
-        run.run_system(name)
-    if c.track_b_enabled:
-        run.run_track_b()
+    try:
+        for name in c.ordered_systems():
+            run.say(f"system {name}")
+            run.run_system(name)
+        if c.track_b_enabled:
+            run.run_track_b()
+    except BaseException:
+        run.finish(aborting=True)  # no stale M7 next to newer M1, whatever stopped the run
+        raise
     run.finish()
     return run.summary
