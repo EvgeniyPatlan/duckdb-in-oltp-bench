@@ -1,0 +1,45 @@
+{# Shown while no result records are published: what is compared and measured, no numbers. #}
+{% macro links(slugs) -%}
+{% for s in nav_systems if s.slug[:-5] in slugs %}<a href="{{ root }}systems/{{ s.slug }}">{{ s.label }}</a>{{ ", " if not loop.last }}{% endfor %}
+{%- endmacro %}
+<section class="card preview">
+  <h2>Measurements in progress</h2>
+  <p>No results are published yet. The campaigns are running on the reference host; every chart on this site appears
+    once the result files are reviewed and added to the repository. Until then this site shows what is compared, how
+    each system is configured and how it is measured.</p>
+</section>
+<section class="card">
+  <h2>What is compared</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Group</th><th>Systems</th></tr></thead>
+    <tbody>
+      <tr><td>Track A: DuckDB inside the database, ordinary SQL on tables</td>
+        <td>{{ links(["alisql", "mariadb", "percona", "pgduckdb", "pgducklake"]) }}</td></tr>
+      <tr><td>Track B: DuckDB functions over Parquet files</td><td>{{ links(["villagesql"]) }}</td></tr>
+      <tr><td>Reference: plain DuckDB at several versions</td><td>{{ links(["duckdb"]) }}</td></tr>
+      <tr><td>Reference: row stores</td><td>{{ links(["innodb", "postgres"]) }}</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">Each system page lists its versions and image digests, every setting that differs from the default with
+    the reason, and how the system is loaded and measured.</p>
+</section>
+<section class="card">
+  <h2>What is measured</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Id</th><th>Measure</th></tr></thead>
+    <tbody>
+      <tr><td>M1</td><td>Query speed: the 22 TPC-H queries, cold run and median of three warm runs</td></tr>
+      <tr><td>M2</td><td>Load time: fastest documented bulk load, and conversion from row-store tables</td></tr>
+      <tr><td>M3</td><td>Storage size after load and after a checkpoint</td></tr>
+      <tr><td>M4</td><td>Throughput with 1 to 32 concurrent query streams</td></tr>
+      <tr><td>M5</td><td>SQL compatibility: a fixed probe suite, each probe classified by what happened</td></tr>
+      <tr><td>M6</td><td>Correctness: every result checked against a reference before its time counts</td></tr>
+      <tr><td>M7</td><td>Integration overhead: time relative to plain DuckDB at the same DuckDB version</td></tr>
+      <tr><td>M8</td><td>Silent slow paths: queries that quietly fall back to row execution</td></tr>
+      <tr><td>M9</td><td>Bigger than memory (not yet run)</td></tr>
+      <tr><td>M10</td><td>Crash safety during load and commit (not yet run)</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">How each measure works, the limits and the tolerances are on the <a href="{{ root }}methodology.html">methodology
+    page</a>.</p>
+</section>

@@ -211,11 +211,11 @@ def test_workflow_permissions_pins_and_concurrency():
             assert re.search(r"#\s*v\d", line), line
 
 
-def test_guard_rejects_missing_or_empty_published(tmp_path):
+def test_guard_rejects_missing_published_but_allows_a_preview(tmp_path):
     assert guard.check_published(tmp_path / "nope")
     (tmp_path / "pub").mkdir()
     (tmp_path / "pub" / "README.md").write_text("x")
-    assert guard.check_published(tmp_path / "pub")
+    assert guard.check_published(tmp_path / "pub") == []  # no records yet: preview site
     write(rec(), tmp_path / "pub")
     assert guard.check_published(tmp_path / "pub") == []
 

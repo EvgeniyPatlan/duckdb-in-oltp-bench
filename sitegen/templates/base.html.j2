@@ -27,7 +27,7 @@
 {% block content %}{% endblock %}
 </main>
 <footer>
-  <p>All systems are shown with the same layout, scales and limits. Raw result files are in the repository; this site is generated from them.
+  <p>{% if empty %}This site is generated from the result files in the repository; none are published yet.{% else %}All systems are shown with the same layout, scales and limits. Raw result files are in the repository; this site is generated from them.{% endif %}
   {% if run_ids %}Runs: {{ run_ids | join(", ") }}.{% endif %}</p>
   {% if excluded_runs %}
   <p>Each system, track and scale factor shows one run, the one with the most records (the newest on a tie); also present, not shown:

@@ -13,25 +13,7 @@ concurrency:
   group: pages
   cancel-in-progress: false
 jobs:
-  # Nothing to deploy until result records are published: build and deploy are skipped (not
-  # failed) until then. Once records exist, the guards below decide.
-  check:
-    runs-on: ubuntu-latest
-    outputs:
-      has_results: ${{ steps.find.outputs.has_results }}
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - id: find
-        run: |
-          if find published -name '*.json' -print -quit 2>/dev/null | grep -q .; then
-            echo "has_results=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_results=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::published/ holds no result records yet; nothing to deploy"
-          fi
   build:
-    needs: check
-    if: needs.check.outputs.has_results == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -40,7 +22,7 @@ jobs:
           python-version: "3.12"
       - run: pip install -e '.[dev]'
       - run: pytest -q
-      - name: Refuse to deploy without published results
+      - name: Refuse to deploy without a published directory
         run: python -m sitegen.guard --published published
       - name: Build the site from published/
         run: python -m sitegen.build --results published --out _site

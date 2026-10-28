@@ -6,7 +6,7 @@
 <p class="lead">Five integrations plus plain DuckDB and row-store baselines. Same data, same container limits, same query text
   apart from published mechanical dialect translation.</p>
 {% if empty %}
-<p class="card empty">No results have been published yet.</p>
+{% include "_preview.html.j2" %}
 {% else %}
 {{ key() }}
 <div class="controls" id="controls" data-controls="sf,systems,metric"></div>

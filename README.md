@@ -139,7 +139,8 @@ The site is a static page built from result records: interactive charts, the raw
 `data/*.json`, and a methodology page listing every non-default setting, the limits, the
 comparison tolerances, the translated query diffs and the host. It is built from the tracked
 `published/` directory by `.github/workflows/pages.yml`, which runs the test suite first and
-refuses to deploy when `published/` holds no records or the site is marked synthetic. To build it
+refuses to deploy a site marked synthetic. Until records are published the site is a preview: what
+is compared, every system's configuration and the methodology, with no numbers. To build it
 locally from your own results, see the last step of [docs/reproduce.md](docs/reproduce.md).
 
 ## Reporting a problem with a system's setup

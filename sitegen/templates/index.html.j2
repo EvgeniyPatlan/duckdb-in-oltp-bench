@@ -6,7 +6,7 @@
   row-store baselines, on the same TPC-H data with the same container limits. There is no overall score and no ranking:
   read each measure with its failures and its n/a cells.</p>
 {% if empty %}
-<p class="card empty">No results have been published yet. The site fills in when result files are added to the repository.</p>
+{% include "_preview.html.j2" %}
 {% else %}
 {{ key() }}
 <div class="controls" id="controls" data-controls="sf,systems"></div>

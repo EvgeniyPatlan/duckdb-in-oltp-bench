@@ -1,8 +1,9 @@
 """Publication guards for the Pages workflow.
 
 ``python -m sitegen.guard --published published`` fails when the curated results directory is
-missing or holds no result records. ``--site _site`` fails when the built site is marked synthetic
-(fixture data must never be deployed).
+missing. With no records in it the site is a preview: methodology and system pages, no numbers.
+``--site _site`` fails when the built site is marked synthetic (fixture data must never be
+deployed).
 """
 from __future__ import annotations
 
@@ -11,16 +12,12 @@ import json
 import sys
 from pathlib import Path
 
-from dbench.results import iter_records
-
 
 def check_published(published: Path) -> list[str]:
     published = Path(published)
     if not published.is_dir():
         return [f"{published}/ is missing: nothing has been published"]
-    if not any(True for _ in iter_records(published)):
-        return [f"{published}/ holds no result records"]
-    return []
+    return []  # no records yet is fine: the site is then a preview without numbers
 
 
 def check_site(site: Path) -> list[str]:

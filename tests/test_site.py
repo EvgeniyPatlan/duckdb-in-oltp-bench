@@ -188,3 +188,31 @@ def test_lock_names_the_server_each_image_runs():
     lock = json.loads((Path(__file__).parents[1] / "systems" / "versions.lock.json").read_text())
     assert lock["percona"]["server_version"].startswith("MySQL 9.7")
     assert "Percona Server" not in json.dumps(lock)
+
+
+def test_preview_site_without_results(tmp_path):
+    """With no records the site is a preview: no numbers, a clear notice, every system page
+    linked from the overview, the measures listed, and it passes the publication guards."""
+    from sitegen.guard import check_published, check_site
+
+    published = tmp_path / "published"
+    published.mkdir()
+    (published / "README.md").write_text("curated results go here\n")
+    out = tmp_path / "site"
+    build_site(published, out)
+    index = (out / "index.html").read_text(encoding="utf-8")
+    assert "Measurements in progress" in index
+    for slug in ("alisql", "mariadb", "percona", "pgduckdb", "pgducklake", "villagesql",
+                 "duckdb", "innodb", "postgres"):
+        assert f'href="systems/{slug}.html"' in index, slug
+    for m in ("M1", "M4", "M5", "M7", "M8", "M9", "M10"):
+        assert f">{m}<" in index, m
+    assert "SYNTHETIC" not in index
+    assert check_published(published) == [] and check_site(out) == []
+    assert "Measurements in progress" in (out / "track_a.html").read_text(encoding="utf-8")
+
+
+def test_guard_still_refuses_a_missing_published_dir(tmp_path):
+    from sitegen.guard import check_published
+
+    assert check_published(tmp_path / "nope")
