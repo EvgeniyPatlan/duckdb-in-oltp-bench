@@ -12,6 +12,7 @@ from typing import Any, Literal
 
 import psycopg
 from psycopg import errors as pgerrors
+from psycopg import pq
 
 from dbench.datagen import DatasetPaths, expected_rows
 from dbench.schema import TABLES, render_schema, split_statements
@@ -61,6 +62,7 @@ class PostgresFamilyAdapter(ContainerServerAdapter):
     dialect = "postgres"
     family = "postgres"
     engine_clause = ""
+    rowstore_clause = ""  # a heap table is the default access method
     version_key = "postgres"
     postgres_shm = True
     layout_dir = '"$PGDATA"'
@@ -242,10 +244,18 @@ class PostgresFamilyAdapter(ContainerServerAdapter):
 
     def _explain_pushed(self, conn, sql: str) -> Pushed:
         """Plan-only ``EXPLAIN`` (never runs the query), classified by ``pushed_from_explain``."""
+        # Inside an explicit transaction (an M5 session script) a failed EXPLAIN would abort it,
+        # and the statement being probed (a COMMIT included) would silently do nothing; a
+        # SAVEPOINT to guard it is refused by DuckDB-backed tables. So nothing is sent there:
+        # pushdown inside an open transaction is unobserved.
+        info = getattr(conn, "info", None)
+        if getattr(info, "transaction_status", None) == pq.TransactionStatus.INTRANS:
+            return "unknown"
         try:
-            return pushed_from_explain([r[0] for r in conn.execute(f"EXPLAIN {sql}").fetchall()])
+            lines = [r[0] for r in conn.execute(f"EXPLAIN {sql}").fetchall()]
         except Exception:  # noqa: BLE001 - detection must never fail a query
             return "unknown"
+        return pushed_from_explain(lines)
 
     def _watchdog(self, pid: int, done: threading.Event, fired: threading.Event) -> None:
         """Client-side deadline for servers that ignore statement_timeout: cancel the
@@ -360,6 +370,30 @@ class PostgresFamilyAdapter(ContainerServerAdapter):
             self.active.remove(pid)
             if not keep or fired.is_set():  # a fired watchdog's cancel may still be in flight
                 self._drop_session()
+
+    def execute_session(self, statements: list[str], timeout_s: int) -> QueryOutcome:
+        """The thread's persistent session runs the script; it is dropped afterwards, so no
+        setting, prepared statement or open transaction leaks into the next statement."""
+        *prepare, last = statements
+        try:
+            conn = self._session()
+        except Exception as exc:  # noqa: BLE001
+            return classify_connection_failure(self.crash_info, exc)
+        started = time.perf_counter()
+        try:
+            for stmt in prepare:
+                conn.execute(stmt)
+        except psycopg.OperationalError as exc:
+            self._drop_session()
+            return classify_connection_failure(self.crash_info, exc)
+        except psycopg.Error as exc:
+            self._drop_session()
+            return QueryOutcome("error", time.perf_counter() - started, None, set(),
+                                f"{type(exc).__name__}: {exc}")
+        try:
+            return self.execute(last, timeout_s)
+        finally:
+            self._drop_session()
 
     def lingering_queries(self) -> int:
         conn = self._connect()

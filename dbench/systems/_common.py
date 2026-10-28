@@ -20,6 +20,7 @@ LOAD_TIMEOUT_S = 24 * 3600
 READY_TIMEOUT_S = 900
 NO_DUCKDB_COPY = "row-store baseline: no DuckDB copy"
 NO_DUCKDB_REASON = "row-store baseline: no DuckDB engine, nothing to convert or pushdown"
+NO_FALLBACK_REASON = "row-store baseline: every statement runs on the row path by construction"
 
 
 def read_status_counter(cur, sql: str) -> int | None:
@@ -175,6 +176,8 @@ class ContainerServerAdapter(SystemAdapter):
     def supports(self, measure: str) -> tuple[bool, str | None]:
         if measure in ("M11", "M12"):
             return False, NO_DUCKDB_REASON
+        if measure == "M8" and self.track == "baseline":
+            return False, NO_FALLBACK_REASON
         return True, None
 
     def _sh(self, command: str) -> str:

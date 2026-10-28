@@ -1,0 +1,1491 @@
+# SQL compatibility probes (M5).
+#
+# The suite is fixed before any results are seen. A probe is changed afterwards only when its
+# two dialects turn out not to express the same intent, or when the row-store baseline's own
+# result is invalid; never to improve or worsen any engine's outcome.
+#
+# Each probe is one statement (or one session script) a user of an OLTP database would naturally
+# try. Fields:
+#   id, category, title   unique id (lowercase, digits, underscores), one of types, functions,
+#                         joins, subqueries, cte, window, dml, ddl, variables, and a one-line intent
+#   setup / teardown      list of statements, or {mysql: [...], postgres: [...]}. Probes use their
+#                         own scratch tables (pc_*): {{ engine_clause }} renders to the system's
+#                         engine (ENGINE=DuckDB, USING ducklake, or nothing), {{ rowstore_clause }}
+#                         to a plain row-store table (ENGINE=InnoDB, or nothing for a Postgres heap).
+#   sql_mysql / sql_postgres  the statement; a list is one session, the last statement is the probe
+#   check_mysql / check_postgres  follow-up SELECT, required for dml and ddl probes
+#   expected              optional literal rows; without it the result of the same-dialect row-store
+#                         baseline (InnoDB / Postgres) is the expectation
+#   note                  why a dialect is spelled differently
+#
+# Probes that read a table always read at least one row, so a status counter can tell whether
+# DuckDB ran them. Only the TPC-H tables nation, region and supplier are read (never written).
+
+probes:
+  - id: types_int
+    category: types
+    title: "INT round trip including both limits"
+    setup:
+      mysql:
+        - "CREATE TABLE pc_types_int (id INT, v INT) {{ engine_clause }}"
+        - "INSERT INTO pc_types_int VALUES (1, -2147483648), (2, 0), (3, 2147483647), (4, NULL)"
+      postgres:
+        - "CREATE TABLE pc_types_int (id INT, v INT) {{ engine_clause }}"
+        - "INSERT INTO pc_types_int VALUES (1, -2147483648), (2, 0), (3, 2147483647), (4, NULL)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_types_int"
+    sql_mysql: "SELECT id, v FROM pc_types_int"
+    sql_postgres: "SELECT id, v FROM pc_types_int"
+  - id: types_bigint
+    category: types
+    title: "BIGINT round trip near both limits"
+    setup:
+      mysql:
+        - "CREATE TABLE pc_types_bigint (id INT, v BIGINT) {{ engine_clause }}"
+        - "INSERT INTO pc_types_bigint VALUES (1, -9223372036854775807), (2, 0), (3, 9223372036854775807), (4, NULL)"
+      postgres:
+        - "CREATE TABLE pc_types_bigint (id INT, v BIGINT) {{ engine_clause }}"
+        - "INSERT INTO pc_types_bigint VALUES (1, -9223372036854775807), (2, 0), (3, 9223372036854775807), (4, NULL)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_types_bigint"
+    sql_mysql: "SELECT id, v FROM pc_types_bigint"
+    sql_postgres: "SELECT id, v FROM pc_types_bigint"
+  - id: types_unsigned_bigint
+    category: types
+    title: "Unsigned 64-bit integer above the signed range (NUMERIC(20,0) on PostgreSQL)"
+    setup:
+      mysql:
+        - "CREATE TABLE pc_types_unsigned_bigint (id INT, v BIGINT UNSIGNED) {{ engine_clause }}"
+        - "INSERT INTO pc_types_unsigned_bigint VALUES (1, 0), (2, 9223372036854775808), (3, 18446744073709551615), (4, NULL)"
+      postgres:
+        - "CREATE TABLE pc_types_unsigned_bigint (id INT, v NUMERIC(20,0)) {{ engine_clause }}"
+        - "INSERT INTO pc_types_unsigned_bigint VALUES (1, 0), (2, 9223372036854775808), (3, 18446744073709551615), (4, NULL)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_types_unsigned_bigint"
+    sql_mysql: "SELECT id, v FROM pc_types_unsigned_bigint"
+    sql_postgres: "SELECT id, v FROM pc_types_unsigned_bigint"
+  - id: types_decimal_money
+    category: types
+    title: "DECIMAL(10,2) values with sign and zero"
+    setup:
+      mysql:
+        - "CREATE TABLE pc_types_decimal_money (id INT, v DECIMAL(10,2)) {{ engine_clause }}"
+        - "INSERT INTO pc_types_decimal_money VALUES (1, 12345678.90), (2, -0.01), (3, 0.00), (4, NULL)"
+      postgres:
+        - "CREATE TABLE pc_types_decimal_money (id INT, v DECIMAL(10,2)) {{ engine_clause }}"
+        - "INSERT INTO pc_types_decimal_money VALUES (1, 12345678.90), (2, -0.01), (3, 0.00), (4, NULL)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_types_decimal_money"
+    sql_mysql: "SELECT id, v FROM pc_types_decimal_money"
+    sql_postgres: "SELECT id, v FROM pc_types_decimal_money"
+  - id: types_decimal_wide
+    category: types
+    title: "DECIMAL(38,10) beyond double precision, compared as text too"
+    setup:
+      mysql:
+        - "CREATE TABLE pc_types_decimal_wide (id INT, v DECIMAL(38,10)) {{ engine_clause }}"
+        - "INSERT INTO pc_types_decimal_wide VALUES (1, 12345678901234567890.1234567891), (2, -0.0000000001), (3, NULL)"
+      postgres:
+        - "CREATE TABLE pc_types_decimal_wide (id INT, v DECIMAL(38,10)) {{ engine_clause }}"
+        - "INSERT INTO pc_types_decimal_wide VALUES (1, 12345678901234567890.1234567891), (2, -0.0000000001), (3, NULL)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_types_decimal_wide"
+    sql_mysql: "SELECT id, v, CAST(v AS CHAR(50)) FROM pc_types_decimal_wide"
+    sql_postgres: "SELECT id, v, CAST(v AS VARCHAR(50)) FROM pc_types_decimal_wide"
+  - id: types_float
+    category: types
+    title: "Single-precision float with exactly representable values"
+    setup:
+      mysql:
+        - "CREATE TABLE pc_types_float (id INT, v FLOAT) {{ engine_clause }}"
+        - "INSERT INTO pc_types_float VALUES (1, 1.5), (2, -2.25), (3, 1024), (4, NULL)"
+      postgres:
+        - "CREATE TABLE pc_types_float (id INT, v REAL) {{ engine_clause }}"
+        - "INSERT INTO pc_types_float VALUES (1, 1.5), (2, -2.25), (3, 1024), (4, NULL)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_types_float"
+    sql_mysql: "SELECT id, v FROM pc_types_float"
+    sql_postgres: "SELECT id, v FROM pc_types_float"
+  - id: types_double
+    category: types
+    title: "Double-precision float including extreme exponents"
+    setup:
+      mysql:
+        - "CREATE TABLE pc_types_double (id INT, v DOUBLE) {{ engine_clause }}"
+        - "INSERT INTO pc_types_double VALUES (1, 3.141592653589793), (2, 1e300), (3, -1e-300), (4, NULL)"
+      postgres:
+        - "CREATE TABLE pc_types_double (id INT, v DOUBLE PRECISION) {{ engine_clause }}"
+        - "INSERT INTO pc_types_double VALUES (1, 3.141592653589793), (2, 1e300), (3, -1e-300), (4, NULL)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_types_double"
+    sql_mysql: "SELECT id, v FROM pc_types_double"
+    sql_postgres: "SELECT id, v FROM pc_types_double"
+  - id: types_boolean
+    category: types
+    title: "BOOLEAN true, false and NULL read back as integers"
+    setup:
+      mysql:
+        - "CREATE TABLE pc_types_boolean (id INT, v BOOLEAN) {{ engine_clause }}"
+        - "INSERT INTO pc_types_boolean VALUES (1, TRUE), (2, FALSE), (3, NULL)"
+      postgres:
+        - "CREATE TABLE pc_types_boolean (id INT, v BOOLEAN) {{ engine_clause }}"
+        - "INSERT INTO pc_types_boolean VALUES (1, TRUE), (2, FALSE), (3, NULL)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_types_boolean"
+    sql_mysql: "SELECT id, v + 0 FROM pc_types_boolean"
+    sql_postgres: "SELECT id, CAST(v AS INTEGER) FROM pc_types_boolean"
+  - id: types_char_fixed
+    category: types
+    title: "CHAR(5) values shorter than, equal to and empty vs the width"
+    setup:
+      mysql:
+        - "CREATE TABLE pc_types_char_fixed (id INT, v CHAR(5)) {{ engine_clause }}"
+        - "INSERT INTO pc_types_char_fixed VALUES (1, 'ab'), (2, 'abcde'), (3, ''), (4, NULL)"
+      postgres:
+        - "CREATE TABLE pc_types_char_fixed (id INT, v CHAR(5)) {{ engine_clause }}"
+        - "INSERT INTO pc_types_char_fixed VALUES (1, 'ab'), (2, 'abcde'), (3, ''), (4, NULL)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_types_char_fixed"
+    sql_mysql: "SELECT id, v, LENGTH(v) FROM pc_types_char_fixed"
+    sql_postgres: "SELECT id, v, LENGTH(v) FROM pc_types_char_fixed"
+  - id: types_varchar_max
+    category: types
+    title: "VARCHAR(255) filled to its limit"
+    setup:
+      mysql:
+        - "CREATE TABLE pc_types_varchar_max (id INT, v VARCHAR(255)) {{ engine_clause }}"
+        - "INSERT INTO pc_types_varchar_max VALUES (1, REPEAT('x', 255)), (2, ''), (3, NULL)"
+      postgres:
+        - "CREATE TABLE pc_types_varchar_max (id INT, v VARCHAR(255)) {{ engine_clause }}"
+        - "INSERT INTO pc_types_varchar_max VALUES (1, REPEAT('x', 255)), (2, ''), (3, NULL)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_types_varchar_max"
+    sql_mysql: "SELECT id, LENGTH(v), SUBSTRING(v, 250, 6) FROM pc_types_varchar_max"
+    sql_postgres: "SELECT id, LENGTH(v), SUBSTRING(v, 250, 6) FROM pc_types_varchar_max"
+  - id: types_text_unicode
+    category: types
+    title: "TEXT with accents, CJK and an emoji"
+    setup:
+      mysql:
+        - "CREATE TABLE pc_types_text_unicode (id INT, v TEXT) {{ engine_clause }}"
+        - "INSERT INTO pc_types_text_unicode VALUES (1, 'héllo wörld'), (2, '日本語のテキスト'), (3, 'emoji 🙂 end'), (4, NULL)"
+      postgres:
+        - "CREATE TABLE pc_types_text_unicode (id INT, v TEXT) {{ engine_clause }}"
+        - "INSERT INTO pc_types_text_unicode VALUES (1, 'héllo wörld'), (2, '日本語のテキスト'), (3, 'emoji 🙂 end'), (4, NULL)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_types_text_unicode"
+    sql_mysql: "SELECT id, v, CHAR_LENGTH(v) FROM pc_types_text_unicode"
+    sql_postgres: "SELECT id, v, CHAR_LENGTH(v) FROM pc_types_text_unicode"
+  - id: types_date
+    category: types
+    title: "DATE across the supported range"
+    setup:
+      mysql:
+        - "CREATE TABLE pc_types_date (id INT, v DATE) {{ engine_clause }}"
+        - "INSERT INTO pc_types_date VALUES (1, '1970-01-01'), (2, '2024-02-29'), (3, '9999-12-31'), (4, NULL)"
+      postgres:
+        - "CREATE TABLE pc_types_date (id INT, v DATE) {{ engine_clause }}"
+        - "INSERT INTO pc_types_date VALUES (1, '1970-01-01'), (2, '2024-02-29'), (3, '9999-12-31'), (4, NULL)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_types_date"
+    sql_mysql: "SELECT id, v FROM pc_types_date"
+    sql_postgres: "SELECT id, v FROM pc_types_date"
+  - id: types_datetime
+    category: types
+    title: "DATETIME / TIMESTAMP without time zone"
+    setup:
+      mysql:
+        - "CREATE TABLE pc_types_datetime (id INT, v DATETIME) {{ engine_clause }}"
+        - "INSERT INTO pc_types_datetime VALUES (1, '2024-02-29 13:45:10'), (2, '1999-12-31 23:59:59'), (3, NULL)"
+      postgres:
+        - "CREATE TABLE pc_types_datetime (id INT, v TIMESTAMP) {{ engine_clause }}"
+        - "INSERT INTO pc_types_datetime VALUES (1, '2024-02-29 13:45:10'), (2, '1999-12-31 23:59:59'), (3, NULL)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_types_datetime"
+    sql_mysql: "SELECT id, v FROM pc_types_datetime"
+    sql_postgres: "SELECT id, v FROM pc_types_datetime"
+  - id: types_datetime_micro
+    category: types
+    title: "Timestamp with microsecond precision"
+    setup:
+      mysql:
+        - "CREATE TABLE pc_types_datetime_micro (id INT, v DATETIME(6)) {{ engine_clause }}"
+        - "INSERT INTO pc_types_datetime_micro VALUES (1, '2024-02-29 13:45:10.123456'), (2, '2000-01-01 00:00:00.000001'), (3, NULL)"
+      postgres:
+        - "CREATE TABLE pc_types_datetime_micro (id INT, v TIMESTAMP(6)) {{ engine_clause }}"
+        - "INSERT INTO pc_types_datetime_micro VALUES (1, '2024-02-29 13:45:10.123456'), (2, '2000-01-01 00:00:00.000001'), (3, NULL)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_types_datetime_micro"
+    sql_mysql: "SELECT id, v FROM pc_types_datetime_micro"
+    sql_postgres: "SELECT id, v FROM pc_types_datetime_micro"
+  - id: types_time
+    category: types
+    title: "TIME of day"
+    setup:
+      mysql:
+        - "CREATE TABLE pc_types_time (id INT, v TIME) {{ engine_clause }}"
+        - "INSERT INTO pc_types_time VALUES (1, '13:45:10'), (2, '23:59:59'), (3, '10:00:00'), (4, NULL)"
+      postgres:
+        - "CREATE TABLE pc_types_time (id INT, v TIME) {{ engine_clause }}"
+        - "INSERT INTO pc_types_time VALUES (1, '13:45:10'), (2, '23:59:59'), (3, '10:00:00'), (4, NULL)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_types_time"
+    sql_mysql: "SELECT id, v FROM pc_types_time"
+    sql_postgres: "SELECT id, v FROM pc_types_time"
+  - id: types_binary_blob
+    category: types
+    title: "BLOB / BYTEA bytes including NUL"
+    setup:
+      mysql:
+        - "CREATE TABLE pc_types_binary_blob (id INT, v BLOB) {{ engine_clause }}"
+        - "INSERT INTO pc_types_binary_blob VALUES (1, X'DEADBEEF'), (2, X'00FF00'), (3, NULL)"
+      postgres:
+        - "CREATE TABLE pc_types_binary_blob (id INT, v BYTEA) {{ engine_clause }}"
+        - "INSERT INTO pc_types_binary_blob VALUES (1, decode('DEADBEEF', 'hex')), (2, decode('00FF00', 'hex')), (3, NULL)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_types_binary_blob"
+    sql_mysql: "SELECT id, v, LENGTH(v) FROM pc_types_binary_blob"
+    sql_postgres: "SELECT id, v, LENGTH(v) FROM pc_types_binary_blob"
+  - id: types_json
+    category: types
+    title: "JSON document stored and one member extracted"
+    setup:
+      mysql:
+        - "CREATE TABLE pc_types_json (id INT, v JSON) {{ engine_clause }}"
+        - "INSERT INTO pc_types_json VALUES (1, '{\"a\": 1, \"b\": [1, 2, 3], \"c\": \"x\"}'), (2, '{\"a\": 2, \"b\": [], \"c\": \"y\"}'), (3, NULL)"
+      postgres:
+        - "CREATE TABLE pc_types_json (id INT, v JSONB) {{ engine_clause }}"
+        - "INSERT INTO pc_types_json VALUES (1, '{\"a\": 1, \"b\": [1, 2, 3], \"c\": \"x\"}'), (2, '{\"a\": 2, \"b\": [], \"c\": \"y\"}'), (3, NULL)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_types_json"
+    sql_mysql: "SELECT id, JSON_UNQUOTE(JSON_EXTRACT(v, '$.c')) FROM pc_types_json"
+    sql_postgres: "SELECT id, v->>'c' FROM pc_types_json"
+  - id: types_enum
+    category: types
+    title: "ENUM column grouped by value"
+    setup:
+      mysql:
+        - "CREATE TABLE pc_types_enum (id INT, c ENUM('red', 'green', 'blue')) {{ engine_clause }}"
+        - "INSERT INTO pc_types_enum VALUES (1, 'red'), (2, 'blue'), (3, 'red'), (4, NULL)"
+      postgres:
+        - "CREATE TYPE pc_types_enum_color AS ENUM ('red', 'green', 'blue')"
+        - "CREATE TABLE pc_types_enum (id INT, c pc_types_enum_color) {{ engine_clause }}"
+        - "INSERT INTO pc_types_enum VALUES (1, 'red'), (2, 'blue'), (3, 'red'), (4, NULL)"
+    teardown:
+      mysql:
+        - "DROP TABLE IF EXISTS pc_types_enum"
+      postgres:
+        - "DROP TABLE IF EXISTS pc_types_enum"
+        - "DROP TYPE IF EXISTS pc_types_enum_color"
+    sql_mysql: "SELECT c, COUNT(*) FROM pc_types_enum GROUP BY c"
+    sql_postgres: "SELECT CAST(c AS TEXT), COUNT(*) FROM pc_types_enum GROUP BY c"
+    note: "PostgreSQL has no inline ENUM: it needs CREATE TYPE first."
+  - id: types_uuid
+    category: types
+    title: "UUID values (CHAR(36) on MySQL, UUID on PostgreSQL)"
+    setup:
+      mysql:
+        - "CREATE TABLE pc_types_uuid (id INT, u CHAR(36)) {{ engine_clause }}"
+        - "INSERT INTO pc_types_uuid VALUES (1, '123e4567-e89b-12d3-a456-426614174000'), (2, '00000000-0000-0000-0000-000000000000'), (3, NULL)"
+      postgres:
+        - "CREATE TABLE pc_types_uuid (id INT, u UUID) {{ engine_clause }}"
+        - "INSERT INTO pc_types_uuid VALUES (1, '123e4567-e89b-12d3-a456-426614174000'), (2, '00000000-0000-0000-0000-000000000000'), (3, NULL)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_types_uuid"
+    sql_mysql: "SELECT id, u FROM pc_types_uuid"
+    sql_postgres: "SELECT id, CAST(u AS TEXT) FROM pc_types_uuid"
+  - id: types_all_null_row
+    category: types
+    title: "A row of NULLs in int, varchar, date and decimal columns"
+    setup:
+      - "CREATE TABLE pc_types_all_null (i INT, s VARCHAR(10), d DATE, n DECIMAL(8,2)) {{ engine_clause }}"
+      - "INSERT INTO pc_types_all_null VALUES (NULL, NULL, NULL, NULL), (1, 'a', '2024-01-01', 1.50)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_types_all_null"
+    sql_mysql: "SELECT COUNT(*), COUNT(i), COUNT(s), COUNT(d), COUNT(n), SUM(n) FROM pc_types_all_null"
+    sql_postgres: "SELECT COUNT(*), COUNT(i), COUNT(s), COUNT(d), COUNT(n), SUM(n) FROM pc_types_all_null"
+  - id: types_long_text
+    category: types
+    title: "A 100000-character text value (LONGTEXT on MySQL, whose TEXT stops at 64 KB)"
+    setup:
+      mysql:
+        - "CREATE TABLE pc_types_long_text (id INT, s LONGTEXT) {{ engine_clause }}"
+        - "INSERT INTO pc_types_long_text VALUES (1, REPEAT('ab', 50000))"
+      postgres:
+        - "CREATE TABLE pc_types_long_text (id INT, s TEXT) {{ engine_clause }}"
+        - "INSERT INTO pc_types_long_text VALUES (1, REPEAT('ab', 50000))"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_types_long_text"
+    sql_mysql: "SELECT LENGTH(s), SUBSTRING(s, 99999, 2) FROM pc_types_long_text"
+    sql_postgres: "SELECT LENGTH(s), SUBSTRING(s, 99999, 2) FROM pc_types_long_text"
+  - id: fn_concat
+    category: functions
+    title: "String concatenation, NULL propagates"
+    setup:
+      - "CREATE TABLE pc_fn_concat (id INT, s VARCHAR(50)) {{ engine_clause }}"
+      - "INSERT INTO pc_fn_concat VALUES (1, 'Alpha'), (2, 'beta '), (3, NULL), (4, '  gamma delta'), (5, 'ab12')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_fn_concat"
+    sql_mysql: "SELECT id, CONCAT(s, '-x') FROM pc_fn_concat"
+    sql_postgres: "SELECT id, s || '-x' FROM pc_fn_concat"
+  - id: fn_upper_lower
+    category: functions
+    title: "UPPER and LOWER"
+    setup:
+      - "CREATE TABLE pc_fn_upper_lower (id INT, s VARCHAR(50)) {{ engine_clause }}"
+      - "INSERT INTO pc_fn_upper_lower VALUES (1, 'Alpha'), (2, 'beta '), (3, NULL), (4, '  gamma delta'), (5, 'ab12')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_fn_upper_lower"
+    sql_mysql: "SELECT id, UPPER(s), LOWER(s) FROM pc_fn_upper_lower"
+    sql_postgres: "SELECT id, UPPER(s), LOWER(s) FROM pc_fn_upper_lower"
+  - id: fn_substring
+    category: functions
+    title: "SUBSTRING with start and length"
+    setup:
+      - "CREATE TABLE pc_fn_substring (id INT, s VARCHAR(50)) {{ engine_clause }}"
+      - "INSERT INTO pc_fn_substring VALUES (1, 'Alpha'), (2, 'beta '), (3, NULL), (4, '  gamma delta'), (5, 'ab12')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_fn_substring"
+    sql_mysql: "SELECT id, SUBSTRING(s, 2, 3) FROM pc_fn_substring"
+    sql_postgres: "SELECT id, SUBSTRING(s, 2, 3) FROM pc_fn_substring"
+  - id: fn_trim_replace
+    category: functions
+    title: "TRIM and REPLACE"
+    setup:
+      - "CREATE TABLE pc_fn_trim_replace (id INT, s VARCHAR(50)) {{ engine_clause }}"
+      - "INSERT INTO pc_fn_trim_replace VALUES (1, 'Alpha'), (2, 'beta '), (3, NULL), (4, '  gamma delta'), (5, 'ab12')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_fn_trim_replace"
+    sql_mysql: "SELECT id, TRIM(s), REPLACE(s, 'a', 'A') FROM pc_fn_trim_replace"
+    sql_postgres: "SELECT id, TRIM(s), REPLACE(s, 'a', 'A') FROM pc_fn_trim_replace"
+  - id: fn_like_lower
+    category: functions
+    title: "LOWER(s) LIKE pattern in WHERE"
+    setup:
+      - "CREATE TABLE pc_fn_like_lower (id INT, s VARCHAR(50)) {{ engine_clause }}"
+      - "INSERT INTO pc_fn_like_lower VALUES (1, 'Alpha'), (2, 'beta '), (3, NULL), (4, '  gamma delta'), (5, 'ab12')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_fn_like_lower"
+    sql_mysql: "SELECT id FROM pc_fn_like_lower WHERE LOWER(s) LIKE '%a%a%'"
+    sql_postgres: "SELECT id FROM pc_fn_like_lower WHERE LOWER(s) LIKE '%a%a%'"
+  - id: fn_regexp
+    category: functions
+    title: "Case-sensitive regular expression in WHERE"
+    setup:
+      - "CREATE TABLE pc_fn_regexp (id INT, s VARCHAR(50)) {{ engine_clause }}"
+      - "INSERT INTO pc_fn_regexp VALUES (1, 'Alpha'), (2, 'beta '), (3, NULL), (4, '  gamma delta'), (5, 'ab12')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_fn_regexp"
+    sql_mysql: "SELECT id FROM pc_fn_regexp WHERE REGEXP_LIKE(s, '^[a-z]+[0-9]+$', 'c')"
+    sql_postgres: "SELECT id FROM pc_fn_regexp WHERE s ~ '^[a-z]+[0-9]+$'"
+  - id: fn_lpad_cast
+    category: functions
+    title: "LPAD over a cast of an integer"
+    setup:
+      - "CREATE TABLE pc_fn_lpad_cast (id INT, s VARCHAR(50)) {{ engine_clause }}"
+      - "INSERT INTO pc_fn_lpad_cast VALUES (1, 'Alpha'), (2, 'beta '), (3, NULL), (4, '  gamma delta'), (5, 'ab12')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_fn_lpad_cast"
+    sql_mysql: "SELECT id, LPAD(CAST(id AS CHAR), 5, '0') FROM pc_fn_lpad_cast"
+    sql_postgres: "SELECT id, LPAD(CAST(id AS VARCHAR), 5, '0') FROM pc_fn_lpad_cast"
+  - id: fn_nullif_coalesce
+    category: functions
+    title: "NULLIF and COALESCE"
+    setup:
+      - "CREATE TABLE pc_fn_nullif_coalesce (id INT, s VARCHAR(50)) {{ engine_clause }}"
+      - "INSERT INTO pc_fn_nullif_coalesce VALUES (1, 'Alpha'), (2, 'beta '), (3, NULL), (4, '  gamma delta'), (5, 'ab12')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_fn_nullif_coalesce"
+    sql_mysql: "SELECT id, COALESCE(NULLIF(s, 'ab12'), 'none') FROM pc_fn_nullif_coalesce"
+    sql_postgres: "SELECT id, COALESCE(NULLIF(s, 'ab12'), 'none') FROM pc_fn_nullif_coalesce"
+  - id: fn_case_when
+    category: functions
+    title: "Searched CASE"
+    setup:
+      - "CREATE TABLE pc_fn_case_when (id INT, s VARCHAR(50)) {{ engine_clause }}"
+      - "INSERT INTO pc_fn_case_when VALUES (1, 'Alpha'), (2, 'beta '), (3, NULL), (4, '  gamma delta'), (5, 'ab12')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_fn_case_when"
+    sql_mysql: "SELECT id, CASE WHEN s IS NULL THEN 'null' WHEN CHAR_LENGTH(s) > 6 THEN 'long' ELSE 'short' END FROM pc_fn_case_when"
+    sql_postgres: "SELECT id, CASE WHEN s IS NULL THEN 'null' WHEN CHAR_LENGTH(s) > 6 THEN 'long' ELSE 'short' END FROM pc_fn_case_when"
+  - id: fn_cast_string_int
+    category: functions
+    title: "CAST of numeric strings to integer"
+    setup:
+      - "CREATE TABLE pc_fn_cast_string_int (id INT, s VARCHAR(50)) {{ engine_clause }}"
+      - "INSERT INTO pc_fn_cast_string_int VALUES (1, '12'), (2, '-7'), (3, NULL), (4, '0')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_fn_cast_string_int"
+    sql_mysql: "SELECT id, CAST(s AS SIGNED) FROM pc_fn_cast_string_int WHERE s IS NOT NULL"
+    sql_postgres: "SELECT id, CAST(s AS INTEGER) FROM pc_fn_cast_string_int WHERE s IS NOT NULL"
+  - id: fn_group_concat
+    category: functions
+    title: "GROUP_CONCAT / string_agg with ORDER BY inside the aggregate"
+    setup:
+      - "CREATE TABLE pc_fn_group_concat (grp INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "INSERT INTO pc_fn_group_concat VALUES (1, 'b'), (1, 'a'), (1, NULL), (2, 'z'), (2, 'y'), (3, 'q')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_fn_group_concat"
+    sql_mysql: "SELECT grp, GROUP_CONCAT(s ORDER BY s SEPARATOR ',') FROM pc_fn_group_concat GROUP BY grp"
+    sql_postgres: "SELECT grp, string_agg(s, ',' ORDER BY s) FROM pc_fn_group_concat GROUP BY grp"
+  - id: fn_round
+    category: functions
+    title: "ROUND to one decimal"
+    setup:
+      - "CREATE TABLE pc_fn_round (id INT, x DECIMAL(10,3), k INT) {{ engine_clause }}"
+      - "INSERT INTO pc_fn_round VALUES (1, 2.500, 10), (2, -2.500, 7), (3, 3.141, -3), (4, 0.000, 0)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_fn_round"
+    sql_mysql: "SELECT id, ROUND(x, 1) FROM pc_fn_round"
+    sql_postgres: "SELECT id, ROUND(x, 1) FROM pc_fn_round"
+  - id: fn_floor_ceil
+    category: functions
+    title: "FLOOR and CEIL on negative and positive decimals"
+    setup:
+      - "CREATE TABLE pc_fn_floor_ceil (id INT, x DECIMAL(10,3), k INT) {{ engine_clause }}"
+      - "INSERT INTO pc_fn_floor_ceil VALUES (1, 2.500, 10), (2, -2.500, 7), (3, 3.141, -3), (4, 0.000, 0)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_fn_floor_ceil"
+    sql_mysql: "SELECT id, FLOOR(x), CEIL(x) FROM pc_fn_floor_ceil"
+    sql_postgres: "SELECT id, FLOOR(x), CEIL(x) FROM pc_fn_floor_ceil"
+  - id: fn_mod_power_abs
+    category: functions
+    title: "Modulo, POWER, ABS and SIGN"
+    setup:
+      - "CREATE TABLE pc_fn_mod_power_abs (id INT, x DECIMAL(10,3), k INT) {{ engine_clause }}"
+      - "INSERT INTO pc_fn_mod_power_abs VALUES (1, 2.500, 10), (2, -2.500, 7), (3, 3.141, -3), (4, 0.000, 0)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_fn_mod_power_abs"
+    sql_mysql: "SELECT id, MOD(k, 7), POWER(k, 2), ABS(k), SIGN(k) FROM pc_fn_mod_power_abs"
+    sql_postgres: "SELECT id, MOD(k, 7), POWER(k, 2), ABS(k), SIGN(k) FROM pc_fn_mod_power_abs"
+  - id: fn_date_format
+    category: functions
+    title: "DATE_FORMAT / to_char"
+    setup:
+      - "CREATE TABLE pc_fn_date_format (id INT, d DATE, d2 DATE) {{ engine_clause }}"
+      - "INSERT INTO pc_fn_date_format VALUES (1, '2024-02-29', '2024-03-31'), (2, '2023-12-31', '2024-01-01'), (3, NULL, '2024-01-01')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_fn_date_format"
+    sql_mysql: "SELECT id, DATE_FORMAT(d, '%Y/%m/%d') FROM pc_fn_date_format"
+    sql_postgres: "SELECT id, to_char(d, 'YYYY/MM/DD') FROM pc_fn_date_format"
+  - id: fn_date_add_interval
+    category: functions
+    title: "Date plus an interval of 30 days"
+    setup:
+      - "CREATE TABLE pc_fn_date_add_interval (id INT, d DATE, d2 DATE) {{ engine_clause }}"
+      - "INSERT INTO pc_fn_date_add_interval VALUES (1, '2024-02-29', '2024-03-31'), (2, '2023-12-31', '2024-01-01'), (3, NULL, '2024-01-01')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_fn_date_add_interval"
+    sql_mysql: "SELECT id, DATE_ADD(d, INTERVAL 30 DAY) FROM pc_fn_date_add_interval"
+    sql_postgres: "SELECT id, d + INTERVAL '30 days' FROM pc_fn_date_add_interval"
+    note: "PostgreSQL returns a timestamp here; midnight timestamps compare equal to dates."
+  - id: fn_date_diff
+    category: functions
+    title: "Difference of two dates in days"
+    setup:
+      - "CREATE TABLE pc_fn_date_diff (id INT, d DATE, d2 DATE) {{ engine_clause }}"
+      - "INSERT INTO pc_fn_date_diff VALUES (1, '2024-02-29', '2024-03-31'), (2, '2023-12-31', '2024-01-01'), (3, NULL, '2024-01-01')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_fn_date_diff"
+    sql_mysql: "SELECT id, DATEDIFF(d2, d) FROM pc_fn_date_diff"
+    sql_postgres: "SELECT id, d2 - d FROM pc_fn_date_diff"
+  - id: fn_extract_parts
+    category: functions
+    title: "EXTRACT year, month and day of week"
+    setup:
+      - "CREATE TABLE pc_fn_extract_parts (id INT, d DATE, d2 DATE) {{ engine_clause }}"
+      - "INSERT INTO pc_fn_extract_parts VALUES (1, '2024-02-29', '2024-03-31'), (2, '2023-12-31', '2024-01-01'), (3, NULL, '2024-01-01')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_fn_extract_parts"
+    sql_mysql: "SELECT id, EXTRACT(YEAR FROM d), EXTRACT(MONTH FROM d), DAYOFWEEK(d) FROM pc_fn_extract_parts"
+    sql_postgres: "SELECT id, EXTRACT(YEAR FROM d), EXTRACT(MONTH FROM d), EXTRACT(DOW FROM d) + 1 FROM pc_fn_extract_parts"
+  - id: fn_str_to_date
+    category: functions
+    title: "Parse a date from text"
+    setup:
+      - "CREATE TABLE pc_fn_str_to_date (id INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "INSERT INTO pc_fn_str_to_date VALUES (1, '29.02.2024'), (2, '01.01.1999')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_fn_str_to_date"
+    sql_mysql: "SELECT id, STR_TO_DATE(s, '%d.%m.%Y') FROM pc_fn_str_to_date"
+    sql_postgres: "SELECT id, to_date(s, 'DD.MM.YYYY') FROM pc_fn_str_to_date"
+  - id: fn_current_date
+    category: functions
+    title: "CURRENT_DATE is usable in WHERE"
+    setup:
+      - "CREATE TABLE pc_fn_current_date (id INT, s VARCHAR(50)) {{ engine_clause }}"
+      - "INSERT INTO pc_fn_current_date VALUES (1, 'Alpha'), (2, 'beta '), (3, NULL), (4, '  gamma delta'), (5, 'ab12')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_fn_current_date"
+    sql_mysql: "SELECT COUNT(*) FROM pc_fn_current_date WHERE CURRENT_DATE > DATE '2020-01-01'"
+    sql_postgres: "SELECT COUNT(*) FROM pc_fn_current_date WHERE CURRENT_DATE > DATE '2020-01-01'"
+  - id: fn_random
+    category: functions
+    title: "A random function in WHERE"
+    setup:
+      - "CREATE TABLE pc_fn_random (id INT, s VARCHAR(50)) {{ engine_clause }}"
+      - "INSERT INTO pc_fn_random VALUES (1, 'Alpha'), (2, 'beta '), (3, NULL), (4, '  gamma delta'), (5, 'ab12')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_fn_random"
+    sql_mysql: "SELECT COUNT(*) FROM pc_fn_random WHERE RAND() < 2"
+    sql_postgres: "SELECT COUNT(*) FROM pc_fn_random WHERE random() < 2"
+  - id: fn_json_array_length
+    category: functions
+    title: "Length of a JSON array member"
+    setup:
+      mysql:
+        - "CREATE TABLE pc_fn_json_array_length (id INT, j JSON) {{ engine_clause }}"
+        - "INSERT INTO pc_fn_json_array_length VALUES (1, '{\"b\": [1, 2, 3]}'), (2, '{\"b\": []}')"
+      postgres:
+        - "CREATE TABLE pc_fn_json_array_length (id INT, j JSONB) {{ engine_clause }}"
+        - "INSERT INTO pc_fn_json_array_length VALUES (1, '{\"b\": [1, 2, 3]}'), (2, '{\"b\": []}')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_fn_json_array_length"
+    sql_mysql: "SELECT id, JSON_LENGTH(j, '$.b') FROM pc_fn_json_array_length"
+    sql_postgres: "SELECT id, jsonb_array_length(j->'b') FROM pc_fn_json_array_length"
+  - id: fn_json_build
+    category: functions
+    title: "Build a JSON object and read it as text"
+    setup:
+      mysql:
+        - "CREATE TABLE pc_fn_json_build (id INT, j JSON) {{ engine_clause }}"
+        - "INSERT INTO pc_fn_json_build VALUES (1, '{\"b\": [1, 2, 3]}'), (2, '{\"b\": []}')"
+      postgres:
+        - "CREATE TABLE pc_fn_json_build (id INT, j JSONB) {{ engine_clause }}"
+        - "INSERT INTO pc_fn_json_build VALUES (1, '{\"b\": [1, 2, 3]}'), (2, '{\"b\": []}')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_fn_json_build"
+    sql_mysql: "SELECT id, CAST(JSON_OBJECT('k', id) AS CHAR) FROM pc_fn_json_build"
+    sql_postgres: "SELECT id, CAST(jsonb_build_object('k', id) AS TEXT) FROM pc_fn_json_build"
+  - id: join_inner
+    category: joins
+    title: "INNER JOIN with a duplicate match"
+    setup:
+      - "CREATE TABLE pc_join_inner_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_inner_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
+      - "CREATE TABLE pc_join_inner_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_inner_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_join_inner_a"
+      - "DROP TABLE IF EXISTS pc_join_inner_b"
+    sql_mysql: "SELECT pc_join_inner_a.id, v, w FROM pc_join_inner_a JOIN pc_join_inner_b ON pc_join_inner_a.id = pc_join_inner_b.id"
+    sql_postgres: "SELECT pc_join_inner_a.id, v, w FROM pc_join_inner_a JOIN pc_join_inner_b ON pc_join_inner_a.id = pc_join_inner_b.id"
+  - id: join_left
+    category: joins
+    title: "LEFT JOIN keeps unmatched rows"
+    setup:
+      - "CREATE TABLE pc_join_left_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_left_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
+      - "CREATE TABLE pc_join_left_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_left_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_join_left_a"
+      - "DROP TABLE IF EXISTS pc_join_left_b"
+    sql_mysql: "SELECT pc_join_left_a.id, v, w FROM pc_join_left_a LEFT JOIN pc_join_left_b ON pc_join_left_a.id = pc_join_left_b.id"
+    sql_postgres: "SELECT pc_join_left_a.id, v, w FROM pc_join_left_a LEFT JOIN pc_join_left_b ON pc_join_left_a.id = pc_join_left_b.id"
+  - id: join_right
+    category: joins
+    title: "RIGHT JOIN keeps unmatched rows"
+    setup:
+      - "CREATE TABLE pc_join_right_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_right_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
+      - "CREATE TABLE pc_join_right_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_right_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_join_right_a"
+      - "DROP TABLE IF EXISTS pc_join_right_b"
+    sql_mysql: "SELECT pc_join_right_b.id, v, w FROM pc_join_right_a RIGHT JOIN pc_join_right_b ON pc_join_right_a.id = pc_join_right_b.id"
+    sql_postgres: "SELECT pc_join_right_b.id, v, w FROM pc_join_right_a RIGHT JOIN pc_join_right_b ON pc_join_right_a.id = pc_join_right_b.id"
+  - id: join_full_outer
+    category: joins
+    title: "FULL OUTER JOIN (UNION of left and right joins on MySQL, which has no FULL JOIN)"
+    setup:
+      - "CREATE TABLE pc_join_full_outer_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_full_outer_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
+      - "CREATE TABLE pc_join_full_outer_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_full_outer_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_join_full_outer_a"
+      - "DROP TABLE IF EXISTS pc_join_full_outer_b"
+    sql_mysql: "SELECT pc_join_full_outer_a.id, pc_join_full_outer_b.id, v, w FROM pc_join_full_outer_a LEFT JOIN pc_join_full_outer_b ON pc_join_full_outer_a.id = pc_join_full_outer_b.id UNION ALL SELECT pc_join_full_outer_a.id, pc_join_full_outer_b.id, v, w FROM pc_join_full_outer_a RIGHT JOIN pc_join_full_outer_b ON pc_join_full_outer_a.id = pc_join_full_outer_b.id WHERE pc_join_full_outer_a.id IS NULL"
+    sql_postgres: "SELECT pc_join_full_outer_a.id, pc_join_full_outer_b.id, v, w FROM pc_join_full_outer_a FULL OUTER JOIN pc_join_full_outer_b ON pc_join_full_outer_a.id = pc_join_full_outer_b.id"
+  - id: join_semi_exists
+    category: joins
+    title: "Semi join with EXISTS"
+    setup:
+      - "CREATE TABLE pc_join_semi_exists_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_semi_exists_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
+      - "CREATE TABLE pc_join_semi_exists_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_semi_exists_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_join_semi_exists_a"
+      - "DROP TABLE IF EXISTS pc_join_semi_exists_b"
+    sql_mysql: "SELECT id, v FROM pc_join_semi_exists_a WHERE EXISTS (SELECT 1 FROM pc_join_semi_exists_b WHERE pc_join_semi_exists_b.id = pc_join_semi_exists_a.id)"
+    sql_postgres: "SELECT id, v FROM pc_join_semi_exists_a WHERE EXISTS (SELECT 1 FROM pc_join_semi_exists_b WHERE pc_join_semi_exists_b.id = pc_join_semi_exists_a.id)"
+  - id: join_anti_not_exists
+    category: joins
+    title: "Anti join with NOT EXISTS"
+    setup:
+      - "CREATE TABLE pc_join_anti_not_exists_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_anti_not_exists_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
+      - "CREATE TABLE pc_join_anti_not_exists_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_anti_not_exists_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_join_anti_not_exists_a"
+      - "DROP TABLE IF EXISTS pc_join_anti_not_exists_b"
+    sql_mysql: "SELECT id, v FROM pc_join_anti_not_exists_a WHERE NOT EXISTS (SELECT 1 FROM pc_join_anti_not_exists_b WHERE pc_join_anti_not_exists_b.id = pc_join_anti_not_exists_a.id)"
+    sql_postgres: "SELECT id, v FROM pc_join_anti_not_exists_a WHERE NOT EXISTS (SELECT 1 FROM pc_join_anti_not_exists_b WHERE pc_join_anti_not_exists_b.id = pc_join_anti_not_exists_a.id)"
+  - id: join_using
+    category: joins
+    title: "JOIN ... USING"
+    setup:
+      - "CREATE TABLE pc_join_using_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_using_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
+      - "CREATE TABLE pc_join_using_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_using_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_join_using_a"
+      - "DROP TABLE IF EXISTS pc_join_using_b"
+    sql_mysql: "SELECT id, v, w FROM pc_join_using_a JOIN pc_join_using_b USING (id)"
+    sql_postgres: "SELECT id, v, w FROM pc_join_using_a JOIN pc_join_using_b USING (id)"
+  - id: join_non_equi
+    category: joins
+    title: "Non-equality join condition"
+    setup:
+      - "CREATE TABLE pc_join_non_equi_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_non_equi_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
+      - "CREATE TABLE pc_join_non_equi_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_non_equi_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_join_non_equi_a"
+      - "DROP TABLE IF EXISTS pc_join_non_equi_b"
+    sql_mysql: "SELECT pc_join_non_equi_a.id, pc_join_non_equi_b.id FROM pc_join_non_equi_a JOIN pc_join_non_equi_b ON pc_join_non_equi_a.id < pc_join_non_equi_b.id"
+    sql_postgres: "SELECT pc_join_non_equi_a.id, pc_join_non_equi_b.id FROM pc_join_non_equi_a JOIN pc_join_non_equi_b ON pc_join_non_equi_a.id < pc_join_non_equi_b.id"
+  - id: join_left_aggregate
+    category: joins
+    title: "LEFT JOIN with GROUP BY and COUNT"
+    setup:
+      - "CREATE TABLE pc_join_left_aggregate_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_left_aggregate_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
+      - "CREATE TABLE pc_join_left_aggregate_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_left_aggregate_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_join_left_aggregate_a"
+      - "DROP TABLE IF EXISTS pc_join_left_aggregate_b"
+    sql_mysql: "SELECT pc_join_left_aggregate_a.id, COUNT(pc_join_left_aggregate_b.id) FROM pc_join_left_aggregate_a LEFT JOIN pc_join_left_aggregate_b ON pc_join_left_aggregate_a.id = pc_join_left_aggregate_b.id GROUP BY pc_join_left_aggregate_a.id"
+    sql_postgres: "SELECT pc_join_left_aggregate_a.id, COUNT(pc_join_left_aggregate_b.id) FROM pc_join_left_aggregate_a LEFT JOIN pc_join_left_aggregate_b ON pc_join_left_aggregate_a.id = pc_join_left_aggregate_b.id GROUP BY pc_join_left_aggregate_a.id"
+  - id: join_three_way
+    category: joins
+    title: "Three-table join"
+    setup:
+      - "CREATE TABLE pc_join_three_way_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_three_way_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
+      - "CREATE TABLE pc_join_three_way_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_three_way_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+      - "CREATE TABLE pc_join_three_way_c (id INT, z INT) {{ engine_clause }}"
+      - "INSERT INTO pc_join_three_way_c VALUES (2, 20), (3, 30)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_join_three_way_a"
+      - "DROP TABLE IF EXISTS pc_join_three_way_b"
+      - "DROP TABLE IF EXISTS pc_join_three_way_c"
+    sql_mysql: "SELECT a.id, b.w, c.z FROM pc_join_three_way_a a JOIN pc_join_three_way_b b ON a.id = b.id JOIN pc_join_three_way_c c ON c.id = a.id"
+    sql_postgres: "SELECT a.id, b.w, c.z FROM pc_join_three_way_a a JOIN pc_join_three_way_b b ON a.id = b.id JOIN pc_join_three_way_c c ON c.id = a.id"
+  - id: join_tpch_nation_region
+    category: joins
+    title: "TPC-H nation joined to region (read-only)"
+    sql_mysql: "SELECT n.n_name, r.r_name FROM nation n JOIN region r ON n.n_regionkey = r.r_regionkey"
+    sql_postgres: "SELECT n.n_name, r.r_name FROM nation n JOIN region r ON n.n_regionkey = r.r_regionkey"
+  - id: join_mixed_inner
+    category: joins
+    title: "INNER JOIN (engine table with a row-store table)"
+    setup:
+      - "CREATE TABLE pc_join_mixed_inner_e (id INT, amt DECIMAL(10,2)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_mixed_inner_e VALUES (1, 10.00), (2, 20.00), (3, 30.00), (3, 5.50)"
+      - "CREATE TABLE pc_join_mixed_inner_r (id INT, label VARCHAR(10), grp INT) {{ rowstore_clause }}"
+      - "INSERT INTO pc_join_mixed_inner_r VALUES (1, 'one', 1), (2, 'two', 1), (3, 'three', 2), (9, 'nine', 2)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_join_mixed_inner_e"
+      - "DROP TABLE IF EXISTS pc_join_mixed_inner_r"
+    sql_mysql: "SELECT pc_join_mixed_inner_e.id, label, amt FROM pc_join_mixed_inner_e JOIN pc_join_mixed_inner_r ON pc_join_mixed_inner_e.id = pc_join_mixed_inner_r.id"
+    sql_postgres: "SELECT pc_join_mixed_inner_e.id, label, amt FROM pc_join_mixed_inner_e JOIN pc_join_mixed_inner_r ON pc_join_mixed_inner_e.id = pc_join_mixed_inner_r.id"
+  - id: join_mixed_left
+    category: joins
+    title: "LEFT JOIN from the row-store side (engine table with a row-store table)"
+    setup:
+      - "CREATE TABLE pc_join_mixed_left_e (id INT, amt DECIMAL(10,2)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_mixed_left_e VALUES (1, 10.00), (2, 20.00), (3, 30.00), (3, 5.50)"
+      - "CREATE TABLE pc_join_mixed_left_r (id INT, label VARCHAR(10), grp INT) {{ rowstore_clause }}"
+      - "INSERT INTO pc_join_mixed_left_r VALUES (1, 'one', 1), (2, 'two', 1), (3, 'three', 2), (9, 'nine', 2)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_join_mixed_left_e"
+      - "DROP TABLE IF EXISTS pc_join_mixed_left_r"
+    sql_mysql: "SELECT pc_join_mixed_left_r.id, label, amt FROM pc_join_mixed_left_r LEFT JOIN pc_join_mixed_left_e ON pc_join_mixed_left_e.id = pc_join_mixed_left_r.id"
+    sql_postgres: "SELECT pc_join_mixed_left_r.id, label, amt FROM pc_join_mixed_left_r LEFT JOIN pc_join_mixed_left_e ON pc_join_mixed_left_e.id = pc_join_mixed_left_r.id"
+  - id: join_mixed_group
+    category: joins
+    title: "JOIN with GROUP BY on a row-store column (engine table with a row-store table)"
+    setup:
+      - "CREATE TABLE pc_join_mixed_group_e (id INT, amt DECIMAL(10,2)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_mixed_group_e VALUES (1, 10.00), (2, 20.00), (3, 30.00), (3, 5.50)"
+      - "CREATE TABLE pc_join_mixed_group_r (id INT, label VARCHAR(10), grp INT) {{ rowstore_clause }}"
+      - "INSERT INTO pc_join_mixed_group_r VALUES (1, 'one', 1), (2, 'two', 1), (3, 'three', 2), (9, 'nine', 2)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_join_mixed_group_e"
+      - "DROP TABLE IF EXISTS pc_join_mixed_group_r"
+    sql_mysql: "SELECT grp, SUM(amt), COUNT(*) FROM pc_join_mixed_group_e JOIN pc_join_mixed_group_r ON pc_join_mixed_group_e.id = pc_join_mixed_group_r.id GROUP BY grp"
+    sql_postgres: "SELECT grp, SUM(amt), COUNT(*) FROM pc_join_mixed_group_e JOIN pc_join_mixed_group_r ON pc_join_mixed_group_e.id = pc_join_mixed_group_r.id GROUP BY grp"
+  - id: join_mixed_exists
+    category: joins
+    title: "EXISTS across the two (engine table with a row-store table)"
+    setup:
+      - "CREATE TABLE pc_join_mixed_exists_e (id INT, amt DECIMAL(10,2)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_mixed_exists_e VALUES (1, 10.00), (2, 20.00), (3, 30.00), (3, 5.50)"
+      - "CREATE TABLE pc_join_mixed_exists_r (id INT, label VARCHAR(10), grp INT) {{ rowstore_clause }}"
+      - "INSERT INTO pc_join_mixed_exists_r VALUES (1, 'one', 1), (2, 'two', 1), (3, 'three', 2), (9, 'nine', 2)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_join_mixed_exists_e"
+      - "DROP TABLE IF EXISTS pc_join_mixed_exists_r"
+    sql_mysql: "SELECT id, label FROM pc_join_mixed_exists_r WHERE EXISTS (SELECT 1 FROM pc_join_mixed_exists_e WHERE pc_join_mixed_exists_e.id = pc_join_mixed_exists_r.id AND amt > 15)"
+    sql_postgres: "SELECT id, label FROM pc_join_mixed_exists_r WHERE EXISTS (SELECT 1 FROM pc_join_mixed_exists_e WHERE pc_join_mixed_exists_e.id = pc_join_mixed_exists_r.id AND amt > 15)"
+  - id: join_mixed_tpch_dimension
+    category: joins
+    title: "Row-store lookup table joined with TPC-H nation (the TPC-H table is the engine table)"
+    setup:
+      - "CREATE TABLE pc_join_mixed_tpch_dimension (k INT, label VARCHAR(10)) {{ rowstore_clause }}"
+      - "INSERT INTO pc_join_mixed_tpch_dimension VALUES (0, 'zero'), (7, 'seven'), (24, 'last')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_join_mixed_tpch_dimension"
+    sql_mysql: "SELECT n.n_name, d.label FROM nation n JOIN pc_join_mixed_tpch_dimension d ON n.n_nationkey = d.k"
+    sql_postgres: "SELECT n.n_name, d.label FROM nation n JOIN pc_join_mixed_tpch_dimension d ON n.n_nationkey = d.k"
+  - id: sub_scalar_uncorrelated
+    category: subqueries
+    title: "Scalar subquery in WHERE"
+    setup:
+      - "CREATE TABLE pc_sub_scalar_uncorrelated_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_sub_scalar_uncorrelated_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
+      - "CREATE TABLE pc_sub_scalar_uncorrelated_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_sub_scalar_uncorrelated_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_sub_scalar_uncorrelated_a"
+      - "DROP TABLE IF EXISTS pc_sub_scalar_uncorrelated_b"
+    sql_mysql: "SELECT id FROM pc_sub_scalar_uncorrelated_a WHERE id > (SELECT AVG(id) FROM pc_sub_scalar_uncorrelated_b)"
+    sql_postgres: "SELECT id FROM pc_sub_scalar_uncorrelated_a WHERE id > (SELECT AVG(id) FROM pc_sub_scalar_uncorrelated_b)"
+  - id: sub_scalar_correlated
+    category: subqueries
+    title: "Correlated scalar subquery in the select list"
+    setup:
+      - "CREATE TABLE pc_sub_scalar_correlated_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_sub_scalar_correlated_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
+      - "CREATE TABLE pc_sub_scalar_correlated_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_sub_scalar_correlated_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_sub_scalar_correlated_a"
+      - "DROP TABLE IF EXISTS pc_sub_scalar_correlated_b"
+    sql_mysql: "SELECT id, (SELECT MAX(w) FROM pc_sub_scalar_correlated_b WHERE pc_sub_scalar_correlated_b.id = pc_sub_scalar_correlated_a.id) FROM pc_sub_scalar_correlated_a"
+    sql_postgres: "SELECT id, (SELECT MAX(w) FROM pc_sub_scalar_correlated_b WHERE pc_sub_scalar_correlated_b.id = pc_sub_scalar_correlated_a.id) FROM pc_sub_scalar_correlated_a"
+  - id: sub_in
+    category: subqueries
+    title: "IN (subquery)"
+    setup:
+      - "CREATE TABLE pc_sub_in_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_sub_in_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
+      - "CREATE TABLE pc_sub_in_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_sub_in_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_sub_in_a"
+      - "DROP TABLE IF EXISTS pc_sub_in_b"
+    sql_mysql: "SELECT id, v FROM pc_sub_in_a WHERE id IN (SELECT id FROM pc_sub_in_b)"
+    sql_postgres: "SELECT id, v FROM pc_sub_in_a WHERE id IN (SELECT id FROM pc_sub_in_b)"
+  - id: sub_not_in
+    category: subqueries
+    title: "NOT IN (subquery)"
+    setup:
+      - "CREATE TABLE pc_sub_not_in_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_sub_not_in_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
+      - "CREATE TABLE pc_sub_not_in_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_sub_not_in_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_sub_not_in_a"
+      - "DROP TABLE IF EXISTS pc_sub_not_in_b"
+    sql_mysql: "SELECT id, v FROM pc_sub_not_in_a WHERE id NOT IN (SELECT id FROM pc_sub_not_in_b)"
+    sql_postgres: "SELECT id, v FROM pc_sub_not_in_a WHERE id NOT IN (SELECT id FROM pc_sub_not_in_b)"
+  - id: sub_derived_table
+    category: subqueries
+    title: "Derived table in FROM"
+    setup:
+      - "CREATE TABLE pc_sub_derived_table_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_sub_derived_table_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
+      - "CREATE TABLE pc_sub_derived_table_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_sub_derived_table_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_sub_derived_table_a"
+      - "DROP TABLE IF EXISTS pc_sub_derived_table_b"
+    sql_mysql: "SELECT t.id, t.c FROM (SELECT id, COUNT(*) AS c FROM pc_sub_derived_table_b GROUP BY id) t WHERE t.c > 1"
+    sql_postgres: "SELECT t.id, t.c FROM (SELECT id, COUNT(*) AS c FROM pc_sub_derived_table_b GROUP BY id) t WHERE t.c > 1"
+  - id: sub_any_all
+    category: subqueries
+    title: "ANY and ALL comparisons"
+    setup:
+      - "CREATE TABLE pc_sub_any_all_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_sub_any_all_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
+      - "CREATE TABLE pc_sub_any_all_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_sub_any_all_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_sub_any_all_a"
+      - "DROP TABLE IF EXISTS pc_sub_any_all_b"
+    sql_mysql: "SELECT id FROM pc_sub_any_all_a WHERE id > ANY (SELECT id FROM pc_sub_any_all_b) AND id <= ALL (SELECT id FROM pc_sub_any_all_b WHERE id > 2)"
+    sql_postgres: "SELECT id FROM pc_sub_any_all_a WHERE id > ANY (SELECT id FROM pc_sub_any_all_b) AND id <= ALL (SELECT id FROM pc_sub_any_all_b WHERE id > 2)"
+  - id: sub_lateral
+    category: subqueries
+    title: "LATERAL derived table"
+    setup:
+      - "CREATE TABLE pc_sub_lateral_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_sub_lateral_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
+      - "CREATE TABLE pc_sub_lateral_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_sub_lateral_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_sub_lateral_a"
+      - "DROP TABLE IF EXISTS pc_sub_lateral_b"
+    sql_mysql: "SELECT pc_sub_lateral_a.id, l.w FROM pc_sub_lateral_a, LATERAL (SELECT w FROM pc_sub_lateral_b WHERE pc_sub_lateral_b.id = pc_sub_lateral_a.id ORDER BY w LIMIT 1) l"
+    sql_postgres: "SELECT pc_sub_lateral_a.id, l.w FROM pc_sub_lateral_a, LATERAL (SELECT w FROM pc_sub_lateral_b WHERE pc_sub_lateral_b.id = pc_sub_lateral_a.id ORDER BY w LIMIT 1) l"
+  - id: sub_tpch_scalar
+    category: subqueries
+    title: "TPC-H: nations of the region found by a scalar subquery"
+    sql_mysql: "SELECT n_name FROM nation WHERE n_regionkey = (SELECT r_regionkey FROM region WHERE r_name = 'EUROPE')"
+    sql_postgres: "SELECT n_name FROM nation WHERE n_regionkey = (SELECT r_regionkey FROM region WHERE r_name = 'EUROPE')"
+  - id: cte_plain
+    category: cte
+    title: "One CTE used once"
+    setup:
+      - "CREATE TABLE pc_cte_plain_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_cte_plain_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
+      - "CREATE TABLE pc_cte_plain_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_cte_plain_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_cte_plain_a"
+      - "DROP TABLE IF EXISTS pc_cte_plain_b"
+    sql_mysql: "WITH j AS (SELECT pc_cte_plain_a.id, w FROM pc_cte_plain_a JOIN pc_cte_plain_b ON pc_cte_plain_a.id = pc_cte_plain_b.id) SELECT id, w FROM j WHERE w <> 'b3'"
+    sql_postgres: "WITH j AS (SELECT pc_cte_plain_a.id, w FROM pc_cte_plain_a JOIN pc_cte_plain_b ON pc_cte_plain_a.id = pc_cte_plain_b.id) SELECT id, w FROM j WHERE w <> 'b3'"
+  - id: cte_multiple
+    category: cte
+    title: "Two CTEs, the second reading the first"
+    setup:
+      - "CREATE TABLE pc_cte_multiple_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_cte_multiple_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
+      - "CREATE TABLE pc_cte_multiple_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_cte_multiple_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_cte_multiple_a"
+      - "DROP TABLE IF EXISTS pc_cte_multiple_b"
+    sql_mysql: "WITH cnt AS (SELECT id, COUNT(*) AS c FROM pc_cte_multiple_b GROUP BY id), big AS (SELECT id FROM cnt WHERE c > 1) SELECT pc_cte_multiple_a.id, v FROM pc_cte_multiple_a JOIN big ON big.id = pc_cte_multiple_a.id"
+    sql_postgres: "WITH cnt AS (SELECT id, COUNT(*) AS c FROM pc_cte_multiple_b GROUP BY id), big AS (SELECT id FROM cnt WHERE c > 1) SELECT pc_cte_multiple_a.id, v FROM pc_cte_multiple_a JOIN big ON big.id = pc_cte_multiple_a.id"
+  - id: cte_referenced_twice
+    category: cte
+    title: "A CTE referenced twice (self join)"
+    setup:
+      - "CREATE TABLE pc_cte_referenced_twice_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_cte_referenced_twice_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
+      - "CREATE TABLE pc_cte_referenced_twice_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_cte_referenced_twice_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_cte_referenced_twice_a"
+      - "DROP TABLE IF EXISTS pc_cte_referenced_twice_b"
+    sql_mysql: "WITH c AS (SELECT id FROM pc_cte_referenced_twice_a WHERE id < 4) SELECT x.id, y.id FROM c x JOIN c y ON y.id = x.id + 1"
+    sql_postgres: "WITH c AS (SELECT id FROM pc_cte_referenced_twice_a WHERE id < 4) SELECT x.id, y.id FROM c x JOIN c y ON y.id = x.id + 1"
+  - id: cte_recursive_counter
+    category: cte
+    title: "Recursive CTE counting from a table value to 10"
+    setup:
+      - "CREATE TABLE pc_cte_recursive_counter (id INT) {{ engine_clause }}"
+      - "INSERT INTO pc_cte_recursive_counter VALUES (1)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_cte_recursive_counter"
+    sql_mysql: "WITH RECURSIVE n(i) AS (SELECT MIN(id) FROM pc_cte_recursive_counter UNION ALL SELECT i + 1 FROM n WHERE i < 10) SELECT COUNT(*), SUM(i) FROM n"
+    sql_postgres: "WITH RECURSIVE n(i) AS (SELECT MIN(id) FROM pc_cte_recursive_counter UNION ALL SELECT i + 1 FROM n WHERE i < 10) SELECT COUNT(*), SUM(i) FROM n"
+  - id: cte_recursive_hierarchy
+    category: cte
+    title: "Recursive CTE walking a management tree with depth"
+    setup:
+      - "CREATE TABLE pc_cte_recursive_tree (id INT, mgr INT, name VARCHAR(20)) {{ engine_clause }}"
+      - "INSERT INTO pc_cte_recursive_tree VALUES (1, NULL, 'root'), (2, 1, 'a'), (3, 1, 'b'), (4, 2, 'a1'), (5, 4, 'a1x'), (6, 3, 'b1')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_cte_recursive_tree"
+    sql_mysql: "WITH RECURSIVE t(id, depth) AS (SELECT id, 0 FROM pc_cte_recursive_tree WHERE mgr IS NULL UNION ALL SELECT e.id, t.depth + 1 FROM pc_cte_recursive_tree e JOIN t ON e.mgr = t.id) SELECT id, depth FROM t"
+    sql_postgres: "WITH RECURSIVE t(id, depth) AS (SELECT id, 0 FROM pc_cte_recursive_tree WHERE mgr IS NULL UNION ALL SELECT e.id, t.depth + 1 FROM pc_cte_recursive_tree e JOIN t ON e.mgr = t.id) SELECT id, depth FROM t"
+  - id: cte_recursive_path
+    category: cte
+    title: "Recursive CTE building a path string"
+    setup:
+      - "CREATE TABLE pc_cte_recursive_tree (id INT, mgr INT, name VARCHAR(20)) {{ engine_clause }}"
+      - "INSERT INTO pc_cte_recursive_tree VALUES (1, NULL, 'root'), (2, 1, 'a'), (3, 1, 'b'), (4, 2, 'a1'), (5, 4, 'a1x'), (6, 3, 'b1')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_cte_recursive_tree"
+    sql_mysql: "WITH RECURSIVE t(id, path) AS (SELECT id, CAST(name AS CHAR(200)) FROM pc_cte_recursive_tree WHERE mgr IS NULL UNION ALL SELECT e.id, CONCAT(t.path, '/', e.name) FROM pc_cte_recursive_tree e JOIN t ON e.mgr = t.id) SELECT id, path FROM t"
+    sql_postgres: "WITH RECURSIVE t(id, path) AS (SELECT id, CAST(name AS TEXT) FROM pc_cte_recursive_tree WHERE mgr IS NULL UNION ALL SELECT e.id, t.path || '/' || e.name FROM pc_cte_recursive_tree e JOIN t ON e.mgr = t.id) SELECT id, path FROM t"
+  - id: cte_tpch_aggregate
+    category: cte
+    title: "TPC-H: CTE aggregate joined back to region"
+    sql_mysql: "WITH c AS (SELECT n_regionkey, COUNT(*) AS n FROM nation GROUP BY n_regionkey) SELECT r.r_name, c.n FROM region r JOIN c ON c.n_regionkey = r.r_regionkey"
+    sql_postgres: "WITH c AS (SELECT n_regionkey, COUNT(*) AS n FROM nation GROUP BY n_regionkey) SELECT r.r_name, c.n FROM region r JOIN c ON c.n_regionkey = r.r_regionkey"
+  - id: win_row_number
+    category: window
+    title: "ROW_NUMBER over a partition"
+    setup:
+      - "CREATE TABLE pc_win_row_number (id INT, dept VARCHAR(5), amt INT) {{ engine_clause }}"
+      - "INSERT INTO pc_win_row_number VALUES (1, 'x', 10), (2, 'x', 30), (3, 'x', 30), (4, 'y', 5), (5, 'y', 15), (6, 'z', 7)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_win_row_number"
+    sql_mysql: "SELECT id, ROW_NUMBER() OVER (PARTITION BY dept ORDER BY id) FROM pc_win_row_number"
+    sql_postgres: "SELECT id, ROW_NUMBER() OVER (PARTITION BY dept ORDER BY id) FROM pc_win_row_number"
+  - id: win_rank_dense_rank
+    category: window
+    title: "RANK and DENSE_RANK with ties"
+    setup:
+      - "CREATE TABLE pc_win_rank_dense_rank (id INT, dept VARCHAR(5), amt INT) {{ engine_clause }}"
+      - "INSERT INTO pc_win_rank_dense_rank VALUES (1, 'x', 10), (2, 'x', 30), (3, 'x', 30), (4, 'y', 5), (5, 'y', 15), (6, 'z', 7)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_win_rank_dense_rank"
+    sql_mysql: "SELECT id, RANK() OVER (PARTITION BY dept ORDER BY amt), DENSE_RANK() OVER (PARTITION BY dept ORDER BY amt) FROM pc_win_rank_dense_rank"
+    sql_postgres: "SELECT id, RANK() OVER (PARTITION BY dept ORDER BY amt), DENSE_RANK() OVER (PARTITION BY dept ORDER BY amt) FROM pc_win_rank_dense_rank"
+  - id: win_lag_lead
+    category: window
+    title: "LAG and LEAD with defaults"
+    setup:
+      - "CREATE TABLE pc_win_lag_lead (id INT, dept VARCHAR(5), amt INT) {{ engine_clause }}"
+      - "INSERT INTO pc_win_lag_lead VALUES (1, 'x', 10), (2, 'x', 30), (3, 'x', 30), (4, 'y', 5), (5, 'y', 15), (6, 'z', 7)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_win_lag_lead"
+    sql_mysql: "SELECT id, LAG(amt, 1, 0) OVER (ORDER BY id), LEAD(amt) OVER (ORDER BY id) FROM pc_win_lag_lead"
+    sql_postgres: "SELECT id, LAG(amt, 1, 0) OVER (ORDER BY id), LEAD(amt) OVER (ORDER BY id) FROM pc_win_lag_lead"
+  - id: win_running_sum
+    category: window
+    title: "Running SUM with an explicit ROWS frame"
+    setup:
+      - "CREATE TABLE pc_win_running_sum (id INT, dept VARCHAR(5), amt INT) {{ engine_clause }}"
+      - "INSERT INTO pc_win_running_sum VALUES (1, 'x', 10), (2, 'x', 30), (3, 'x', 30), (4, 'y', 5), (5, 'y', 15), (6, 'z', 7)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_win_running_sum"
+    sql_mysql: "SELECT id, SUM(amt) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM pc_win_running_sum"
+    sql_postgres: "SELECT id, SUM(amt) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM pc_win_running_sum"
+  - id: win_moving_avg
+    category: window
+    title: "Moving AVG over three rows"
+    setup:
+      - "CREATE TABLE pc_win_moving_avg (id INT, dept VARCHAR(5), amt INT) {{ engine_clause }}"
+      - "INSERT INTO pc_win_moving_avg VALUES (1, 'x', 10), (2, 'x', 30), (3, 'x', 30), (4, 'y', 5), (5, 'y', 15), (6, 'z', 7)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_win_moving_avg"
+    sql_mysql: "SELECT id, AVG(amt) OVER (ORDER BY id ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM pc_win_moving_avg"
+    sql_postgres: "SELECT id, AVG(amt) OVER (ORDER BY id ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM pc_win_moving_avg"
+  - id: win_ntile
+    category: window
+    title: "NTILE"
+    setup:
+      - "CREATE TABLE pc_win_ntile (id INT, dept VARCHAR(5), amt INT) {{ engine_clause }}"
+      - "INSERT INTO pc_win_ntile VALUES (1, 'x', 10), (2, 'x', 30), (3, 'x', 30), (4, 'y', 5), (5, 'y', 15), (6, 'z', 7)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_win_ntile"
+    sql_mysql: "SELECT id, NTILE(3) OVER (ORDER BY id) FROM pc_win_ntile"
+    sql_postgres: "SELECT id, NTILE(3) OVER (ORDER BY id) FROM pc_win_ntile"
+  - id: win_first_last_value
+    category: window
+    title: "FIRST_VALUE and LAST_VALUE per partition"
+    setup:
+      - "CREATE TABLE pc_win_first_last_value (id INT, dept VARCHAR(5), amt INT) {{ engine_clause }}"
+      - "INSERT INTO pc_win_first_last_value VALUES (1, 'x', 10), (2, 'x', 30), (3, 'x', 30), (4, 'y', 5), (5, 'y', 15), (6, 'z', 7)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_win_first_last_value"
+    sql_mysql: "SELECT id, FIRST_VALUE(amt) OVER (PARTITION BY dept ORDER BY id), LAST_VALUE(amt) OVER (PARTITION BY dept ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM pc_win_first_last_value"
+    sql_postgres: "SELECT id, FIRST_VALUE(amt) OVER (PARTITION BY dept ORDER BY id), LAST_VALUE(amt) OVER (PARTITION BY dept ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM pc_win_first_last_value"
+  - id: win_percent_rank_cume_dist
+    category: window
+    title: "PERCENT_RANK and CUME_DIST"
+    setup:
+      - "CREATE TABLE pc_win_percent_rank_cume_dist (id INT, dept VARCHAR(5), amt INT) {{ engine_clause }}"
+      - "INSERT INTO pc_win_percent_rank_cume_dist VALUES (1, 'x', 10), (2, 'x', 30), (3, 'x', 30), (4, 'y', 5), (5, 'y', 15), (6, 'z', 7)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_win_percent_rank_cume_dist"
+    sql_mysql: "SELECT id, PERCENT_RANK() OVER (ORDER BY amt), CUME_DIST() OVER (ORDER BY amt) FROM pc_win_percent_rank_cume_dist"
+    sql_postgres: "SELECT id, PERCENT_RANK() OVER (ORDER BY amt), CUME_DIST() OVER (ORDER BY amt) FROM pc_win_percent_rank_cume_dist"
+  - id: win_tpch_rank
+    category: window
+    title: "TPC-H: rank suppliers by account balance within a nation"
+    sql_mysql: "SELECT s_suppkey, s_nationkey, RANK() OVER (PARTITION BY s_nationkey ORDER BY s_acctbal DESC) FROM supplier WHERE s_suppkey <= 200"
+    sql_postgres: "SELECT s_suppkey, s_nationkey, RANK() OVER (PARTITION BY s_nationkey ORDER BY s_acctbal DESC) FROM supplier WHERE s_suppkey <= 200"
+  - id: dml_insert_single
+    category: dml
+    title: "Single-row INSERT"
+    setup:
+      - "CREATE TABLE pc_dml_insert_single (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "INSERT INTO pc_dml_insert_single VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_dml_insert_single"
+    sql_mysql: "INSERT INTO pc_dml_insert_single VALUES (4, 40, 'd')"
+    sql_postgres: "INSERT INTO pc_dml_insert_single VALUES (4, 40, 'd')"
+    check_mysql: "SELECT id, v, s FROM pc_dml_insert_single ORDER BY id"
+    check_postgres: "SELECT id, v, s FROM pc_dml_insert_single ORDER BY id"
+  - id: dml_insert_multi
+    category: dml
+    title: "Multi-row INSERT"
+    setup:
+      - "CREATE TABLE pc_dml_insert_multi (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "INSERT INTO pc_dml_insert_multi VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_dml_insert_multi"
+    sql_mysql: "INSERT INTO pc_dml_insert_multi VALUES (4, 40, 'd'), (5, NULL, 'e'), (6, 60, NULL)"
+    sql_postgres: "INSERT INTO pc_dml_insert_multi VALUES (4, 40, 'd'), (5, NULL, 'e'), (6, 60, NULL)"
+    check_mysql: "SELECT id, v, s FROM pc_dml_insert_multi ORDER BY id"
+    check_postgres: "SELECT id, v, s FROM pc_dml_insert_multi ORDER BY id"
+  - id: dml_insert_default
+    category: dml
+    title: "INSERT relying on a column DEFAULT"
+    setup:
+      - "CREATE TABLE pc_dml_insert_default (id INT, v INT DEFAULT 7, s VARCHAR(20) DEFAULT 'dflt') {{ engine_clause }}"
+      - "INSERT INTO pc_dml_insert_default VALUES (1, 10, 'a')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_dml_insert_default"
+    sql_mysql: "INSERT INTO pc_dml_insert_default (id) VALUES (9)"
+    sql_postgres: "INSERT INTO pc_dml_insert_default (id) VALUES (9)"
+    check_mysql: "SELECT id, v, s FROM pc_dml_insert_default ORDER BY id"
+    check_postgres: "SELECT id, v, s FROM pc_dml_insert_default ORDER BY id"
+  - id: dml_update_single_row
+    category: dml
+    title: "UPDATE one row by id"
+    setup:
+      - "CREATE TABLE pc_dml_update_single_row (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "INSERT INTO pc_dml_update_single_row VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_dml_update_single_row"
+    sql_mysql: "UPDATE pc_dml_update_single_row SET v = 99, s = 'zz' WHERE id = 2"
+    sql_postgres: "UPDATE pc_dml_update_single_row SET v = 99, s = 'zz' WHERE id = 2"
+    check_mysql: "SELECT id, v, s FROM pc_dml_update_single_row ORDER BY id"
+    check_postgres: "SELECT id, v, s FROM pc_dml_update_single_row ORDER BY id"
+  - id: dml_update_expression
+    category: dml
+    title: "UPDATE every row with an expression"
+    setup:
+      - "CREATE TABLE pc_dml_update_expression (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "INSERT INTO pc_dml_update_expression VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_dml_update_expression"
+    sql_mysql: "UPDATE pc_dml_update_expression SET v = v * 2 + 1"
+    sql_postgres: "UPDATE pc_dml_update_expression SET v = v * 2 + 1"
+    check_mysql: "SELECT id, v, s FROM pc_dml_update_expression ORDER BY id"
+    check_postgres: "SELECT id, v, s FROM pc_dml_update_expression ORDER BY id"
+  - id: dml_update_join
+    category: dml
+    title: "UPDATE from a second table"
+    setup:
+      - "CREATE TABLE pc_dml_update_join (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "INSERT INTO pc_dml_update_join VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
+      - "CREATE TABLE pc_dml_update_join_u (id INT, w INT) {{ engine_clause }}"
+      - "INSERT INTO pc_dml_update_join_u VALUES (1, 111), (3, 333)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_dml_update_join"
+      - "DROP TABLE IF EXISTS pc_dml_update_join_u"
+    sql_mysql: "UPDATE pc_dml_update_join JOIN pc_dml_update_join_u ON pc_dml_update_join.id = pc_dml_update_join_u.id SET pc_dml_update_join.v = pc_dml_update_join_u.w"
+    sql_postgres: "UPDATE pc_dml_update_join SET v = pc_dml_update_join_u.w FROM pc_dml_update_join_u WHERE pc_dml_update_join.id = pc_dml_update_join_u.id"
+    check_mysql: "SELECT id, v, s FROM pc_dml_update_join ORDER BY id"
+    check_postgres: "SELECT id, v, s FROM pc_dml_update_join ORDER BY id"
+  - id: dml_delete_single
+    category: dml
+    title: "DELETE one row"
+    setup:
+      - "CREATE TABLE pc_dml_delete_single (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "INSERT INTO pc_dml_delete_single VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_dml_delete_single"
+    sql_mysql: "DELETE FROM pc_dml_delete_single WHERE id = 2"
+    sql_postgres: "DELETE FROM pc_dml_delete_single WHERE id = 2"
+    check_mysql: "SELECT id, v, s FROM pc_dml_delete_single ORDER BY id"
+    check_postgres: "SELECT id, v, s FROM pc_dml_delete_single ORDER BY id"
+  - id: dml_delete_subquery
+    category: dml
+    title: "DELETE with IN (subquery)"
+    setup:
+      - "CREATE TABLE pc_dml_delete_subquery (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "INSERT INTO pc_dml_delete_subquery VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
+      - "CREATE TABLE pc_dml_delete_subquery_u (id INT, w INT) {{ engine_clause }}"
+      - "INSERT INTO pc_dml_delete_subquery_u VALUES (1, 111), (3, 333)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_dml_delete_subquery"
+      - "DROP TABLE IF EXISTS pc_dml_delete_subquery_u"
+    sql_mysql: "DELETE FROM pc_dml_delete_subquery WHERE id IN (SELECT id FROM pc_dml_delete_subquery_u)"
+    sql_postgres: "DELETE FROM pc_dml_delete_subquery WHERE id IN (SELECT id FROM pc_dml_delete_subquery_u)"
+    check_mysql: "SELECT id, v, s FROM pc_dml_delete_subquery ORDER BY id"
+    check_postgres: "SELECT id, v, s FROM pc_dml_delete_subquery ORDER BY id"
+  - id: dml_insert_select
+    category: dml
+    title: "INSERT ... SELECT into a table of the same engine"
+    setup:
+      - "CREATE TABLE pc_dml_insert_select (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "INSERT INTO pc_dml_insert_select VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
+      - "CREATE TABLE pc_dml_insert_select_n (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_dml_insert_select"
+      - "DROP TABLE IF EXISTS pc_dml_insert_select_n"
+    sql_mysql: "INSERT INTO pc_dml_insert_select_n SELECT id + 100, v, s FROM pc_dml_insert_select"
+    sql_postgres: "INSERT INTO pc_dml_insert_select_n SELECT id + 100, v, s FROM pc_dml_insert_select"
+    check_mysql: "SELECT id, v, s FROM pc_dml_insert_select_n ORDER BY id"
+    check_postgres: "SELECT id, v, s FROM pc_dml_insert_select_n ORDER BY id"
+  - id: dml_insert_select_cross_engine
+    category: dml
+    title: "INSERT ... SELECT from an engine table into a row-store table"
+    setup:
+      - "CREATE TABLE pc_dml_insert_select_cross_engine (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "INSERT INTO pc_dml_insert_select_cross_engine VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
+      - "CREATE TABLE pc_dml_insert_select_cross_engine_n (id INT, v INT, s VARCHAR(20)) {{ rowstore_clause }}"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_dml_insert_select_cross_engine"
+      - "DROP TABLE IF EXISTS pc_dml_insert_select_cross_engine_n"
+    sql_mysql: "INSERT INTO pc_dml_insert_select_cross_engine_n SELECT id + 100, v, s FROM pc_dml_insert_select_cross_engine"
+    sql_postgres: "INSERT INTO pc_dml_insert_select_cross_engine_n SELECT id + 100, v, s FROM pc_dml_insert_select_cross_engine"
+    check_mysql: "SELECT id, v, s FROM pc_dml_insert_select_cross_engine_n ORDER BY id"
+    check_postgres: "SELECT id, v, s FROM pc_dml_insert_select_cross_engine_n ORDER BY id"
+  - id: dml_insert_select_from_rowstore
+    category: dml
+    title: "INSERT ... SELECT from a row-store table into an engine table"
+    setup:
+      - "CREATE TABLE pc_dml_insert_select_from_rowstore (id INT, v INT, s VARCHAR(20)) {{ rowstore_clause }}"
+      - "INSERT INTO pc_dml_insert_select_from_rowstore VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
+      - "CREATE TABLE pc_dml_insert_select_from_rowstore_n (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_dml_insert_select_from_rowstore"
+      - "DROP TABLE IF EXISTS pc_dml_insert_select_from_rowstore_n"
+    sql_mysql: "INSERT INTO pc_dml_insert_select_from_rowstore_n SELECT id + 100, v, s FROM pc_dml_insert_select_from_rowstore"
+    sql_postgres: "INSERT INTO pc_dml_insert_select_from_rowstore_n SELECT id + 100, v, s FROM pc_dml_insert_select_from_rowstore"
+    check_mysql: "SELECT id, v, s FROM pc_dml_insert_select_from_rowstore_n ORDER BY id"
+    check_postgres: "SELECT id, v, s FROM pc_dml_insert_select_from_rowstore_n ORDER BY id"
+  - id: dml_upsert
+    category: dml
+    title: "Insert-or-update on a primary key conflict"
+    setup:
+      - "CREATE TABLE pc_dml_upsert (id INT PRIMARY KEY, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "INSERT INTO pc_dml_upsert VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_dml_upsert"
+    sql_mysql: "INSERT INTO pc_dml_upsert VALUES (2, 5, 'new'), (7, 70, 'seven') ON DUPLICATE KEY UPDATE v = v + 100"
+    sql_postgres: "INSERT INTO pc_dml_upsert VALUES (2, 5, 'new'), (7, 70, 'seven') ON CONFLICT (id) DO UPDATE SET v = pc_dml_upsert.v + 100"
+    check_mysql: "SELECT id, v, s FROM pc_dml_upsert ORDER BY id"
+    check_postgres: "SELECT id, v, s FROM pc_dml_upsert ORDER BY id"
+  - id: dml_auto_increment
+    category: dml
+    title: "Generated primary key values for rows inserted without an id"
+    setup:
+      mysql:
+        - "CREATE TABLE pc_dml_auto_increment (id INT AUTO_INCREMENT PRIMARY KEY, s VARCHAR(10)) {{ engine_clause }}"
+      postgres:
+        - "CREATE TABLE pc_dml_auto_increment (id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, s VARCHAR(10)) {{ engine_clause }}"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_dml_auto_increment"
+    sql_mysql: "INSERT INTO pc_dml_auto_increment (s) VALUES ('x'), ('y'), ('z')"
+    sql_postgres: "INSERT INTO pc_dml_auto_increment (s) VALUES ('x'), ('y'), ('z')"
+    check_mysql: "SELECT id, s FROM pc_dml_auto_increment ORDER BY id"
+    check_postgres: "SELECT id, s FROM pc_dml_auto_increment ORDER BY id"
+  - id: dml_txn_commit
+    category: dml
+    title: "BEGIN, INSERT and UPDATE, COMMIT"
+    setup:
+      - "CREATE TABLE pc_dml_txn_commit (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "INSERT INTO pc_dml_txn_commit VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_dml_txn_commit"
+    sql_mysql:
+      - "BEGIN"
+      - "INSERT INTO pc_dml_txn_commit VALUES (4, 40, 'd')"
+      - "UPDATE pc_dml_txn_commit SET v = 11 WHERE id = 1"
+      - "COMMIT"
+    sql_postgres:
+      - "BEGIN"
+      - "INSERT INTO pc_dml_txn_commit VALUES (4, 40, 'd')"
+      - "UPDATE pc_dml_txn_commit SET v = 11 WHERE id = 1"
+      - "COMMIT"
+    check_mysql: "SELECT id, v, s FROM pc_dml_txn_commit ORDER BY id"
+    check_postgres: "SELECT id, v, s FROM pc_dml_txn_commit ORDER BY id"
+  - id: dml_txn_rollback_insert
+    category: dml
+    title: "INSERT inside a transaction that is rolled back"
+    setup:
+      - "CREATE TABLE pc_dml_txn_rollback_insert (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "INSERT INTO pc_dml_txn_rollback_insert VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_dml_txn_rollback_insert"
+    sql_mysql:
+      - "BEGIN"
+      - "INSERT INTO pc_dml_txn_rollback_insert VALUES (4, 40, 'd')"
+      - "ROLLBACK"
+    sql_postgres:
+      - "BEGIN"
+      - "INSERT INTO pc_dml_txn_rollback_insert VALUES (4, 40, 'd')"
+      - "ROLLBACK"
+    check_mysql: "SELECT id, v, s FROM pc_dml_txn_rollback_insert ORDER BY id"
+    check_postgres: "SELECT id, v, s FROM pc_dml_txn_rollback_insert ORDER BY id"
+  - id: dml_txn_rollback_update
+    category: dml
+    title: "UPDATE inside a transaction that is rolled back"
+    setup:
+      - "CREATE TABLE pc_dml_txn_rollback_update (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "INSERT INTO pc_dml_txn_rollback_update VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_dml_txn_rollback_update"
+    sql_mysql:
+      - "BEGIN"
+      - "UPDATE pc_dml_txn_rollback_update SET v = 0"
+      - "ROLLBACK"
+    sql_postgres:
+      - "BEGIN"
+      - "UPDATE pc_dml_txn_rollback_update SET v = 0"
+      - "ROLLBACK"
+    check_mysql: "SELECT id, v, s FROM pc_dml_txn_rollback_update ORDER BY id"
+    check_postgres: "SELECT id, v, s FROM pc_dml_txn_rollback_update ORDER BY id"
+  - id: dml_txn_rollback_delete
+    category: dml
+    title: "DELETE inside a transaction that is rolled back"
+    setup:
+      - "CREATE TABLE pc_dml_txn_rollback_delete (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "INSERT INTO pc_dml_txn_rollback_delete VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_dml_txn_rollback_delete"
+    sql_mysql:
+      - "BEGIN"
+      - "DELETE FROM pc_dml_txn_rollback_delete WHERE id > 1"
+      - "ROLLBACK"
+    sql_postgres:
+      - "BEGIN"
+      - "DELETE FROM pc_dml_txn_rollback_delete WHERE id > 1"
+      - "ROLLBACK"
+    check_mysql: "SELECT id, v, s FROM pc_dml_txn_rollback_delete ORDER BY id"
+    check_postgres: "SELECT id, v, s FROM pc_dml_txn_rollback_delete ORDER BY id"
+  - id: dml_select_for_update
+    category: dml
+    title: "Locking read inside a transaction"
+    setup:
+      - "CREATE TABLE pc_dml_select_for_update (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "INSERT INTO pc_dml_select_for_update VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_dml_select_for_update"
+    sql_mysql:
+      - "BEGIN"
+      - "SELECT v FROM pc_dml_select_for_update WHERE id = 2 FOR UPDATE"
+    sql_postgres:
+      - "BEGIN"
+      - "SELECT v FROM pc_dml_select_for_update WHERE id = 2 FOR UPDATE"
+    check_mysql: "SELECT id, v, s FROM pc_dml_select_for_update ORDER BY id"
+    check_postgres: "SELECT id, v, s FROM pc_dml_select_for_update ORDER BY id"
+  - id: ddl_add_column
+    category: ddl
+    title: "ALTER TABLE ADD COLUMN"
+    setup:
+      - "CREATE TABLE pc_ddl_add_column (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "INSERT INTO pc_ddl_add_column VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_ddl_add_column"
+    sql_mysql: "ALTER TABLE pc_ddl_add_column ADD COLUMN extra INT"
+    sql_postgres: "ALTER TABLE pc_ddl_add_column ADD COLUMN extra INT"
+    check_mysql: "SELECT id, extra FROM pc_ddl_add_column ORDER BY id"
+    check_postgres: "SELECT id, extra FROM pc_ddl_add_column ORDER BY id"
+  - id: ddl_add_column_default
+    category: ddl
+    title: "ADD COLUMN with a DEFAULT applied to existing rows"
+    setup:
+      - "CREATE TABLE pc_ddl_add_column_default (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "INSERT INTO pc_ddl_add_column_default VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_ddl_add_column_default"
+    sql_mysql: "ALTER TABLE pc_ddl_add_column_default ADD COLUMN flag INT DEFAULT 5"
+    sql_postgres: "ALTER TABLE pc_ddl_add_column_default ADD COLUMN flag INT DEFAULT 5"
+    check_mysql: "SELECT id, flag FROM pc_ddl_add_column_default ORDER BY id"
+    check_postgres: "SELECT id, flag FROM pc_ddl_add_column_default ORDER BY id"
+  - id: ddl_drop_column
+    category: ddl
+    title: "ALTER TABLE DROP COLUMN"
+    setup:
+      - "CREATE TABLE pc_ddl_drop_column (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "INSERT INTO pc_ddl_drop_column VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_ddl_drop_column"
+    sql_mysql: "ALTER TABLE pc_ddl_drop_column DROP COLUMN s"
+    sql_postgres: "ALTER TABLE pc_ddl_drop_column DROP COLUMN s"
+    check_mysql: "SELECT id, v FROM pc_ddl_drop_column ORDER BY id"
+    check_postgres: "SELECT id, v FROM pc_ddl_drop_column ORDER BY id"
+  - id: ddl_rename_column
+    category: ddl
+    title: "RENAME COLUMN"
+    setup:
+      - "CREATE TABLE pc_ddl_rename_column (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "INSERT INTO pc_ddl_rename_column VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_ddl_rename_column"
+    sql_mysql: "ALTER TABLE pc_ddl_rename_column RENAME COLUMN v TO val"
+    sql_postgres: "ALTER TABLE pc_ddl_rename_column RENAME COLUMN v TO val"
+    check_mysql: "SELECT id, val FROM pc_ddl_rename_column ORDER BY id"
+    check_postgres: "SELECT id, val FROM pc_ddl_rename_column ORDER BY id"
+  - id: ddl_rename_table
+    category: ddl
+    title: "Rename a table"
+    setup:
+      - "CREATE TABLE pc_ddl_rename_table (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "INSERT INTO pc_ddl_rename_table VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_ddl_rename_table"
+      - "DROP TABLE IF EXISTS pc_ddl_rename_table_new"
+    sql_mysql: "RENAME TABLE pc_ddl_rename_table TO pc_ddl_rename_table_new"
+    sql_postgres: "ALTER TABLE pc_ddl_rename_table RENAME TO pc_ddl_rename_table_new"
+    check_mysql: "SELECT id, v, s FROM pc_ddl_rename_table_new ORDER BY id"
+    check_postgres: "SELECT id, v, s FROM pc_ddl_rename_table_new ORDER BY id"
+  - id: ddl_truncate
+    category: ddl
+    title: "TRUNCATE TABLE"
+    setup:
+      - "CREATE TABLE pc_ddl_truncate (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "INSERT INTO pc_ddl_truncate VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_ddl_truncate"
+    sql_mysql: "TRUNCATE TABLE pc_ddl_truncate"
+    sql_postgres: "TRUNCATE TABLE pc_ddl_truncate"
+    check_mysql: "SELECT COUNT(*) FROM pc_ddl_truncate"
+    check_postgres: "SELECT COUNT(*) FROM pc_ddl_truncate"
+  - id: ddl_modify_column_type
+    category: ddl
+    title: "Widen a column's type"
+    setup:
+      - "CREATE TABLE pc_ddl_modify_column_type (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "INSERT INTO pc_ddl_modify_column_type VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_ddl_modify_column_type"
+    sql_mysql: "ALTER TABLE pc_ddl_modify_column_type MODIFY COLUMN v BIGINT"
+    sql_postgres: "ALTER TABLE pc_ddl_modify_column_type ALTER COLUMN v TYPE BIGINT"
+    check_mysql: "SELECT id, v + 9000000000 FROM pc_ddl_modify_column_type ORDER BY id"
+    check_postgres: "SELECT id, v + 9000000000 FROM pc_ddl_modify_column_type ORDER BY id"
+  - id: ddl_create_index
+    category: ddl
+    title: "CREATE INDEX, then a query that could use it"
+    setup:
+      - "CREATE TABLE pc_ddl_create_index (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "INSERT INTO pc_ddl_create_index VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_ddl_create_index"
+    sql_mysql: "CREATE INDEX pc_ddl_create_index_i ON pc_ddl_create_index (v)"
+    sql_postgres: "CREATE INDEX pc_ddl_create_index_i ON pc_ddl_create_index (v)"
+    check_mysql: "SELECT id FROM pc_ddl_create_index WHERE v = 20"
+    check_postgres: "SELECT id FROM pc_ddl_create_index WHERE v = 20"
+  - id: ddl_drop_index
+    category: ddl
+    title: "DROP INDEX"
+    setup:
+      - "CREATE TABLE pc_ddl_drop_index (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "INSERT INTO pc_ddl_drop_index VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
+      - "CREATE INDEX pc_ddl_drop_index_i ON pc_ddl_drop_index (v)"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_ddl_drop_index"
+    sql_mysql: "DROP INDEX pc_ddl_drop_index_i ON pc_ddl_drop_index"
+    sql_postgres: "DROP INDEX pc_ddl_drop_index_i"
+    check_mysql: "SELECT id FROM pc_ddl_drop_index WHERE v = 20"
+    check_postgres: "SELECT id FROM pc_ddl_drop_index WHERE v = 20"
+  - id: ddl_add_primary_key
+    category: ddl
+    title: "ADD PRIMARY KEY to an existing table"
+    setup:
+      - "CREATE TABLE pc_ddl_add_primary_key (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "INSERT INTO pc_ddl_add_primary_key VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_ddl_add_primary_key"
+    sql_mysql: "ALTER TABLE pc_ddl_add_primary_key ADD PRIMARY KEY (id)"
+    sql_postgres: "ALTER TABLE pc_ddl_add_primary_key ADD PRIMARY KEY (id)"
+    check_mysql: "SELECT id, v, s FROM pc_ddl_add_primary_key ORDER BY id"
+    check_postgres: "SELECT id, v, s FROM pc_ddl_add_primary_key ORDER BY id"
+  - id: ddl_create_table_as_select
+    category: ddl
+    title: "CREATE TABLE ... AS SELECT in the system's engine"
+    setup:
+      - "CREATE TABLE pc_ddl_create_table_as_select (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "INSERT INTO pc_ddl_create_table_as_select VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_ddl_create_table_as_select"
+      - "DROP TABLE IF EXISTS pc_ddl_create_table_as_select_n"
+    sql_mysql: "CREATE TABLE pc_ddl_create_table_as_select_n {{ engine_clause }} AS SELECT id, v FROM pc_ddl_create_table_as_select WHERE v >= 20"
+    sql_postgres: "CREATE TABLE pc_ddl_create_table_as_select_n {{ engine_clause }} AS SELECT id, v FROM pc_ddl_create_table_as_select WHERE v >= 20"
+    check_mysql: "SELECT id, v FROM pc_ddl_create_table_as_select_n ORDER BY id"
+    check_postgres: "SELECT id, v FROM pc_ddl_create_table_as_select_n ORDER BY id"
+  - id: var_user_variable_filter
+    category: variables
+    title: "A user variable (session setting on PostgreSQL) in WHERE"
+    setup:
+      - "CREATE TABLE pc_var_user_variable_filter (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "INSERT INTO pc_var_user_variable_filter VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_var_user_variable_filter"
+    sql_mysql:
+      - "SET @min_id = 2"
+      - "SELECT id, v FROM pc_var_user_variable_filter WHERE id >= @min_id"
+    sql_postgres:
+      - "SET pc.min_id = '2'"
+      - "SELECT id, v FROM pc_var_user_variable_filter WHERE id >= CAST(current_setting('pc.min_id') AS INTEGER)"
+  - id: var_user_variable_expression
+    category: variables
+    title: "A user variable in an arithmetic expression in the select list"
+    setup:
+      - "CREATE TABLE pc_var_user_variable_expression (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "INSERT INTO pc_var_user_variable_expression VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_var_user_variable_expression"
+    sql_mysql:
+      - "SET @rate = 1.5"
+      - "SELECT id, v * @rate FROM pc_var_user_variable_expression"
+    sql_postgres:
+      - "SET pc.rate = '1.5'"
+      - "SELECT id, v * CAST(current_setting('pc.rate') AS NUMERIC) FROM pc_var_user_variable_expression"
+  - id: var_assign_in_select
+    category: variables
+    title: "Assigning a variable inside a SELECT and returning it"
+    setup:
+      - "CREATE TABLE pc_var_assign_in_select (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "INSERT INTO pc_var_assign_in_select VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_var_assign_in_select"
+    sql_mysql:
+      - "SELECT @total := SUM(v) FROM pc_var_assign_in_select"
+    sql_postgres:
+      - "SELECT CAST(set_config('pc.total', CAST(SUM(v) AS TEXT), false) AS BIGINT) FROM pc_var_assign_in_select"
+  - id: var_row_numbering
+    category: variables
+    title: "Row numbering with a user variable (window function on PostgreSQL)"
+    setup:
+      - "CREATE TABLE pc_var_row_numbering (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "INSERT INTO pc_var_row_numbering VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_var_row_numbering"
+    sql_mysql:
+      - "SET @rn = 0"
+      - "SELECT id, (@rn := @rn + 1) AS rn FROM (SELECT id FROM pc_var_row_numbering ORDER BY id) x ORDER BY id"
+    sql_postgres:
+      - "SELECT id, ROW_NUMBER() OVER (ORDER BY id) FROM pc_var_row_numbering"
+  - id: var_prepared_statement
+    category: variables
+    title: "A prepared statement with a parameter"
+    setup:
+      - "CREATE TABLE pc_var_prepared_statement (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "INSERT INTO pc_var_prepared_statement VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_var_prepared_statement"
+    sql_mysql:
+      - "PREPARE pc_stmt FROM 'SELECT id, v FROM pc_var_prepared_statement WHERE id > ?'"
+      - "SET @x = 1"
+      - "EXECUTE pc_stmt USING @x"
+    sql_postgres:
+      - "PREPARE pc_stmt (int) AS SELECT id, v FROM pc_var_prepared_statement WHERE id > $1"
+      - "EXECUTE pc_stmt(1)"
+  - id: var_session_time_zone
+    category: variables
+    title: "Session time zone changes how timestamps convert to epoch seconds"
+    setup:
+      - "CREATE TABLE pc_var_session_time_zone (id INT, ts TIMESTAMP) {{ engine_clause }}"
+      - "INSERT INTO pc_var_session_time_zone VALUES (1, '2024-02-29 13:45:10'), (2, '2000-01-01 00:00:00')"
+    teardown:
+      - "DROP TABLE IF EXISTS pc_var_session_time_zone"
+    sql_mysql:
+      - "SET time_zone = '+00:00'"
+      - "SELECT id, UNIX_TIMESTAMP(ts) FROM pc_var_session_time_zone"
+    sql_postgres:
+      - "SET TIME ZONE 'UTC'"
+      - "SELECT id, EXTRACT(EPOCH FROM ts AT TIME ZONE 'UTC') FROM pc_var_session_time_zone"

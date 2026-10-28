@@ -1,7 +1,7 @@
 """Measure id -> runner. Every runner has the signature ``run(adapter, ctx) -> list[ResultRecord]``.
 
 A campaign may only name registered measures (checked when its YAML is loaded). Later tasks
-register M5..M10 here.
+register M6..M10 here.
 
 ``Measure.phase`` says when the campaign runs a measure on a system: ``query`` (after the bulk
 load, M1), ``after_load`` (right after the bulk load, before any query: M3) or ``last`` (after
@@ -20,7 +20,7 @@ from pathlib import Path
 from dbench import dockerctl, hostinfo
 from dbench.config import QUERY_TIMEOUT_S, STREAMS, Limits
 from dbench.datagen import DatasetPaths
-from dbench.measures import load, storage
+from dbench.measures import fallback, load, sqlcompat, storage
 from dbench.measures.power import QUERY_NUMBERS, run_power
 from dbench.measures.throughput import ITEM_FORMAT, run_throughput
 from dbench.results import ResultRecord
@@ -133,3 +133,23 @@ def _run_storage(adapter: SystemAdapter, ctx: MeasureContext) -> list[ResultReco
 
 register(Measure("M2", "s", _load_items, _run_convert, phase="last"))
 register(Measure("M3", "bytes", _storage_items, _run_storage, phase="after_load"))
+
+
+def _probe_items(sf: int) -> list[str]:
+    return [p.id for p in sqlcompat.load_probes()]
+
+
+def _run_sqlcompat(adapter: SystemAdapter, ctx: MeasureContext) -> list[ResultRecord]:
+    return sqlcompat.run_sqlcompat(
+        adapter, ctx.run_id, ctx.results, sf=ctx.sf, only=ctx.items,
+        timeout_s=min(ctx.timeout_s, sqlcompat.PROBE_TIMEOUT_S), host=ctx.host)
+
+
+def _fallback_items(sf: int) -> list[str]:
+    return list(fallback.ITEMS)
+
+
+# Both run in the query phase, after M1 and M4 (measures run in id order); M8 reads the M1 and M5
+# records of the same system and run, so it must come last.
+register(Measure("M5", "class", _probe_items, _run_sqlcompat))
+register(Measure("M8", "ratio", _fallback_items, fallback.run_fallback))

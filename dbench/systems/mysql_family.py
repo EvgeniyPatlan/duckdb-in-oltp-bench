@@ -72,6 +72,7 @@ class MySQLFamilyAdapter(ContainerServerAdapter):
     dialect = "mysql"
     family = "mysql"
     engine_clause = ""
+    rowstore_clause = "ENGINE=InnoDB"
     version_key = "mysql"
     user = "root"
     datadir = "/var/lib/mysql"
@@ -282,6 +283,30 @@ class MySQLFamilyAdapter(ContainerServerAdapter):
         finally:
             try:
                 conn.close()
+            except Exception:  # noqa: BLE001 - connection may already be dead
+                pass
+
+    def execute_session(self, statements: list[str], timeout_s: int) -> QueryOutcome:
+        try:
+            conn = self._connect(read_timeout=timeout_s + READ_MARGIN_S)
+        except Exception as exc:  # noqa: BLE001
+            return classify_connection_failure(self.crash_info, exc)
+        try:
+            *prepare, last = statements
+            started = time.perf_counter()
+            try:
+                with conn.cursor() as cur:
+                    for stmt in prepare:
+                        cur.execute(self._statement(stmt))
+            except Exception as exc:  # noqa: BLE001
+                if is_connection_error(exc):
+                    return classify_connection_failure(self.crash_info, exc)
+                return QueryOutcome("error", time.perf_counter() - started, None, set(),
+                                    f"{type(exc).__name__}: {exc}")
+            return self._query(conn, last, timeout_s, probe=True, set_timeout=True)
+        finally:
+            try:
+                conn.close()  # also ends any transaction the script left open
             except Exception:  # noqa: BLE001 - connection may already be dead
                 pass
 

@@ -30,6 +30,8 @@ SPILL_DIR = "/var/lib/mysql/duckdb_tmp"
 MAX_TIMEOUT_MS = 3_600_000  # the extension's upper bound for vsql_duckdb.timeout_ms
 NO_STORAGE = ("VillageSQL is not a storage engine: queries run in DuckDB over Parquet files, "
               "so there is no table conversion or engine pushdown")
+NO_COMPAT = ("VillageSQL is Track B: it runs raw DuckDB SQL over Parquet, so the MySQL-dialect "
+             "probes and pushdown/fallback do not apply")
 ER_VDF = 3200
 RESULT_CAP = re.compile(r"vsql_duckdb: (?:result reached \d+ bytes|value is \d+ bytes, past)")
 EXTENSION_DEADLINE = "passed vsql_duckdb.timeout_ms"
@@ -123,6 +125,8 @@ class VillageSQL(MySQLFamilyAdapter):
     def supports(self, measure: str) -> tuple[bool, str | None]:
         if measure in ("M11", "M12"):
             return False, NO_STORAGE
+        if measure in ("M5", "M8"):
+            return False, NO_COMPAT
         return True, None
 
     def versions(self) -> dict:

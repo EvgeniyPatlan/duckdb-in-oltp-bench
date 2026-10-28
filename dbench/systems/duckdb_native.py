@@ -33,6 +33,7 @@ PROBE_TIMEOUT_S = 10
 LOAD_TIMEOUT_S = 24 * 3600
 MEMORY_FRACTION = 0.8
 NO_ROW_STORE = "plain DuckDB reference has no row store"
+NO_COMPAT = "plain DuckDB is the engine itself: no MySQL/Postgres dialect to probe, no fallback"
 
 TPCH_DDL: dict[str, str] = {
     "region": "r_regionkey INTEGER PRIMARY KEY, r_name VARCHAR, r_comment VARCHAR",
@@ -341,4 +342,6 @@ class DuckDBNative(SystemAdapter):
     def supports(self, measure: str) -> tuple[bool, str | None]:
         if measure in ("M11", "M12"):
             return False, NO_ROW_STORE
+        if measure in ("M5", "M8"):
+            return False, NO_COMPAT
         return True, None

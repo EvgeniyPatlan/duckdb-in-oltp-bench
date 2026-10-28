@@ -75,6 +75,9 @@ class SystemAdapter(ABC):
     # Schema the benchmark creates: "engine" (PKs only) or "rowstore" (PKs + FK indexes).
     bench_schema_kind: Literal["engine", "rowstore"] = "engine"
     pushdown_counter_scope: CounterScope = "none"
+    # What the M5 probes' ``{{ rowstore_clause }}`` renders to: the clause that makes a scratch
+    # table a plain row-store table (``ENGINE=InnoDB``; empty where the default is a heap).
+    rowstore_clause: str = ""
 
     # lifecycle
     @abstractmethod
@@ -144,6 +147,12 @@ class SystemAdapter(ABC):
     # queries
     @abstractmethod
     def execute(self, sql: str, timeout_s: int) -> QueryOutcome: ...
+
+    def execute_session(self, statements: list[str], timeout_s: int) -> QueryOutcome:
+        """Run ``statements`` in order on one session (user variables, transactions). All but
+        the last run unobserved; the last is measured and its pushdown classified exactly as
+        ``execute`` would. A failing statement gives an ``error`` outcome."""
+        raise NotImplementedError(f"{type(self).__name__} does not implement execute_session()")
 
     @abstractmethod
     def cancel(self) -> bool:
