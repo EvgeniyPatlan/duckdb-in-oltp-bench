@@ -11,8 +11,9 @@ one JSON record per cell under `$DBENCH_RESULTS/<run_id>/`.
 | `talk-sf100.yaml` | same host; SF100, multi-day | same as the gate |
 
 Results and data live outside the checkout. In the commands below `/srv/dbench/data` and
-`/srv/dbench/results` are examples; use any directories with enough space. Set the variables
-inline on every command, as shown (do not `export` them).
+`/srv/dbench/results` are examples; use any directories with enough space. The commands below set
+the variables inline; [docs/reproduce.md](../docs/reproduce.md) exports them once per shell, which
+is equivalent.
 
 ## Smoke run on a development machine
 
