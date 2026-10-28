@@ -8,8 +8,10 @@ timed out or crashed are counted (`counts_by_status`) and do not count in the nu
 
 - **What is inside the timed region (the same for every family).** Before the clock starts, each
   stream thread opens its own persistent connection, applies the session settings and the
-  per-query timeout once, and runs one trivial statement through DuckDB (so a Postgres backend's
-  DuckDB instance already exists). All streams meet at a barrier and the clock starts. Per query a
+  per-query timeout once, and runs one trivial statement. That statement executes in DuckDB on
+  pg_duckdb, pg_ducklake, VillageSQL and plain DuckDB (a Postgres backend's DuckDB instance
+  already exists when timing starts). The MySQL DuckDB engines (AliSQL, MariaDB, Percona) share
+  one server-wide DuckDB instance, which the unrecorded warm-up pass already warms. All streams meet at a barrier and the clock starts. Per query a
   stream only sends the statement and fetches the result on its connection: no connect, no
   per-query `SET`, no `SHOW STATUS`/`EXPLAIN` probe. The clock stops when the last stream
   finishes; only then are the connections closed. Client-side decoding of a result (VillageSQL's
@@ -29,7 +31,8 @@ timed out or crashed are counted (`counts_by_status`) and do not count in the nu
   `contaminated` when it survives, when `cancel()` could not be issued, when a probe fails, when a
   timeout's stop was never confirmed and several streams ran, or when `lingering_queries()` still
   shows queries after all streams are done. The server is restarted after the record is written,
-  never mid-run.
+  never mid-run. After a timeout without a server-confirmed stop, that stream's poll (up to 10 s)
+  is inside the timed region.
 - **Host suspend.** If the host slept more than 1 s during a run, the run is discarded and repeated
   (up to 2 retries, recorded in `discarded_attempts`); if every attempt slept the campaign records
   an automatic failure that a resume retries.

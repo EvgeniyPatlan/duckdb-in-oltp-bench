@@ -84,6 +84,8 @@ class StreamFake(FakeAdapter):
     def still_running(self, ident):
         with self._lock:
             self.log.append(("still_running", ident))
+        if isinstance(self.running, list):  # scripted answers; the last one repeats
+            return self.running.pop(0) if len(self.running) > 1 else self.running[0]
         return self.running
 
 
@@ -683,3 +685,140 @@ def test_base_still_running_is_conservative_and_stream_hooks_are_no_ops():
     a = FakeAdapter([])
     assert a.still_running(1) is True
     assert a.open_stream(900) is None and a.close_stream() is None
+
+
+def test_a_query_that_lingers_then_stops_is_not_contaminated(tmp_path, monkeypatch):
+    monkeypatch.setattr("dbench.measures.power.LINGER_POLL_S", 0.01)
+    slow = QueryOutcome("timeout", 1.0, None, set(), "client read timeout", "n/a", query_id=77)
+    a = StreamFake({5: slow}, running=[True, True, False] * 2)  # the warm-up pass polls too
+    rec = throughput(a, tmp_path, streams=1)
+    assert a.log.count(("still_running", 77)) == 6
+    assert rec.extra["contaminated"] is False and ("restart",) not in a.log
+
+
+# ---- a failed open, and barrier safety -----------------------------------------------------------
+
+def test_mysql_failed_open_is_redone_on_the_stream_path_without_probes():
+    conns: list[MyConn] = []
+    a = mysql_adapter(conns)
+    real = a._connect
+    state = {"fail": True}
+
+    def flaky(**kw):
+        if state.pop("fail", False):
+            raise ConnectionError("refused")
+        return real(**kw)
+
+    a._connect = flaky
+    with pytest.raises(ConnectionError):
+        a.open_stream(900)
+    assert a.execute("SELECT 1 AS q", 900).status == "ok"
+    assert a.execute("SELECT 1 AS q", 900).status == "ok"
+    assert len(conns) == 1  # one reopened connection, kept for the stream
+    assert conns[0].seen == ["SET SESSION max_execution_time = 900000",
+                             "SELECT 1 AS q", "SELECT 1 AS q"]  # no STATUS probe, one SET
+
+
+def test_pg_failed_open_is_redone_on_the_stream_path_without_probes():
+    conns: list[PgConn] = []
+    a = pg_adapter(conns)
+    real = a._connect
+    state = {"fail": True}
+
+    def flaky(connect_timeout=10):
+        if state.pop("fail", False):
+            raise ConnectionError("refused")
+        return real(connect_timeout)
+
+    a._connect = flaky
+    with pytest.raises(ConnectionError):
+        a.open_stream(900)
+    for _ in range(2):
+        assert a.execute("SELECT 1 AS q", 900).status == "ok"
+    assert len(conns) == 1
+    assert conns[0].seen == ["SET duckdb.force_execution = true",
+                             "SET statement_timeout = 900000",  # once
+                             "SELECT 1 AS q", "SELECT 1 AS q"]  # no EXPLAIN
+
+
+def test_a_clock_that_fails_aborts_the_run_without_hanging(tmp_path):
+    a = StreamFake()
+    outcome: dict = {}
+
+    def run():
+        try:
+            run_throughput(a, 1, 3, "run1", tmp_path, clock=lambda: NOW, host=lambda: HOST,
+                           query_text=lambda n: f"Q{n}", timer=BoomTimer())
+        except BaseException as exc:  # noqa: BLE001
+            outcome["error"] = exc
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    worker.join(10)
+    assert not worker.is_alive(), "the run hung on a broken barrier"
+    assert isinstance(outcome["error"], RuntimeError)
+    assert a.log.count(("close",)) == 1 + 3 and a.log[-1] == ("prepare", 1)
+    assert list(iter_records(tmp_path)) == []
+
+
+class BoomTimer:
+    def __call__(self):
+        raise RuntimeError("clock failed")
+
+
+# ---- DuckDB native stream path ------------------------------------------------------------------
+
+class FakeSocket:
+    created = 0
+
+    def __init__(self, sent):
+        self.sent = sent
+
+    def settimeout(self, s):
+        pass
+
+    def makefile(self, mode):
+        return FakeFile(self.sent)
+
+    def close(self):
+        pass
+
+
+class FakeFile:
+    def __init__(self, sent):
+        self.sent, self._reply = sent, b""
+
+    def write(self, data):
+        self.sent.append(json.loads(data))
+        self._reply = (json.dumps({
+            "status": "ok", "elapsed_s": 0.1, "error": None,
+            "columns": [{"name": "a", "type": "BIGINT"}], "rows": [[1]]}) + "\n").encode()
+
+    def flush(self):
+        pass
+
+    def readline(self):
+        return self._reply
+
+    def close(self):
+        pass
+
+
+def test_duckdb_native_stream_uses_one_connection_for_warm_up_and_queries(monkeypatch):
+    from dbench.systems import duckdb_native
+    from dbench.systems.duckdb_native import DuckDBNative
+
+    sent: list[dict] = []
+    opened: list[FakeSocket] = []
+    monkeypatch.setattr(duckdb_native.socket, "create_connection",
+                        lambda *a, **k: opened.append(FakeSocket(sent)) or opened[-1])
+    monkeypatch.setattr(duckdb_native.dockerctl, "container_ip", lambda name: "127.0.0.1")
+    a = DuckDBNative("1.5.5")
+    a.open_stream(900)
+    outs = [a.execute("SELECT 2", 900) for _ in range(2)]
+    assert [o.status for o in outs] == ["ok", "ok"] and outs[0].rows == [(1,)]
+    assert len(opened) == 1  # one TCP connection for the warm-up and both queries
+    assert [r["sql"] for r in sent] == ["SELECT 1", "SELECT 2", "SELECT 2"]
+    a.close_stream()
+    a.execute("SELECT 3", 900)  # outside a stream: a fresh connection per query again
+    assert len(opened) == 2

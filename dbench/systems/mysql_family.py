@@ -235,9 +235,11 @@ class MySQLFamilyAdapter(ContainerServerAdapter):
     def open_stream(self, timeout_s: int) -> None:
         self.close_stream()
         local = self._stream
-        local.timeout_s = timeout_s
-        local.conn = self._open_conn(timeout_s)
+        # Streaming first: if opening fails, execute() reopens through the stream path (settings
+        # once, no probes), exactly as after a failed query.
+        local.conn = None
         local.streaming = True
+        local.conn = self._open_conn(timeout_s)
         with local.conn.cursor() as cur:  # warm: one trivial statement through the entry point
             cur.execute(self._statement("SELECT 1"))
             cur.fetchall()

@@ -247,14 +247,11 @@ class DuckDBNative(SystemAdapter):
     # and warmed before the timed region. The server enforces the per-query deadline itself.
     def open_stream(self, timeout_s: int) -> None:
         self.close_stream()
+        self._stream.conn = None
+        self._stream.streaming = True  # a failed open is redone by execute(), on the stream path
         conn = self.connect()
-        try:
-            conn.execute("SELECT 1", timeout_s)
-        except Exception:
-            conn.close()
-            raise
         self._stream.conn = conn
-        self._stream.streaming = True
+        conn.execute("SELECT 1", timeout_s)
 
     def close_stream(self) -> None:
         self._stream.streaming = False

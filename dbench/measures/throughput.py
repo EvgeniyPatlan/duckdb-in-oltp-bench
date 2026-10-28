@@ -13,6 +13,11 @@ stops and only then does each thread call ``adapter.close_stream()``. A query th
 the connection; the next query of that stream reopens one inside the timed region (rare failure
 path, identical on every system). The client-side decoding of a result (VillageSQL's JSON
 parse) happens inside the stream and is counted: it is part of what that entry point costs.
+If an adapter's ``open_stream`` fails, the adapter is already in stream mode and reopens the
+connection on the stream path (settings once, no probes), the same as after a failed query.
+The warm statement executes in DuckDB on pg_duckdb, pg_ducklake, VillageSQL and the DuckDB server;
+the MySQL DuckDB engines (AliSQL, MariaDB, Percona) share one server-wide DuckDB instance that
+the unrecorded warm-up pass has already warmed, so for them it only warms the connection.
 Correctness is M1's job: results are not compared, only each query's status is kept.
 ``value`` is ``ok_queries * 3600 / elapsed_s`` (failed queries do not count).
 
@@ -29,9 +34,10 @@ calls ``cancel()`` at once (it only touches queries past their deadline), then p
 (``extra["contaminated"]=True``) when that query survives, when ``cancel()`` could not be issued,
 when a probe raises, when the stop of a timed-out query was never confirmed and several streams
 ran (``unconfirmed_stops``), or when ``lingering_queries()`` still shows queries after all streams
-finished. The server is never restarted mid-run: the record is written, then the server is
-restarted, before the next stream count. A crash or an unresponsive server restarts it the same
-way.
+finished. After a timeout whose stop the server did not confirm, that stream's poll (up to
+``power.LINGER_WAIT_S``) is inside the timed region. The server is never restarted mid-run:
+the record is written, then the server is restarted, before the next stream count. A crash or
+an unresponsive server restarts it the same way.
 
 Host suspend. ``hostinfo.suspended_s()`` is read around the timed run; if the host slept more
 than SUSPEND_TOLERANCE_S the run is discarded and repeated, up to SUSPEND_RETRIES more times
@@ -166,11 +172,14 @@ def _run_stream(adapter: SystemAdapter, order: list[int], texts: dict[int, str],
     stream = _Stream()
     try:
         adapter.open_stream(timeout_s)
-    except Exception as exc:  # noqa: BLE001 - execute() reopens or reports the failure
-        stream.open_error = f"{type(exc).__name__}: {exc}"
+    except Exception as exc:  # noqa: BLE001 - the adapter is already in stream mode, so
+        stream.open_error = f"{type(exc).__name__}: {exc}"  # execute() reopens on the stream path
     try:
         if start is not None:
-            start.wait()
+            try:
+                start.wait()
+            except Exception:  # noqa: BLE001 - broken barrier: the run is being aborted
+                return stream
         for n in order:
             out = _run_query(adapter, texts[n], timeout_s)
             name = f"q{n:02d}"
@@ -184,7 +193,10 @@ def _run_stream(adapter: SystemAdapter, order: list[int], texts: dict[int, str],
                 _after_timeout(adapter, out, stream)
     finally:
         if finish is not None:
-            finish.wait()
+            try:
+                finish.wait()
+            except Exception:  # noqa: BLE001 - broken barrier: just close
+                pass
         try:
             adapter.close_stream()
         except Exception:  # noqa: BLE001
@@ -209,8 +221,13 @@ def _run_streams(adapter: SystemAdapter, streams: int, texts: dict[int, str], ti
     with ThreadPoolExecutor(max_workers=streams) as pool:
         futures = [pool.submit(_run_stream, adapter, stream_order(s), texts, timeout_s, start,
                                finish) for s in range(1, streams + 1)]
-        start.wait()
-        finish.wait()
+        try:
+            start.wait()
+            finish.wait()
+        except BaseException:
+            start.abort()  # release every waiting stream so none hangs; they close and exit
+            finish.abort()
+            raise
         elapsed = clock["stop"] - clock["start"]
         results = [f.result() for f in futures]
     return _Attempt(elapsed, results)

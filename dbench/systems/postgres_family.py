@@ -280,11 +280,12 @@ class PostgresFamilyAdapter(ContainerServerAdapter):
 
     def open_stream(self, timeout_s: int) -> None:
         local = self._stream
+        local.configured = None  # streaming first: a failed open is redone by execute()
+        local.streaming = True
         conn = self._session()
         conn.execute(f"SET statement_timeout = {int(timeout_s * 1000)}")
-        conn.execute(self._warm_sql).fetchall()
         local.configured = conn
-        local.streaming = True
+        conn.execute(self._warm_sql).fetchall()
 
     def close_stream(self) -> None:
         self._stream.streaming = False
