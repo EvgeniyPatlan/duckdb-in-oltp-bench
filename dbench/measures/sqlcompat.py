@@ -11,7 +11,8 @@ and gets one class (see ``docs/methodology/sql-compat.md``):
     wrong_result   ran, and the result differs from the expected one
     unknown        ran, but pushdown cannot be told (no counter, or the counter was unreadable)
     ok_unobserved  a DML/DDL probe that succeeded and whose follow-up check matched
-    n/a            the row-store baseline that builds the reference
+    n/a            the row-store baseline that builds the reference, or a probe the host
+                   server itself does not support (see the server control below)
 
 The expected result of a probe comes from the same-dialect row-store baseline (InnoDB for the
 MySQL dialect, Postgres for the PostgreSQL one), cached under
@@ -25,11 +26,32 @@ carry a follow-up SELECT (``check_*``) that supplies the result that is compared
 pushdown is kept as ``extra.check_pushed``. A probe that uses both placeholders mixes an engine
 table with a row-store table; where the two clauses are the same (pg_duckdb) there is nothing to
 mix and it is ``n/a``.
+
+Server control, the same rule for every system. The reference comes from one server per dialect
+(MySQL 9.7 InnoDB, Postgres 18), but the integrations run on other servers (AliSQL, MariaDB,
+Percona's MySQL 9.7, Postgres with an extension), so a probe can fail because the host server's
+own dialect lacks the feature, before the DuckDB integration is involved. Whenever an engine
+probe ends as ``error`` or ``wrong_result``, it is run once more on the same server and session
+with every ``{{ engine_clause }}`` rendered as the ``rowstore_clause``: the same SQL on plain
+row-store tables, without the integration. The control uses the probe's own tables and teardown
+(the probe's tables are dropped before it starts and again after it), the same timeout and the
+same crash/timeout recovery. If the control fails with an error too, or (for a wrong result)
+returns the same rows as the integration and so also differs from the reference, the probe is
+``n/a`` ("not supported by the <server> server itself ..."), with the integration's own outcome
+kept in ``extra`` (``integration_class``, ``integration_error``, ``diffs``) and the control's in
+``extra.server_control``. Otherwise the original class stands and ``extra.server_control`` is
+``"ok"`` (or what the control saw, when it ran but differed from the reference, or crashed or
+timed out, which never sets a probe aside). There is no control, and
+``extra.server_control.skipped`` says why, when the engine and row-store clauses are the same,
+when the probe reads TPC-H tables (engine tables everywhere), when the probe itself crashed or
+timed out, when the server did not recover from it, or when its teardown failed (a leftover
+table would fail the control for the wrong reason). The baselines get no control.
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -58,6 +80,11 @@ PROBES_FILE = Path(__file__).resolve().parents[2] / "probes" / "probes.yaml"
 BASELINE_REASON = "row-store baseline; reference for the probe suite"
 NO_MIX_REASON = ("{system} queries heap tables; there is no separate engine table to mix with")
 COMPARE_MODES = ("json",)
+CONTROLLED = ("error", "wrong_result")  # the outcomes that get a server control
+CONTROL_REASON = "not supported by the {server} server itself ({how}): {detail}"
+CONTROL_SAME_RESULT = "the row-store result differs from the reference in the same way"
+# The TPC-H tables some read probes use; they are engine tables on every integration.
+TPCH_TABLES = re.compile(r"\b(?:nation|region|supplier)\b", re.IGNORECASE)
 UNIT = "class"
 
 _ENV = Environment(undefined=StrictUndefined)
@@ -164,9 +191,23 @@ def _parse(entry: Any) -> Probe:
 
 def render_sql(sql: str, adapter: SystemAdapter | type[SystemAdapter]) -> str:
     """Fill ``{{ engine_clause }}`` and ``{{ rowstore_clause }}`` from the adapter."""
-    text = _ENV.from_string(sql).render(
-        engine_clause=getattr(adapter, "engine_clause", "").strip(),
-        rowstore_clause=getattr(adapter, "rowstore_clause", "").strip())
+    return _render(sql, _clause(adapter, "engine_clause"), _clause(adapter, "rowstore_clause"))
+
+
+def render_control_sql(sql: str, adapter: SystemAdapter | type[SystemAdapter]) -> str:
+    """The server-control rendering: every table is a row-store table of the same server, so
+    ``{{ engine_clause }}`` is filled with the adapter's ``rowstore_clause`` too."""
+    rowstore = _clause(adapter, "rowstore_clause")
+    return _render(sql, rowstore, rowstore)
+
+
+def _clause(adapter: SystemAdapter | type[SystemAdapter], name: str) -> str:
+    return getattr(adapter, name, "").strip()
+
+
+def _render(sql: str, engine_clause: str, rowstore_clause: str) -> str:
+    text = _ENV.from_string(sql).render(engine_clause=engine_clause,
+                                        rowstore_clause=rowstore_clause)
     return text.rstrip()
 
 
@@ -249,6 +290,7 @@ class _Observed:
     failure: QueryOutcome | None = None
     stage: str | None = None
     restart_error: str | None = None
+    teardown_error: str | None = None  # the final teardown left a table behind
 
 
 def _recover(adapter: SystemAdapter, outcome: QueryOutcome) -> str | None:
@@ -299,21 +341,24 @@ def _prepared(probe: Probe, rows: list[tuple]) -> list[tuple]:
     return [tuple(_canonical_json(v) for v in row) for row in rows]
 
 
-def _execute_probe(adapter: SystemAdapter, probe: Probe, timeout_s: int) -> _Observed:
+def _execute_probe(adapter: SystemAdapter, probe: Probe, timeout_s: int,
+                   render: Callable[[str, SystemAdapter], str] = render_sql) -> _Observed:
+    """Run one probe: leftover teardown, setup, the statement(s), the check, teardown. ``render``
+    fills the clause placeholders (``render_control_sql`` for the server control)."""
     dialect = adapter.dialect
     obs = _Observed()
-    teardown = [render_sql(s, adapter) for s in probe.statements("teardown", dialect)]
+    teardown = [render(s, adapter) for s in probe.statements("teardown", dialect)]
     scratch = _Observed()
     try:
         # leftovers of an interrupted run
         _run_steps(adapter, teardown, timeout_s, scratch, stop_on_failure=False)
-        failed = _run_steps(adapter, [render_sql(s, adapter)
+        failed = _run_steps(adapter, [render(s, adapter)
                                       for s in probe.statements("setup", dialect)],
                             timeout_s, obs)
         if failed:
             obs.failure, obs.stage = failed, "setup"
             return obs
-        statements = [render_sql(s, adapter) for s in probe.main(dialect)]
+        statements = [render(s, adapter) for s in probe.main(dialect)]
         main = (adapter.execute(statements[0], timeout_s) if len(statements) == 1
                 else adapter.execute_session(statements, timeout_s))
         if main.status != "ok":
@@ -324,7 +369,7 @@ def _execute_probe(adapter: SystemAdapter, probe: Probe, timeout_s: int) -> _Obs
         if not check:
             obs.outcome = main
             return obs
-        res = adapter.execute(render_sql(check, adapter), timeout_s)
+        res = adapter.execute(render(check, adapter), timeout_s)
         if res.status != "ok":
             obs.failure, obs.stage = res, "check"
             obs.restart_error = _recover(adapter, res) or obs.restart_error
@@ -332,7 +377,8 @@ def _execute_probe(adapter: SystemAdapter, probe: Probe, timeout_s: int) -> _Obs
         obs.outcome = res
         return obs
     finally:
-        _run_steps(adapter, teardown, timeout_s, scratch, stop_on_failure=False)
+        left = _run_steps(adapter, teardown, timeout_s, scratch, stop_on_failure=False)
+        obs.teardown_error = (left.error or left.status) if left else None
         obs.restart_error = obs.restart_error or scratch.restart_error
 
 
@@ -408,12 +454,106 @@ def _probe_extra(probe: Probe, adapter: SystemAdapter, obs: _Observed,
     return ("wrong_result" if cls == "wrong_result" else "ok"), cls, extra, None
 
 
+def _reads_tpch(probe: Probe, dialect: str) -> bool:
+    """The probe reads a TPC-H table (an engine table on every integration)."""
+    check = [probe.check[dialect]] if probe.check[dialect] else []
+    text = " ".join(probe.statements("setup", dialect) + probe.main(dialect) + check)
+    return TPCH_TABLES.search(text) is not None
+
+
+def _control_skip(adapter: SystemAdapter, probe: Probe, outcome: str | None,
+                  restart_error: str | None, teardown_error: str | None = None) -> str | None:
+    """Why a failed probe gets no server control (None when it gets one). ``outcome`` is the
+    probe's ``extra.outcome``: ``error``/``timeout``/``crashed`` for an error, ``ok`` for a
+    wrong result."""
+    if _clause(adapter, "engine_clause") == _clause(adapter, "rowstore_clause"):
+        return ("the engine and row-store clauses are the same: there is no row-store table "
+                "to compare with")
+    if _reads_tpch(probe, adapter.dialect):
+        return ("the probe reads TPC-H tables, which are engine tables: a control would not "
+                "run without the integration")
+    if outcome in ("crashed", "timeout"):
+        return f"the probe ended as {outcome}; a crash or a timeout is never set aside"
+    if restart_error:
+        return "the server did not recover after the probe"
+    if teardown_error:
+        return f"the probe's teardown failed, so its tables may still exist: {teardown_error}"
+    return None
+
+
+def _not_applicable(adapter: SystemAdapter, status: str, extra: dict, control: dict,
+                    how: str, detail: str | None) -> tuple[str, dict, None, str]:
+    """The record of a probe that the host server itself does not support: ``n/a``, with the
+    integration's own outcome kept beside the control's."""
+    reason = CONTROL_REASON.format(server=adapter.name, how=how, detail=detail or "")
+    kept = {k: v for k, v in extra.items() if k != "error"}
+    out = {**kept, "class": "n/a", "integration_class": status, "server_control": control}
+    if status == "error":
+        out["integration_error"] = extra.get("error")
+    return "n/a", out, None, reason
+
+
+def _server_control(adapter: SystemAdapter, probe: Probe, status: str, extra: dict,
+                    error: str | None, obs: _Observed, store: ProbeReferenceStore,
+                    timeout_s: int) -> tuple[str, dict, str | None, str | None]:
+    """Re-run a failed probe on row-store tables of the same server, on the same session.
+
+    When the server fails the same way without the integration (a clean error, or for a wrong
+    result the same rows as the integration), the probe does not test the integration here and
+    becomes ``n/a``. Otherwise the original class stands and ``extra.server_control`` says what
+    the control saw. A control that crashes or times out proves nothing and changes nothing.
+    Returns (status, extra, error, reason)."""
+    skip = _control_skip(adapter, probe, extra.get("outcome"), obs.restart_error,
+                         obs.teardown_error)
+    if skip is not None:
+        return status, {**extra, "server_control": {"skipped": skip}}, error, None
+    ctl = _execute_probe(adapter, probe, timeout_s, render_control_sql)
+    obs.restart_error = obs.restart_error or ctl.restart_error
+    if ctl.outcome is None:
+        fail = ctl.failure
+        seen = {"outcome": fail.status, "stage": ctl.stage, "error": fail.error}
+        if fail.status != "error":
+            return status, {**extra, "server_control": {**seen, "conclusive": False}}, error, None
+        how = ("same failure on a row-store table" if status == "error"
+               else "fails on a row-store table")
+        return _not_applicable(adapter, status, extra, seen, how, fail.error)
+    res = ctl.outcome
+    expected, numeric = _expected(probe, adapter.dialect, store, res.numeric_cols)
+    if expected is None or compare(_prepared(probe, expected), _prepared(probe, res.rows or []),
+                                   numeric).match:
+        return status, {**extra, "server_control": "ok"}, error, None
+    seen = {"outcome": "ok", "matches": False}
+    if status == "wrong_result":
+        mine = obs.outcome
+        seen["same_as_integration"] = compare(
+            _prepared(probe, res.rows or []), _prepared(probe, mine.rows or []),
+            numeric | mine.numeric_cols).match
+        if seen["same_as_integration"]:
+            return _not_applicable(adapter, status, extra, seen,
+                                   "same result on a row-store table", CONTROL_SAME_RESULT)
+    return status, {**extra, "server_control": seen}, error, None
+
+
+def _needs_control(adapter: SystemAdapter, probe: Probe, rec: ResultRecord) -> bool:
+    """An engine record made before the server control existed, which would get one now."""
+    return (rec.status in CONTROLLED and "server_control" not in rec.extra
+            and _control_skip(adapter, probe, rec.extra.get("outcome"),
+                              rec.extra.get("restart_error")) is None)
+
+
+def _compared(rec: ResultRecord) -> bool:
+    """The record's class depends on the reference it was compared with."""
+    return rec.status in ("ok", "wrong_result") or (
+        rec.status == "n/a" and rec.extra.get("integration_class") == "wrong_result")
+
+
 def stale_items(adapter: SystemAdapter, root: Path, run_id: str, sf: int,
                 probes: list[Probe] | None = None) -> set[str]:
     """Probe ids whose recorded M5 cell must run again although it exists, because the reference
     it was built from or compared with is not the current one: a baseline whose cache is missing
     or keyed to an older wording, or an engine whose result was compared with (or could not be
-    compared for lack of) a reference that is now different."""
+    compared for lack of) a reference that is now different, or an engine's failure recorded
+    without the server control (``extra.server_control``) that it would get now."""
     dialect = adapter.dialect
     if dialect not in BASELINES:
         return set()
@@ -431,9 +571,10 @@ def stale_items(adapter: SystemAdapter, root: Path, run_id: str, sf: int,
                 store.state(dialect, probe.id, key) == "ok")
             if not (built and kept):
                 stale.add(probe.id)
-        elif (rec.status in ("ok", "wrong_result") and probe.expected is None
-              and store.state(dialect, probe.id, key) == "ok"
-              and rec.extra.get("reference_key") != key):
+        elif _needs_control(adapter, probe, rec) or (
+                _compared(rec) and probe.expected is None
+                and store.state(dialect, probe.id, key) == "ok"
+                and rec.extra.get("reference_key") != key):
             stale.add(probe.id)
     return stale
 
@@ -490,6 +631,9 @@ def run_sqlcompat(
                      **_baseline_extra(probe, dialect, adapter.name, obs, store)}
         else:
             status, _, extra, error = _probe_extra(probe, adapter, obs, store)
+            if status in CONTROLLED:
+                status, extra, error, reason = _server_control(
+                    adapter, probe, status, extra, error, obs, store, timeout_s)
         if probe.note:
             extra["note"] = probe.note
         if obs.restart_error:

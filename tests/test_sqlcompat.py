@@ -178,10 +178,13 @@ def test_reference_dir_is_not_an_m5_record(tmp_path):
 
 # ---- running probes ---------------------------------------------------------------------
 
+SETUP_T = ["CREATE TABLE t (x INT) {{ engine_clause }}"]  # the engine table probes read
+
+
 def probe(pid="p1", category="functions", **kw) -> Probe:
     return Probe(
         id=pid, category=category, title=kw.pop("title", "t"),
-        setup=kw.pop("setup", None), teardown=kw.pop("teardown", None),
+        setup=kw.pop("setup", SETUP_T), teardown=kw.pop("teardown", None),
         sql=kw.pop("sql", {"mysql": "SELECT 1 FROM t", "postgres": "SELECT 1 FROM t"}),
         check=kw.pop("check", {"mysql": None, "postgres": None}),
         expected=kw.pop("expected", None), note=kw.pop("note", None),
@@ -189,18 +192,40 @@ def probe(pid="p1", category="functions", **kw) -> Probe:
 
 
 class ProbeAdapter(FakeAdapter):
-    """Scripted per-statement outcomes: ``script`` maps a substring of the SQL to an outcome."""
+    """Scripted per-statement outcomes: ``script`` maps a substring of the SQL to an outcome.
 
-    def __init__(self, name, dialect, scope, script, track="A", engine_clause="ENGINE=DuckDB"):
+    The script describes the integration: it answers while the probe's first table is an engine
+    table. When the first table is a row-store table (the M5 server control, where every table
+    is one), ``control`` answers instead; an empty ``control`` means the host server runs
+    everything."""
+
+    def __init__(self, name, dialect, scope, script, track="A", engine_clause="ENGINE=DuckDB",
+                 control=None):
         super().__init__([])
         self.name, self.dialect, self.pushdown_counter_scope = name, dialect, scope
         self.track = track
         self.engine_clause, self.rowstore_clause = engine_clause, "ENGINE=InnoDB"
-        self.script = script
+        self.script, self.control = script, control or {}
         self.sessions: list[list[str]] = []
+        self.creates: list[str] = []
+        self.mode = "engine"
+        self.last = ""  # the previous statement
+
+    def _track_tables(self, sql):
+        """The first CREATE of a setup (one not following another setup statement) sets the
+        mode: an engine table means the integration, a row-store table the server control."""
+        first = not self.last.startswith(("CREATE", "INSERT"))
+        self.last = sql
+        if not sql.startswith("CREATE"):
+            return
+        self.creates.append(sql)
+        if first and self.engine_clause != self.rowstore_clause:
+            self.mode = "engine" if self.engine_clause in sql else "control"
 
     def _pick(self, sql):
-        for needle, outcome in self.script.items():
+        self._track_tables(sql)
+        script = self.script if self.mode == "engine" else self.control
+        for needle, outcome in script.items():
             if needle in sql:
                 return outcome
         return out()
