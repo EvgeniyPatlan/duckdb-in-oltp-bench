@@ -10,3 +10,4 @@ dist/
 _site/
 /data/
 /.rendered/
+results/

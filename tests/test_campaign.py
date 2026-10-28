@@ -21,7 +21,7 @@ from dbench.config import Limits
 from dbench.datagen import DatasetPaths
 from dbench.measures import registry as measures
 from dbench.results import exists, iter_records
-from tests.fakes import FakeAdapter, ok
+from tests.fakes import FakeAdapter, ok, timeout
 
 HOST = {"cpus": 20, "mem_gb": 62, "kernel": "k", "docker_version": "d"}
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
@@ -45,8 +45,11 @@ def write_yaml(tmp_path: Path, **over) -> Path:
 class Tracked(FakeAdapter):
     """FakeAdapter that logs lifecycle events into a shared list."""
 
-    def __init__(self, name: str, events: list, rows=None, supported: bool = True):
+    def __init__(self, name: str, events: list, rows=None, supported: bool = True,
+                 times_out: bool = False, stuck: bool = False):
         super().__init__([])
+        self._times_out = times_out
+        self._stuck = stuck
         self.name = name
         baseline = name in ("innodb", "postgres") or name.startswith("duckdb")
         self.track = "baseline" if baseline else "A"
@@ -66,13 +69,15 @@ class Tracked(FakeAdapter):
         self.running = False
 
     def remove_data(self):
+        if self._stuck and self.running:
+            raise RuntimeError("cannot remove container")
         if self.running:
             self._events.append(("stop", self.name))
         self.running = False
 
     def execute(self, sql, timeout_s):
         self._events.append(("query", self.name))
-        return ok(1.0, self._rows)
+        return timeout() if self._times_out else ok(1.0, self._rows)
 
     def supports(self, measure):
         return (True, None) if self._supported else (False, "not supported here")
@@ -81,7 +86,11 @@ class Tracked(FakeAdapter):
 class Env:
     """Fake dependencies recording what ran."""
 
-    def __init__(self, tmp_path: Path, rows: dict | None = None, unsupported=(), host=(20, 62)):
+    def __init__(self, tmp_path: Path, rows: dict | None = None, unsupported=(), host=(20, 62),
+                 times_out=(), stuck=(), affinity=frozenset({8, 9, 10, 11})):
+        self.times_out = set(times_out)
+        self.stuck = set(stuck)
+        self.affinity = set(affinity)
         self.events: list = []
         self.rows = rows or {}
         self.unsupported = set(unsupported)
@@ -91,7 +100,8 @@ class Env:
         self.tmp = tmp_path
 
     def factory(self, name, data_dir):
-        return Tracked(name, self.events, self.rows.get(name), name not in self.unsupported)
+        return Tracked(name, self.events, self.rows.get(name), name not in self.unsupported,
+                       name in self.times_out, name in self.stuck)
 
     def dataset(self, sf):
         root = self.tmp / "data"
@@ -105,6 +115,7 @@ class Env:
         return Deps(
             adapter_factory=self.factory,
             host_resources=lambda: self.host,
+            affinity=lambda: self.affinity,
             lock_check=lambda systems: self.lock_calls.append(sorted(systems)),
             dataset=self.dataset,
             run_track_b=self.trackb,
@@ -365,8 +376,11 @@ def test_cross_check_disagreement_blocks_at_sf100(tmp_path):
     env = Env(tmp_path, rows={"duckdb-1.4.3": [(3,)]})
     with pytest.raises(CampaignBlocked, match=r"duckdb-1\.4\.3.*q01"):
         run_campaign(path, tmp_path / "res", env.deps())
-    bad = records(tmp_path / "res", "duckdb-1.4.3")
-    assert bad and bad[0].extra["reference_disagreement"]
+    assert records(tmp_path / "res", "duckdb-1.4.3") == []  # Track A cells stay untouched
+    found = list((tmp_path / "res" / "r1" / "_crosscheck").rglob("M1-sf100-q01.json"))
+    assert len(found) == 1
+    from dbench.results import read
+    assert read(found[0]).extra["reference_disagreement"]
     assert env.started() == ["duckdb-1.5.5", "duckdb-1.4.3"]
 
 
@@ -414,6 +428,137 @@ def test_load_failure_recorded_as_failed(tmp_path):
     assert len(recs) == 22 and {r.status for r in recs} == {"failed"}
     assert all("boom" in r.reason for r in recs)
     assert len(records(tmp_path / "res", "innodb")) == 22  # the campaign went on
+
+
+def failing_alisql(env):
+    factory = env.factory
+
+    def broken(name, data_dir):
+        a = factory(name, data_dir)
+        if name == "alisql":
+            a.start = lambda limits: (_ for _ in ()).throw(RuntimeError("boom"))
+        return a
+
+    deps = env.deps()
+    deps.adapter_factory = broken
+    return deps
+
+
+def test_auto_failed_cells_are_marked_and_retried_on_resume(tmp_path):
+    res, path = tmp_path / "res", write_yaml(tmp_path)
+    env = Env(tmp_path)
+    run_campaign(path, res, failing_alisql(env))
+    recs = records(res, "alisql")
+    assert {r.status for r in recs} == {"failed"} and all(r.extra["auto"] is True for r in recs)
+
+    env2 = Env(tmp_path)  # the problem is gone: the auto-failed cells run again
+    summary = run_campaign(path, res, env2.deps())
+    assert env2.started() == ["alisql"]
+    recs = records(res, "alisql")
+    assert len(recs) == 22 and {r.status for r in recs} == {"ok"}
+    assert summary.skipped == 66
+
+
+def test_mark_failed_replaces_auto_failures_but_not_measurements(tmp_path):
+    res, path = tmp_path / "res", write_yaml(tmp_path)
+    run_campaign(path, res, failing_alisql(Env(tmp_path)))
+    n = mark_failed(path, res, system="alisql", error="E", repro="R", host=lambda: HOST,
+                    clock=lambda: NOW)
+    assert n == 22
+    for r in records(res, "alisql"):
+        assert r.reason == "E" and r.extra["repro"] == "R" and not r.extra.get("auto")
+    # a real measurement is never overwritten
+    run_campaign(path, res, Env(tmp_path).deps())  # innodb etc. already ok; alisql is manual-failed
+    n = mark_failed(path, res, system="innodb", error="E", repro="R", host=lambda: HOST)
+    assert n == 0
+    assert {r.status for r in records(res, "innodb")} == {"ok"}
+
+
+def test_runner_affinity_must_be_inside_runner_cpuset(tmp_path):
+    env = Env(tmp_path, affinity=range(0, 20))
+    with pytest.raises(CampaignError, match="DBENCH_RUNNER_CPUSET"):
+        run_campaign(write_yaml(tmp_path), tmp_path / "res", env.deps())
+    assert env.events == []
+    env = Env(tmp_path, affinity={9, 10})  # a subset is fine
+    run_campaign(write_yaml(tmp_path), tmp_path / "res", env.deps())
+
+
+def test_incomplete_reference_blocks_the_gate(tmp_path):
+    env = Env(tmp_path, times_out={"duckdb-1.5.5"})
+    with pytest.raises(CampaignBlocked, match="reference.*q01"):
+        run_campaign(write_yaml(tmp_path), tmp_path / "res", env.deps())
+    assert "alisql" not in env.started()
+
+
+def test_stuck_container_blocks_the_next_system(tmp_path):
+    env = Env(tmp_path, stuck={"innodb"})  # remove_data raises and the server still answers
+    with pytest.raises(CampaignBlocked, match="innodb.*still running"):
+        run_campaign(write_yaml(tmp_path), tmp_path / "res", env.deps())
+    assert "postgres" not in env.started()
+
+
+def test_cli_mark_failed_requires_campaign():
+    from dbench import cli
+
+    with pytest.raises(SystemExit):
+        cli.main(["mark-failed", "--system", "a", "--error", "e", "--repro", "r"])
+
+
+def test_cli_campaign_reports_unexpected_exceptions(tmp_path, capsys, monkeypatch):
+    from dbench import cli
+
+    def boom(*a, **k):
+        raise RuntimeError("kaput")
+
+    monkeypatch.setattr("dbench.campaign.run_campaign", boom)
+    rc = cli.main(["campaign", str(write_yaml(tmp_path)), "--results", str(tmp_path / "res")])
+    assert rc == 1 and "kaput" in capsys.readouterr().out
+
+
+def committed_lock(tmp_path, **over):
+    path = tmp_path / "versions.lock.json"
+    doc = {"innodb": {"image": "mysql:9.7", "digest": "sha256:aaa", "digest_kind": "registry",
+                      "server_version": "9.7", "duckdb_version": None, "build_inputs": {}},
+           "alisql": {"image": "dbench/alisql:8.0.44-3", "digest": "sha256:old",
+                      "digest_kind": "local", "server_version": "x", "duckdb_version": "y",
+                      "build_inputs": lock.build_inputs("alisql")}}
+    for system, patch in over.items():
+        doc[system] = {**doc[system], **patch}
+    path.write_text(json.dumps(doc))
+    return path
+
+
+def test_lock_refuses_changed_registry_digest_without_force(tmp_path):
+    path = committed_lock(tmp_path)
+    ident = lambda image: ("registry", ("sha256:bbb",)) if "mysql" in image \
+        else ("local", ("sha256:new",))  # noqa: E731
+    with pytest.raises(lock.LockError, match="(?s)innodb.*registry digest.*--force"):
+        lock.write_lock(path, ["innodb", "alisql"], ident)
+    assert json.loads(path.read_text())["innodb"]["digest"] == "sha256:aaa"  # untouched
+    lock.write_lock(path, ["innodb", "alisql"], ident, force=True)
+    assert json.loads(path.read_text())["innodb"]["digest"] == "sha256:bbb"
+
+
+def test_lock_refuses_changed_build_inputs_without_force(tmp_path):
+    path = committed_lock(tmp_path, alisql={"build_inputs": {"args": {"X": "1"}, "from": []}})
+    ident = lambda image: ("local", ("sha256:new",))  # noqa: E731
+    with pytest.raises(lock.LockError, match="(?s)alisql.*build inputs.*--force"):
+        lock.write_lock(path, ["alisql"], ident)
+    lock.write_lock(path, ["alisql"], ident, force=True)
+
+
+def test_lock_refreshes_local_ids_without_force(tmp_path):
+    path = committed_lock(tmp_path)
+    lock.write_lock(path, ["alisql"], lambda image: ("local", ("sha256:new",)))
+    doc = json.loads(path.read_text())
+    assert doc["alisql"]["digest"] == "sha256:new" and "innodb" in doc  # others kept
+
+
+def test_lock_covers_every_duckdb_image_with_its_build_args():
+    assert {"duckdb-1.5.3", "duckdb-1.5.2-dev736"} <= set(lock.LOCKED_SYSTEMS)
+    dev = lock.build_inputs("duckdb-1.5.2-dev736")["args"]
+    assert dev["DUCKDB_SOURCE_COMMIT"] == "8a66223119b16000f3814fa7150cfa7370b63209"
+    assert dev["DUCKDB_PYTHON_TAG"] == "v1.5.2" and dev["DUCKDB_GIT_DESCRIBE"]
 
 
 def test_cli_mark_failed(tmp_path, capsys, monkeypatch):

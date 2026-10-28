@@ -83,12 +83,13 @@ def _na_group(name: str) -> str:
 
 
 def _record(adapter: SystemAdapter, plan, item: str, status: str, host: dict, *,
-            reason: str | None = None, error: str | None = None) -> ResultRecord:
+            reason: str | None = None, error: str | None = None,
+            extra: dict | None = None) -> ResultRecord:
     return ResultRecord(
         system=adapter.name, track=adapter.track, measure="M1", sf=plan.sf, item=item,
         status=status, value=None, unit="s", config_ref=f"systems/{adapter.config_dir}/",
         run_id=plan.run_id, started_at=plan.clock().isoformat(), error=error, reason=reason,
-        host=host,
+        host=host, extra=extra or {},
     )
 
 
@@ -98,10 +99,12 @@ def _all_items(queries: Iterable[int]) -> list[str]:
 
 def _failed_records(adapter: SystemAdapter, plan, exc: Exception,
                     host: dict) -> list[ResultRecord]:
-    """Every item of a system that did not start: ``failed`` with the error."""
+    """Every item of a system that did not start or finish: ``failed`` with the error.
+    ``extra.auto`` marks it as the runner's own finding, which a resumed campaign retries."""
     reason = f"{adapter.name} did not start or load: {type(exc).__name__}: {exc}"
     return [
-        _record(adapter, plan, item, "failed", host, reason=reason, error=str(exc)[:2000])
+        _record(adapter, plan, item, "failed", host, reason=reason, error=str(exc)[:2000],
+                extra={"auto": True})
         for item in _all_items(plan.queries)
     ]
 
@@ -154,11 +157,17 @@ def _run_system(adapter: SystemAdapter, plan: _Plan) -> list[ResultRecord]:
             return records
         joins = [(JOIN_ITEM, JOIN_VILLAGESQL, plan.join_reference)] \
             if adapter.name == "villagesql" else []
-        records = run_power(
-            adapter, plan.sf, plan.run_id, plan.root, plan.reference, queries=plan.queries,
-            drop_caches=plan.drop_caches, clock=plan.clock, host=plan.host,
-            timeout_s=plan.timeout_s, warm_runs=plan.warm_runs, query_text=plan.text,
-            extra_queries=joins)
+        try:
+            records = run_power(
+                adapter, plan.sf, plan.run_id, plan.root, plan.reference, queries=plan.queries,
+                drop_caches=plan.drop_caches, clock=plan.clock, host=plan.host,
+                timeout_s=plan.timeout_s, warm_runs=plan.warm_runs, query_text=plan.text,
+                extra_queries=joins)
+        except Exception as exc:  # noqa: BLE001 - one system must not end the Track B run
+            records = _failed_records(adapter, plan, exc, host_facts)
+            for rec in records:
+                write(rec, plan.root)
+            return records
         if not joins:
             rec = _na_join_record(adapter, plan, host_facts)
             write(rec, plan.root)
@@ -204,15 +213,25 @@ def run_track_b(
                  lambda n: trackb_query(n, default_globs()), timeout_s, warm_runs, drop_caches,
                  clock, host)
     ref_adapter = adapter_factory(REFERENCE_SYSTEM, data.root)
-    ref_adapter.remove_data()
-    ref_adapter.start(plan.limits)
     try:
-        plan.reference, plan.join_reference = _reference(
-            ref_adapter, sf, run_id, root, plan.queries, timeout_s, plan.text)
-    finally:
         ref_adapter.remove_data()
+        ref_adapter.start(plan.limits)
+        try:
+            plan.reference, plan.join_reference = _reference(
+                ref_adapter, sf, run_id, root, plan.queries, timeout_s, plan.text)
+        finally:
+            ref_adapter.remove_data()
+    except Exception as exc:  # noqa: BLE001 - no reference: every cell is an automatic failure
+        records = []
+        for name in systems:
+            adapter = adapter_factory(name, data.root)
+            failed = _failed_records(adapter, plan, exc, plan.host())
+            for rec in failed:
+                write(rec, root)
+            records.extend(failed)
+        return records
 
-    records: list[ResultRecord] = []
+    records = []
     for name in systems:
         records.extend(_run_system(adapter_factory(name, data.root), plan))
     return records

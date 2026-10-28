@@ -101,3 +101,24 @@ def iter_records(root: Path) -> Iterator[ResultRecord]:
 
 def exists(root: Path, system: str, measure: str, sf: int, item: str, run_id: str) -> bool:
     return _path(root, system, measure, sf, item, run_id).is_file()
+
+
+def cell_record(root: Path, system: str, measure: str, sf: int, item: str,
+                run_id: str) -> ResultRecord | None:
+    """The stored record of a cell, or None when it is missing or unreadable."""
+    path = _path(root, system, measure, sf, item, run_id)
+    try:
+        return read(path)
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def is_auto_failed(rec: ResultRecord) -> bool:
+    """A failure the campaign recorded itself (start, load or measure abort): retried on resume."""
+    return rec.status == "failed" and bool(rec.extra.get("auto"))
+
+
+def is_done(root: Path, system: str, measure: str, sf: int, item: str, run_id: str) -> bool:
+    """A cell resume leaves alone: it has a record that is not an automatic failure."""
+    rec = cell_record(root, system, measure, sf, item, run_id)
+    return rec is not None and not is_auto_failed(rec)

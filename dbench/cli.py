@@ -14,7 +14,6 @@ from dbench.config import QUERY_TIMEOUT_S
 SMOKE_DB_CPUSET = "0-7"
 SMOKE_RUNNER_CPUSET = "8-11"
 SMOKE_MEM_GB = 16
-DEFAULT_CAMPAIGN = Path(__file__).resolve().parents[1] / "campaigns" / "gate-sf10.yaml"
 
 
 def results_root() -> Path:
@@ -68,7 +67,10 @@ def build_parser() -> argparse.ArgumentParser:
     camp.add_argument("file", type=Path)
     camp.add_argument("--results", type=Path, help="default: $DBENCH_RESULTS or <repo>/results")
 
-    sub.add_parser("lock", help="write systems/versions.lock.json from the local images")
+    lk = sub.add_parser("lock", help="write systems/versions.lock.json from the local images")
+    lk.add_argument("--force", action="store_true",
+                    help="also change registry digests and build inputs (default: only refresh "
+                         "local image ids)")
 
     failed = sub.add_parser(
         "mark-failed", help="record every planned cell of a system as failed")
@@ -76,8 +78,8 @@ def build_parser() -> argparse.ArgumentParser:
     failed.add_argument("--error", required=True, help="reason shown in the results")
     failed.add_argument("--repro", required=True, help="steps to reproduce the failure")
     failed.add_argument("--run-id", help="default: the campaign's run_id")
-    failed.add_argument("--campaign", type=Path, default=DEFAULT_CAMPAIGN,
-                        help="default: %(default)s")
+    failed.add_argument("--campaign", type=Path, required=True,
+                        help="campaign file that plans the cells, e.g. campaigns/gate-sf10.yaml")
     failed.add_argument("--results", type=Path, help="default: $DBENCH_RESULTS or <repo>/results")
     return parser
 
@@ -209,14 +211,23 @@ def _campaign(args: argparse.Namespace) -> int:
     root = args.results or results_root()
     try:
         campaign = load_campaign(args.file)
+        run_ids = [campaign.run_id, *([campaign.trackb_run_id] if campaign.track_b_enabled else [])]
+    except CampaignError as exc:
+        print(f"campaign stopped: {exc}")
+        return 2
+    try:
         summary = run_campaign(args.file, root)
     except (CampaignError, LockError, ValueError) as exc:
         print(f"campaign stopped: {exc}")
         return 2
+    except Exception as exc:  # noqa: BLE001 - never end a long run with a bare traceback
+        print(f"campaign stopped unexpectedly: {type(exc).__name__}: {exc}")
+        print("recorded so far (run the same command to resume):")
+        _status_table(root, run_ids)
+        return 1
     print(f"campaign {campaign.run_id}: {summary.written} records written, "
           f"{summary.skipped} cells skipped (already recorded)")
-    _status_table(root, [campaign.run_id, *([campaign.trackb_run_id]
-                                            if campaign.track_b_enabled else [])])
+    _status_table(root, run_ids)
     return 0
 
 
@@ -224,7 +235,7 @@ def _lock(args: argparse.Namespace) -> int:
     from dbench import lock
 
     try:
-        doc = lock.write_lock()
+        doc = lock.write_lock(force=args.force)
     except lock.LockError as exc:
         print(f"lock failed: {exc}")
         return 2

@@ -17,6 +17,12 @@ fi
 args=(--rm -v "$ROOT:/w" -w /w -e HOME=/tmp
       --user "$(id -u):$(id -g)")
 
+# Pin the runner to its own cores (a campaign refuses to start unless its affinity is inside
+# the campaign's runner_cpuset).
+if [ -n "${DBENCH_RUNNER_CPUSET:-}" ]; then
+    args+=(--cpuset-cpus "$DBENCH_RUNNER_CPUSET")
+fi
+
 if [ -S /var/run/docker.sock ]; then
     args+=(-v /var/run/docker.sock:/var/run/docker.sock
            --group-add "$(stat -c %g /var/run/docker.sock)")

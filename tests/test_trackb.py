@@ -290,3 +290,54 @@ def test_run_track_b_marks_the_join_n_a_for_other_systems(tmp_path):
                        host=lambda: HOST, adapter_factory=factory)
     assert [(r.item, r.status) for r in recs] == [("q01", "ok"), ("join_innodb", "n/a")]
     assert recs[0].extra["compared"] is True and recs[1].reason
+
+
+def test_run_track_b_auto_fails_a_system_that_raises_and_goes_on(tmp_path):
+    from dbench.config import Limits
+    from dbench.measures.villagesql import run_track_b
+
+    class Raises(Reference):
+        name = "villagesql"
+        config_dir = "villagesql"
+
+        def execute(self, sql, timeout_s):
+            raise RuntimeError("driver blew up")
+
+    class Other(Reference):
+        name = "pg_duckdb-trackb"
+        config_dir = "pgduckdb"
+
+    def factory(name, data_dir):
+        if name == "villagesql":
+            return Raises([])
+        return Other([ok(1.0, [(1,)])] * 40) if name == "pg_duckdb-trackb" \
+            else Reference([ok(1.0, [(1,)])] * 40)
+
+    class Data:
+        root = tmp_path
+
+    recs = run_track_b(1, "r", tmp_path, ["villagesql", "pg_duckdb-trackb"], data=Data,
+                       limits=Limits("0-7", "8-11", 16), queries=[1], warm_runs=0,
+                       drop_caches=lambda: None, clock=lambda: datetime(2026, 1, 1, tzinfo=UTC),
+                       host=lambda: HOST, adapter_factory=factory)
+    by = {(r.system, r.item): r for r in recs}
+    assert by[("villagesql", "q01")].status == "failed"
+    assert by[("villagesql", "q01")].extra["auto"] is True
+    assert by[("pg_duckdb-trackb", "q01")].status == "ok"
+
+
+def test_run_track_b_failed_start_is_auto(tmp_path):
+    from dbench.config import Limits
+    from dbench.measures.villagesql import run_track_b
+
+    def factory(name, data_dir):
+        return StartFails([]) if name == "villagesql" else Reference([ok(1.0, [(1,)])] * 40)
+
+    class Data:
+        root = tmp_path
+
+    recs = run_track_b(1, "r", tmp_path, ["villagesql"], data=Data,
+                       limits=Limits("0-7", "8-11", 16), queries=[1], warm_runs=0,
+                       drop_caches=lambda: None, clock=lambda: datetime(2026, 1, 1, tzinfo=UTC),
+                       host=lambda: HOST, adapter_factory=factory)
+    assert all(r.extra["auto"] is True for r in recs)

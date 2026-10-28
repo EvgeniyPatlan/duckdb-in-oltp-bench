@@ -27,9 +27,19 @@ SYSTEMS_DIR = ROOT / "systems"
 
 # Systems whose image is pinned. Track B variants run a Track A image (see lock_name).
 LOCKED_SYSTEMS = (
-    "duckdb-1.5.5", "duckdb-1.4.3", "innodb", "postgres", "percona", "mariadb", "alisql",
-    "pg_duckdb", "pg_ducklake", "villagesql",
+    "duckdb-1.5.5", "duckdb-1.4.3", "duckdb-1.5.3", "duckdb-1.5.2-dev736", "innodb", "postgres",
+    "percona", "mariadb", "alisql", "pg_duckdb", "pg_ducklake", "villagesql",
 )
+
+# Plain DuckDB versions built from source instead of installed from PyPI: extra build args of
+# systems/duckdb/Dockerfile (keep in step with scripts/build-images.sh).
+DUCKDB_SOURCE_BUILDS = {
+    "1.5.2-dev736": {
+        "DUCKDB_SOURCE_COMMIT": "8a66223119b16000f3814fa7150cfa7370b63209",
+        "DUCKDB_PYTHON_TAG": "v1.5.2",
+        "DUCKDB_GIT_DESCRIBE": "v1.5.1-736-g8a6622311",
+    },
+}
 
 Identity = tuple[str, tuple[str, ...]]  # ("registry" | "local", digests or (image id,))
 
@@ -92,7 +102,13 @@ def build_inputs(system: str) -> dict:
         version = name.removeprefix(DUCKDB_PREFIX)
         inputs["args"] = {k: v for k, v in inputs["args"].items() if v}
         inputs["args"]["DUCKDB_VERSION"] = version
-        inputs["pip"] = f"duckdb=={version}"
+        source = DUCKDB_SOURCE_BUILDS.get(version)
+        if source:
+            inputs["args"].update(source)
+            inputs["source"] = "github.com/duckdb/duckdb-python at DUCKDB_PYTHON_TAG, " \
+                               "DuckDB checked out at DUCKDB_SOURCE_COMMIT"
+        else:
+            inputs["pip"] = f"duckdb=={version}"
         return inputs
     directory = SYSTEMS_DIR / get_adapter(name, None).config_dir
     if (directory / "Dockerfile").is_file():
@@ -129,9 +145,37 @@ def entry(system: str, identity: Callable[[str], Identity] = image_identity) -> 
             "duckdb_version": duck, "build_inputs": build_inputs(system)}
 
 
+def _frozen_problems(system: str, old: dict, new: dict) -> list[str]:
+    """What a rewrite would change that only ``--force`` may change."""
+    problems = []
+    if old["image"] != new["image"]:
+        problems.append(f"{system}: image changes from {old['image']} to {new['image']}")
+    if old["build_inputs"] != new["build_inputs"]:
+        problems.append(f"{system}: build inputs differ from the committed lock")
+    if old["digest_kind"] == "registry" and (
+            new["digest_kind"] != "registry" or old["digest"] != new["digest"]):
+        problems.append(f"{system}: registry digest changes from {old['digest']} to "
+                        f"{new['digest']} ({new['digest_kind']})")
+    return problems
+
+
 def write_lock(path: Path = LOCK_PATH, systems: Iterable[str] = LOCKED_SYSTEMS,
-               identity: Callable[[str], Identity] = image_identity) -> dict:
-    doc = {s: entry(s, identity) for s in systems}
+               identity: Callable[[str], Identity] = image_identity,
+               force: bool = False) -> dict:
+    """Write the lock. Without ``force`` only local image ids may change relative to the lock
+    already at ``path``: registry digests, images and build inputs are frozen."""
+    path, systems = Path(path), list(systems)
+    old = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    doc = {**old, **{s: entry(s, identity) for s in systems}}
+    if not force:
+        problems = [p for s in systems if s in old
+                    for p in _frozen_problems(s, old[s], doc[s])]
+        if problems:
+            raise LockError(
+                "refusing to change the committed lock:\n  " + "\n  ".join(problems)
+                + "\nThe registry digests and build inputs are frozen. Pull the images by the "
+                "locked digests (scripts/build-images.sh); pass --force only to move the "
+                "pins on purpose.")
     path.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return doc
 

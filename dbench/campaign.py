@@ -14,8 +14,10 @@ Schema (all keys but ``timeout_s``, ``reference`` and ``track_b`` are required):
 Before any container starts the limits are validated against the CPUs and RAM the Docker daemon
 reports, and every image is checked against ``systems/versions.lock.json``. Systems then run one
 at a time: start, load (bulk path), measures, stop and delete the data. A cell whose result file
-exists is skipped (resume). A measure the system does not support is written as ``n/a`` with the
-reason. A system that cannot start, load or finish is written as ``failed`` for its pending cells.
+exists is skipped (resume), except automatic failures, which are retried. A measure the system
+does not support is written as ``n/a`` with the reason. A system that cannot start, load or finish
+is written as ``failed`` with ``extra.auto`` for its pending cells; ``mark-failed`` replaces those
+with a final failure (reason and repro) once the time-box is over.
 
 Correctness gate. At SF10 and below the reference is plain DuckDB 1.5.5 and InnoDB and Postgres
 must agree with it on every ``ok`` query; at SF100 and above the reference is cross-checked
@@ -29,6 +31,7 @@ plain DuckDB 1.5.5 and would otherwise write the same result files.
 from __future__ import annotations
 
 import dataclasses
+import os
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -42,7 +45,7 @@ from dbench.correctness import compare
 from dbench.datagen import DatasetPaths
 from dbench.measures import registry as measures
 from dbench.reference import build_reference, cached_reference
-from dbench.results import ResultRecord, exists, iter_records, write
+from dbench.results import ResultRecord, is_done, iter_records, write
 from dbench.systems.base import SystemAdapter
 from dbench.systems.registry import DUCKDB_PREFIX, get_adapter, known_systems
 
@@ -149,6 +152,7 @@ class Deps:
 
     adapter_factory: Callable[[str, Path | None], SystemAdapter] = get_adapter
     host_resources: Callable[[], tuple[int, int]] = dockerctl.host_resources
+    affinity: Callable[[], Iterable[int]] = lambda: os.sched_getaffinity(0)
     lock_check: Callable[[Iterable[str]], None] = lock.check_lock
     dataset: Callable[[float], DatasetPaths] = verified_dataset
     run_track_b: Callable = _default_track_b
@@ -281,7 +285,8 @@ def mark_failed(
     adapter_factory: Callable[[str, Path | None], SystemAdapter] = get_adapter,
 ) -> int:
     """Write a ``failed`` record (reason = ``error``, extra.repro = ``repro``) for every cell
-    ``system`` has planned in the campaign that has no result yet; returns how many."""
+    ``system`` has planned in the campaign that has no record or only an automatic failure;
+    real measurements are never overwritten. Returns how many cells were written."""
     c = load_campaign(campaign_path)
     cells = c.planned(system)
     if not cells:
@@ -292,7 +297,7 @@ def mark_failed(
     written = 0
     for planned_run, measure, item, track in cells:
         rid = (run_id + ("-trackb" if track == "B" else "")) if run_id else planned_run
-        if exists(root, system, measure, c.sf, item, rid):
+        if is_done(root, system, measure, c.sf, item, rid):  # real data and manual failures stay
             continue
         write(_record(adapter, c, deps, host_facts, run_id=rid, measure=measure, item=item,
                       status="failed", track=track, reason=error, error=error,
@@ -338,18 +343,34 @@ class _Run:
             raise
         return adapter
 
-    @staticmethod
-    def _cleanup(adapter: SystemAdapter) -> None:
+    def _cleanup(self, adapter: SystemAdapter) -> None:
+        """Stop the system and delete its data. A failure is logged; when the server still
+        answers afterwards the campaign is blocked rather than start the next system beside it."""
         try:
             adapter.remove_data()
-        except Exception:  # noqa: BLE001 - cleanup must not hide the original failure
-            pass
+        except Exception as exc:  # noqa: BLE001 - logged, then the probe decides
+            self.say(f"  cleanup of {adapter.name} failed: {type(exc).__name__}: {exc}")
+            try:
+                running = adapter.alive()
+            except Exception:  # noqa: BLE001 - an unreachable server is not running
+                running = False
+            if running:
+                raise CampaignBlocked(
+                    f"{adapter.name} is still running after a failed cleanup ({exc}); stop it "
+                    f"(docker rm -f dbench-{adapter.name}) and run the campaign again to resume."
+                ) from exc
 
     # reference
     def reference(self) -> dict[int, dict]:
         if self._reference is None:
             c = self.c
             self._reference = self._rows_of(c.reference_system, c.run_id)
+            missing = [f"q{n:02d}" for n in QUERIES if n not in self._reference]
+            if c.gated and missing:
+                raise CampaignBlocked(
+                    f"the reference {c.reference_system} has no result for {', '.join(missing)} "
+                    "(error or timeout), so the baselines cannot be checked against it. Find "
+                    "out why (run the query on plain DuckDB), then run the campaign again.")
             for other in c.cross_check_systems():
                 self._cross_check(other)
         return self._reference
@@ -366,7 +387,7 @@ class _Run:
         finally:
             self._cleanup(adapter)
         missing = [n for n in QUERIES if n not in rows]
-        if missing:
+        if missing and not self.c.gated:
             self.say(f"  {name}: no result for queries {missing}; they are not compared")
         return rows
 
@@ -392,11 +413,14 @@ class _Run:
 
     def _write_disagreement(self, name: str, item: str, reference: str) -> None:
         adapter = self.deps.adapter_factory(name, None)
-        self.write(_record(
+        rec = _record(
             adapter, self.c, self.deps, self.host(), run_id=self.c.run_id, measure="M1",
             item=item, status="wrong_result",
             extra={"reference_disagreement": {"system": name, "reference": reference,
-                                              "query": item}}))
+                                              "query": item}})
+        # kept beside the cross-check rows, never in the system's own Track A cells
+        write(rec, self.root / self.c.run_id / "_crosscheck")
+        self.summary.written += 1
 
     # systems
     def run_system(self, name: str) -> None:
@@ -406,7 +430,7 @@ class _Run:
         for m in c.measures:
             measure = measures.get(m)
             items = measure.items(c.sf)
-            pending = [i for i in items if not exists(self.root, name, m, c.sf, i, c.run_id)]
+            pending = [i for i in items if not is_done(self.root, name, m, c.sf, i, c.run_id)]
             self.summary.skipped += len(items) - len(pending)
             if not pending:
                 continue
@@ -424,11 +448,11 @@ class _Run:
     def _failed(self, adapter: SystemAdapter, todo, reason: str) -> None:
         for measure, pending in todo:
             for item in pending:
-                if exists(self.root, adapter.name, measure.id, self.c.sf, item, self.c.run_id):
+                if is_done(self.root, adapter.name, measure.id, self.c.sf, item, self.c.run_id):
                     continue
                 self.write(_record(adapter, self.c, self.deps, self.host(), run_id=self.c.run_id,
                                    measure=measure.id, item=item, status="failed",
-                                   reason=reason, error=reason[:2000]))
+                                   reason=reason, error=reason[:2000], extra={"auto": True}))
 
     def _measure(self, adapter: SystemAdapter, todo) -> None:
         c = self.c
@@ -478,7 +502,7 @@ class _Run:
         items = trackb_items()
         pending = []
         for s in c.track_b_systems:
-            done = sum(exists(self.root, s, "M1", c.sf, i, c.trackb_run_id) for i in items)
+            done = sum(is_done(self.root, s, "M1", c.sf, i, c.trackb_run_id) for i in items)
             self.summary.skipped += done
             if done < len(items):
                 pending.append(s)
@@ -491,12 +515,25 @@ class _Run:
         self.summary.written += len(records)
 
 
+def _check_affinity(limits: Limits, deps: Deps) -> None:
+    """The runner must itself be pinned inside runner_cpuset, or its work would steal cores
+    from the database container."""
+    allowed = dockerctl.parse_cpuset(limits.runner_cpuset)
+    outside = sorted(set(deps.affinity()) - allowed)
+    if outside:
+        raise CampaignError(
+            f"the runner may use CPUs {outside} outside runner_cpuset {limits.runner_cpuset!r}. "
+            f"Start it pinned: DBENCH_RUNNER_CPUSET={limits.runner_cpuset} scripts/dev.sh "
+            "dbench campaign <file>")
+
+
 def run_campaign(path: Path, root: Path, deps: Deps | None = None) -> Summary:
     """Run the campaign file ``path``; results land under ``root/<run_id>/``."""
     deps = deps or Deps()
     c = load_campaign(path)
     cpus, mem_gb = deps.host_resources()
     dockerctl.validate_limits(c.limits, cpus, mem_gb)
+    _check_affinity(c.limits, deps)
     deps.lock_check(sorted(c.lock_systems()))
     run = _Run(c, Path(root), deps, deps.dataset(c.sf))
     for name in c.ordered_systems():
