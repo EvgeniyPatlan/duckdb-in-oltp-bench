@@ -58,8 +58,9 @@ from dbench.measures.load import run_load_bulk
 from dbench.measures.overhead import SUMMARY_ITEMS, format_summary, run_overhead
 from dbench.measures.power import SUSPEND_REASON, HostSuspended
 from dbench.measures.sqlcompat import BASELINES
+from dbench.progress import Progress
 from dbench.reference import build_reference, cached_reference
-from dbench.results import ResultRecord, cell_record, is_done, iter_records, write
+from dbench.results import ResultRecord, cell_record, is_done, iter_records, observe, write
 from dbench.systems.base import SystemAdapter
 from dbench.systems.registry import DUCKDB_PREFIX, get_adapter, known_systems, system_dialect
 
@@ -391,9 +392,10 @@ class _Run:
         self.summary = Summary()
         self._reference: dict[int, dict] | None = None
         self._host: dict | None = None
+        self.progress = Progress(deps.out, deps.clock)
 
     def say(self, msg: str) -> None:
-        self.deps.out(msg)
+        self.deps.out(f"{self.deps.clock():%H:%M:%S} {msg.strip()}")
 
     def host(self) -> dict:
         if self._host is None:
@@ -510,10 +512,12 @@ class _Run:
         self.summary.written += 1
 
     # systems
-    def run_system(self, name: str) -> None:
+    def _plan(self, name: str, adapter: SystemAdapter):
+        """The cells still to run, as (measure, items) to measure and (measure id, items,
+        reason) the system does not support; recorded cells are counted as skipped."""
         c = self.c
-        adapter = self.deps.adapter_factory(name, self.data.root)
         todo: list[tuple[measures.Measure, list[str]]] = []
+        unsupported: list[tuple[str, list[str], str]] = []
         for m in c.measures_for(name):
             measure = measures.get(m)
             items = c.items(m)
@@ -527,12 +531,26 @@ class _Run:
             applies, reason = adapter.supports(m)
             if applies:
                 todo.append((measure, pending))
-                continue
-            for item in pending:
+            else:
+                unsupported.append((m, pending, reason))
+        return todo, unsupported
+
+    def run_system(self, name: str) -> None:
+        c = self.c
+        adapter = self.deps.adapter_factory(name, self.data.root)
+        skipped_before = self.summary.skipped
+        todo, unsupported = self._plan(name, adapter)
+        pending = {m.id: len(items) for m, items in todo}
+        pending.update({m: len(items) for m, items, _ in unsupported})
+        ordered = dict(sorted(pending.items(), key=lambda kv: int(kv[0][1:])))  # M1 before M10
+        self.progress.system_start(name, ordered, skipped=self.summary.skipped - skipped_before)
+        for m, items, reason in unsupported:
+            for item in items:
                 self.write(_record(adapter, c, self.deps, self.host(), run_id=c.run_id,
                                    measure=m, item=item, status="n/a", reason=reason))
         if todo:
             self._measure(adapter, todo)
+        self.progress.system_end(name)
         self._gate(name)
 
     def _failed(self, adapter: SystemAdapter, todo, reason: str) -> None:
@@ -570,6 +588,7 @@ class _Run:
         started = adapter
         try:
             if bulk_pending or phases["after_load"] or phases["query"]:
+                self.progress.loading(adapter.name, self.c.sf)
                 started = self.loaded(adapter.name, record_bulk=bulk_pending)
         except CampaignBlocked:
             raise
@@ -678,11 +697,11 @@ def run_campaign(path: Path, root: Path, deps: Deps | None = None) -> Summary:
     deps.lock_check(sorted(c.lock_systems()))
     run = _Run(c, Path(root), deps, deps.dataset(c.sf))
     try:
-        for name in c.ordered_systems():
-            run.say(f"system {name}")
-            run.run_system(name)
-        if c.track_b_enabled:
-            run.run_track_b()
+        with observe(run.progress.record):
+            for name in c.ordered_systems():
+                run.run_system(name)
+            if c.track_b_enabled:
+                run.run_track_b()
     except BaseException:
         run.finish(aborting=True)  # no stale M7 next to newer M1, whatever stopped the run
         raise

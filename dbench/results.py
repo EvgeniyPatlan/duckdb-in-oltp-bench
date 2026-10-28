@@ -7,7 +7,8 @@ from __future__ import annotations
 import json
 import os
 import re
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Literal
@@ -65,6 +66,27 @@ def _path(root: Path, system: str, measure: str, sf: int, item: str, run_id: str
     return Path(root) / _safe(run_id) / _safe(system) / f"{measure}-sf{sf}-{_safe(item)}.json"
 
 
+_listeners: list[Callable[[ResultRecord], None]] = []
+
+
+@contextmanager
+def observe(listener: Callable[[ResultRecord], None]) -> Iterator[None]:
+    """Call ``listener`` with every record written inside the block (campaign progress)."""
+    _listeners.append(listener)
+    try:
+        yield
+    finally:
+        _listeners.remove(listener)
+
+
+def _notify(rec: ResultRecord) -> None:
+    for listener in list(_listeners):
+        try:
+            listener(rec)
+        except Exception:  # noqa: BLE001 - the record is already on disk; progress is optional
+            pass
+
+
 def write(rec: ResultRecord, root: Path) -> Path:
     path = _path(root, rec.system, rec.measure, rec.sf, rec.item, rec.run_id)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -79,6 +101,7 @@ def write(rec: ResultRecord, root: Path) -> Path:
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
+    _notify(rec)
     return path
 
 
