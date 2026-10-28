@@ -39,7 +39,7 @@ git switch feat/initial-harness        # until it is merged
 # 2. build the tool's container (the first call builds it)
 scripts/dev.sh dbench --version
 
-# 3. build the locally built images (DuckDB 1.5.5, 1.4.3, 1.5.3 and 1.5.2-dev736, AliSQL,
+# 3. build the locally built images (DuckDB 2.0.0, 1.5.5, 1.4.3, 1.5.3 and 1.5.2-dev736, AliSQL,
 #    MariaDB, VillageSQL, pg_ducklake) and pull the registry images at the digests of the
 #    committed lock; the pg_ducklake build takes about 20 minutes
 scripts/build-images.sh
@@ -139,7 +139,7 @@ Each key must be in `systems` and each measure registered, otherwise the campaig
 start. A system whose list leaves out M2 is still bulk-loaded (it needs the data), but that load
 is setup and is not recorded. Both committed campaigns use this: the row-store baselines run M1,
 M2, M3 and M5 (no M4: hours of concurrent streams on a row store say nothing about the
-integrations; no M8). `talk-sf100.yaml` also gives plain DuckDB (1.5.5, 1.4.3, 1.5.3,
+integrations; no M8). `talk-sf100.yaml` also gives plain DuckDB (2.0.0, 1.5.5, 1.4.3, 1.5.3,
 1.5.2-dev736) only M1 and M4.
 
 An engine's M5 probes are compared with its dialect's row-store baseline (InnoDB for MySQL,

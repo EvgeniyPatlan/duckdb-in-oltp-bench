@@ -112,7 +112,7 @@ Then build the locally built images and pull the registry images at the digests 
 scripts/build-images.sh
 ```
 
-This builds plain DuckDB (1.5.5, 1.4.3, 1.5.3 and 1.5.2-dev736), AliSQL, MariaDB, VillageSQL and
+This builds plain DuckDB (2.0.0, 1.5.5, 1.4.3, 1.5.3 and 1.5.2-dev736), AliSQL, MariaDB, VillageSQL and
 pg_ducklake, and pulls MySQL, PostgreSQL, Percona's engine and pg_duckdb by digest. The pg_ducklake
 build takes about 20 minutes.
 

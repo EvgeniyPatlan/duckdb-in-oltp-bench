@@ -42,7 +42,7 @@ build_duckdb() { # version [extra build args...]
 }
 
 # From PyPI.
-for v in 1.5.5 1.4.3 1.5.3; do build_duckdb "$v"; done
+for v in 2.0.0 1.5.5 1.4.3 1.5.3; do build_duckdb "$v"; done
 # From a DuckDB source commit (keep in step with DUCKDB_SOURCE_BUILDS in dbench/lock.py).
 build_duckdb 1.5.2-dev736 \
     --build-arg DUCKDB_SOURCE_COMMIT=8a66223119b16000f3814fa7150cfa7370b63209 \

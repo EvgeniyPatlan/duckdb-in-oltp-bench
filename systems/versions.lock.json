@@ -85,6 +85,22 @@
     "image": "dbench/duckdb:1.5.5",
     "server_version": "DuckDB 1.5.5"
   },
+  "duckdb-2.0.0": {
+    "build_inputs": {
+      "args": {
+        "DUCKDB_VERSION": "2.0.0"
+      },
+      "from": [
+        "python:3.12-slim@sha256:12316debbfb86890f6b2d825820612741ba527ad5a44e3902759141d572bfe8f"
+      ],
+      "pip": "duckdb==2.0.0"
+    },
+    "digest": "sha256:83b34ac406d2670d4f55a22603d679f94b1920e3491458bf5163e76b644605a0",
+    "digest_kind": "local",
+    "duckdb_version": "2.0.0",
+    "image": "dbench/duckdb:2.0.0",
+    "server_version": "DuckDB 2.0.0"
+  },
   "innodb": {
     "build_inputs": {},
     "digest": "sha256:8fb11c38b3551e22d50adbb688f027f8ff4ea2d2445aa277c1cc97b4af85ec54",

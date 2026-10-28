@@ -26,7 +26,7 @@ by side, together with the cases where a system could not answer.
 | DuckDB inside MySQL-family servers | AliSQL, MariaDB, Percona's engine on MySQL 9.7 |
 | DuckDB inside PostgreSQL | pg_duckdb, pg_ducklake |
 | DuckDB as a function library inside MySQL | VillageSQL (Track B) |
-| Reference: plain DuckDB | 1.5.5, 1.5.3, 1.5.2-dev736, 1.4.3 |
+| Reference: plain DuckDB | 2.0.0 (newest release); 1.5.5, 1.5.3, 1.5.2-dev736, 1.4.3 (the versions inside the integrations) |
 | Reference: row stores | MySQL 9.7 InnoDB, PostgreSQL 18 |
 
 Exact versions, images and digests are in [systems/README.md](systems/README.md) and
@@ -67,6 +67,11 @@ page. Scale factors 1, 10, 100 and 300 are supported; the conference campaign us
 
 ## Fairness rules
 
+- **Newest releases, one cutoff.** Every system runs its newest release as of the same cutoff
+  date (2026-10-28); a system that changes version moves the cutoff for all of them, and every
+  system is checked again for a newer release. Plain DuckDB runs its newest release and also the
+  exact versions bundled by the integrations, so each integration's overhead (M7) is measured
+  against the DuckDB it actually contains.
 - **Pinned versions and digests.** Every image is pinned in the lock file: registry images by
   digest, locally built images by pinned base-image digests, package versions, checksums and git
   commits. A campaign refuses to start when an image or its build inputs differ from the lock.

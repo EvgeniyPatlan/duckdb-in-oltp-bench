@@ -7,6 +7,7 @@ sf: 100
 systems:
   - duckdb-1.5.5        # plain DuckDB first: also the reference
   - duckdb-1.4.3        # cross-check of the reference
+  - duckdb-2.0.0        # newest DuckDB release
   - duckdb-1.5.3
   - duckdb-1.5.2-dev736
   - innodb              # probe reference (MySQL dialect)
@@ -20,6 +21,7 @@ measures: [M1, M2, M3, M4, M5, M8]
 overrides:
   duckdb-1.5.5: {measures: [M1, M4]}
   duckdb-1.4.3: {measures: [M1, M4]}
+  duckdb-2.0.0: {measures: [M1, M4]}
   duckdb-1.5.3: {measures: [M1, M4]}
   duckdb-1.5.2-dev736: {measures: [M1, M4]}
   innodb: {measures: [M1, M2, M3, M5]}     # M5: reference for MySQL-dialect probes

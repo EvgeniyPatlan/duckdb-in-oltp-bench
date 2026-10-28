@@ -27,7 +27,8 @@ SYSTEMS_DIR = ROOT / "systems"
 
 # Systems whose image is pinned. Track B variants run a Track A image (see lock_name).
 LOCKED_SYSTEMS = (
-    "duckdb-1.5.5", "duckdb-1.4.3", "duckdb-1.5.3", "duckdb-1.5.2-dev736", "innodb", "postgres",
+    "duckdb-2.0.0", "duckdb-1.5.5", "duckdb-1.4.3", "duckdb-1.5.3", "duckdb-1.5.2-dev736",
+    "innodb", "postgres",
     "percona", "mariadb", "alisql", "pg_duckdb", "pg_ducklake", "villagesql",
 )
 

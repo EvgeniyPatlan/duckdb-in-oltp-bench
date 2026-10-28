@@ -5,6 +5,7 @@ systems:
   - innodb          # row-store baselines first: they gate the run (see README)
   - postgres
   - duckdb-1.5.5    # plain DuckDB, also the reference
+  - duckdb-2.0.0    # newest DuckDB release
   - duckdb-1.4.3
   - alisql
   - mariadb

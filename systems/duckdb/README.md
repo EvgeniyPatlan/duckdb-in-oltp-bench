@@ -9,6 +9,7 @@ Images (`dbench/duckdb:<version>`):
 ```
 docker build -t dbench/duckdb:1.4.3 --build-arg DUCKDB_VERSION=1.4.3 systems/duckdb
 docker build -t dbench/duckdb:1.5.5 --build-arg DUCKDB_VERSION=1.5.5 systems/duckdb
+docker build -t dbench/duckdb:2.0.0 --build-arg DUCKDB_VERSION=2.0.0 systems/duckdb
 # AliSQL snapshot (duckdb/duckdb commit 8a66223), built from source, version v1.5.2-dev736
 docker build -t dbench/duckdb:1.5.2-dev736 \
   --build-arg DUCKDB_VERSION=1.5.2-dev736 \
