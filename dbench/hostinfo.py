@@ -28,4 +28,5 @@ def suspended_s() -> float:
     boottime = getattr(time, "CLOCK_BOOTTIME", None)
     if boottime is None:
         return 0.0
-    return time.clock_gettime(boottime) - time.clock_gettime(time.CLOCK_MONOTONIC)
+    # The two reads are sequential, so a never-suspended host can give a tiny negative.
+    return max(0.0, time.clock_gettime(boottime) - time.clock_gettime(time.CLOCK_MONOTONIC))
