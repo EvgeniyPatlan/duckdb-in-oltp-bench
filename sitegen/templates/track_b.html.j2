@@ -1,0 +1,27 @@
+{% extends "base.html.j2" %}
+{% from "_macros.html.j2" import chart, key %}
+{% block title %}Track B{% endblock %}
+{% block content %}
+<h1>Track B: raw DuckDB entry points over Parquet</h1>
+<section class="card">
+  <h2>Why VillageSQL is a separate track</h2>
+  <p>VillageSQL's <code>vsql_duckdb</code> is not a storage engine. It adds functions, <code>duckdb_query(sql)</code> and
+    <code>duckdb_scalar(sql)</code>, that run DuckDB SQL verbatim over external files (Parquet, CSV, JSON) and return the
+    result as a JSON string. Ordinary SQL on MySQL tables is never routed to DuckDB, and DuckDB cannot read InnoDB tables.
+    Results are capped by <code>max_result_bytes</code> and <code>KILL QUERY</code> does not reach the embedded DuckDB.</p>
+  <p>That is a different design, not a lesser one, so it is measured on its own workload: TPC-H as local Parquet files, the
+    22 queries sent through each system's raw DuckDB entry point, plus the JSON_TABLE join with an InnoDB table that
+    VillageSQL documents. Comparators on the same files are plain DuckDB 1.5.5, pg_duckdb <code>duckdb.query()</code> and
+    MariaDB <code>run_in_duckdb()</code>. Track B results are never placed on a Track A chart and Track A systems are not
+    compared with these numbers.</p>
+</section>
+{% if empty or not systems %}
+<p class="card empty">No Track B results have been published yet.</p>
+{% else %}
+{{ key() }}
+<div class="controls" id="controls" data-controls="sf,systems,metric"></div>
+{{ chart("trackb_total", "Total query time, common queries (s)", "Sum of warm medians over the queries every system ran correctly.", 320) }}
+{{ chart("trackb_query", "Per-query time (s, log scale)", "Same layout as Track A. The join item exists only for VillageSQL (its documented pattern).", 460, true) }}
+{% endif %}
+{% endblock %}
+{% block scripts %}{% if not empty and systems %}{% include "_data.html.j2" %}{% endif %}{% endblock %}

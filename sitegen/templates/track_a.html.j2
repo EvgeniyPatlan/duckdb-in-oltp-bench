@@ -1,0 +1,37 @@
+{% extends "base.html.j2" %}
+{% from "_macros.html.j2" import chart, key %}
+{% block title %}Track A{% endblock %}
+{% block content %}
+<h1>Track A: analytics on tables stored in the database</h1>
+<p class="lead">Five integrations plus plain DuckDB and row-store baselines. Same data, same container limits, same query text
+  apart from published mechanical dialect translation.</p>
+{% if empty %}
+<p class="card empty">No results have been published yet.</p>
+{% else %}
+{{ key() }}
+<div class="controls" id="controls" data-controls="sf,systems,metric"></div>
+<h2>Query speed</h2>
+{{ chart("power_query", "Per-query time (s, log scale)", "One bar per system and query. Warm median of three warm runs, or the cold first run; toggle above.", 460, true) }}
+<h2>Load and storage</h2>
+<div class="grid">
+{{ chart("load", "Load time (s)", "Bulk path is each system's fastest documented loader. Convert path starts from row-store tables and converts them; the staging load is in the tooltip.", 340) }}
+{{ chart("storage", "Storage after load (bytes)", "Total data directory, with redo or WAL counted and replication logs excluded.", 340) }}
+</div>
+<h2>Concurrency</h2>
+<div class="grid">
+{{ chart("curve", "Throughput vs concurrent streams (qph)", "Warm cache; each stream runs the 22 queries once in its own order.", 340) }}
+{{ chart("latency", "Query latency vs concurrent streams (p95, s)", "95th percentile over the successful queries.", 340) }}
+</div>
+<h2>SQL compatibility</h2>
+<p class="note">A fixed probe suite of statements an OLTP application would try. The row-store baselines build the expected results, so only
+  the integrations are shown.</p>
+{{ chart("compat_summary", "Probe outcomes per system", "Each probe gets exactly one class. Share of probes.", 340) }}
+{{ chart("compat_heatmap", "Probe by probe", "Letters repeat the colour: D ran in DuckDB, F row-path fallback, E error, ✗ wrong result, ? pushdown unobservable, ✓ DML/DDL ok (not scored), – n/a.", 600) }}
+<h2>Silent slow paths</h2>
+{{ chart("fallback", "Share of statements that quietly ran on the row path", "TPC-H queries and probes. A system that cannot show whether DuckDB ran a statement has no share (n/a), never 0%.", 340) }}
+<h2>Integration overhead</h2>
+{{ chart("overhead_query", "Per-query ratio to plain DuckDB at the same version (log scale)", "1x means as fast as plain DuckDB of the same version. n/a where no plain run exists at that version.", 420, true) }}
+<div class="tablewrap" id="overhead_table"></div>
+{% endif %}
+{% endblock %}
+{% block scripts %}{% if not empty %}{% include "_data.html.j2" %}{% endif %}{% endblock %}

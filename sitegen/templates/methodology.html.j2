@@ -1,0 +1,72 @@
+{% extends "base.html.j2" %}
+{% block title %}Methodology{% endblock %}
+{% block content %}
+<h1>Methodology</h1>
+<section class="card prose"><h2>Fairness rules</h2>
+  <ul>
+    <li>Each system is the project's latest release as shipped, with its own bundled DuckDB. The DuckDB version is shown next to results.</li>
+    <li>One system runs at a time. Each database container gets the same cores and memory cap, the load generator its own cores, and the page cache is dropped before cold runs.</li>
+    <li>Engine settings are sized to the container, not left at defaults. Every non-default setting is listed below with a reason, and correctness-relevant knobs are set explicitly.</li>
+    <li>The same queries run everywhere with only mechanical dialect translation (diffs below). A query a system cannot run is recorded as a failure with the error, never rewritten by hand.</li>
+    <li>Every result is checked against a reference; a wrong answer is a failure whatever its speed and is never drawn as a bar.</li>
+    <li>Timeouts, errors, crashes and n/a cells are shown with their reasons. Nothing is dropped.</li>
+    <li>Overhead against plain DuckDB compares only equal DuckDB versions. The headline <code>geomean_common</code> uses the queries every integration completed; each system's own <code>geomean</code> and how many queries went into it are shown beside it, because a system that times out on slow queries would otherwise score better.</li>
+    <li>VillageSQL runs in its own track because it is a different design (see Track B).</li>
+  </ul>
+</section>
+<section class="card"><h2>Limits and run parameters</h2>
+  <div class="tablewrap"><table><tbody>
+    <tr><th>Database CPU set</th><td>{{ m.limits.db_cpuset }}</td></tr>
+    <tr><th>Runner CPU set</th><td>{{ m.limits.runner_cpuset }}</td></tr>
+    <tr><th>Container memory</th><td>{{ m.limits.mem_gb }} GB</td></tr>
+    <tr><th>Per-query timeout</th><td>{{ m.limits.timeout_s }} s</td></tr>
+    <tr><th>Warm runs per query</th><td>{{ m.limits.warm_runs }}</td></tr>
+    <tr><th>Concurrent streams</th><td>{{ m.limits.streams }}</td></tr>
+    <tr><th>Scale factors</th><td>{{ m.limits.scale_factors }}</td></tr>
+  </tbody></table></div>
+  <h3>Campaigns</h3>
+  <div class="tablewrap"><table><thead><tr><th>File</th><th>SF</th><th>Limits</th><th>Timeout</th><th>Measures</th><th>Systems</th></tr></thead><tbody>
+  {% for c in m.campaigns %}<tr><td class="mono">{{ c.file }}</td><td>{{ c.sf }}</td><td>{{ c.limits.db_cpuset }} / {{ c.limits.runner_cpuset }} / {{ c.limits.mem_gb }} GB</td><td>{{ c.timeout_s or m.limits.timeout_s }}</td><td>{{ c.measures }}</td><td>{{ c.systems }}</td></tr>{% endfor %}
+  </tbody></table></div>
+</section>
+<section class="card"><h2>Correctness tolerances</h2>
+  <p>Results are compared order-independently. Integer columns must match exactly; other numeric cells match when
+    <code>abs(a-b) &lt;= max(abs_tol, rel_tol * max(|a|, |b|))</code> with
+    <code>rel_tol</code> = {{ m.tolerances.rel_tol }} and <code>abs_tol</code> = {{ m.tolerances.abs_tol }}. NULL equals only NULL, CHAR padding is ignored.
+    Reference: InnoDB and PostgreSQL at SF1 and SF10, plain DuckDB at the newest version beyond, cross-checked against an older version.</p>
+</section>
+<section class="card"><h2>Host</h2>
+  {% if m.hosts %}
+  {% for h in m.hosts %}<div class="tablewrap"><table><tbody>{% for k, v in h.items() | sort %}<tr><th>{{ k }}</th><td>{{ v }}</td></tr>{% endfor %}</tbody></table></div>{% endfor %}
+  {% else %}<p>No host facts recorded yet; every result record carries CPU count, memory, kernel and Docker version.</p>{% endif %}
+  <p class="note">Each record also stores the system version, image digest, bundled DuckDB version, config file and run date.</p>
+</section>
+<section class="card"><h2>Every non-default setting</h2>
+  <p class="note">Rendered with the talk limits ({{ m.limits.mem_gb }} GB, 16 cores). Comments in the config files give the reason.</p>
+  {% for g in m.settings %}
+  <h3 id="settings-{{ g.dir }}">{{ g.label }}</h3>
+  <div class="tablewrap"><table><thead><tr><th>Setting</th><th>Value</th><th>Reason</th><th>File</th></tr></thead><tbody>
+  {% for s in g.rows %}<tr><th scope="row"><code>{{ s.key }}</code></th><td>{{ s.value }}</td><td>{{ s.reason }}</td><td class="mono">{{ s.file }}</td></tr>{% endfor %}
+  </tbody></table></div>
+  {% endfor %}
+</section>
+<section class="card"><h2>Dialect translation diffs</h2>
+  <p class="note">Plain DuckDB, pg_duckdb and the Track B entry points use the canonical text. MySQL-family systems (including VillageSQL) and PostgreSQL get only these mechanical rewrites.</p>
+  {% for d in m.dialects %}
+  <details><summary>{{ d.dialect }}: {{ d.diffs | length }} of 22 queries change, {{ d.unchanged }} identical</summary>
+    {% for n, text in d.diffs %}<pre><code>{{ text }}</code></pre>{% endfor %}
+  </details>
+  {% endfor %}
+</section>
+<section class="card prose"><h2>Measure notes</h2>{% for doc in m.docs %}{{ doc.html | safe }}{% endfor %}</section>
+<section class="card"><h2>Rerun it yourself</h2>
+<pre><code>git clone https://github.com/EvgeniyPatlan/duckdb-in-oltp-bench.git &amp;&amp; cd duckdb-in-oltp-bench
+scripts/dev.sh dbench --version
+scripts/build-images.sh
+DBENCH_DATA=/srv/dbench/data scripts/dev.sh dbench datagen --sf 10
+DBENCH_DATA=/srv/dbench/data DBENCH_RESULTS=/srv/dbench/results DBENCH_RUNNER_CPUSET=16-23 \
+    scripts/dev.sh dbench campaign campaigns/gate-sf10.yaml
+python -m sitegen.build --results /srv/dbench/results --out _site</code></pre>
+  <p>A campaign resumes after any interruption. See <code>campaigns/README.md</code> for the smoke run and the SF100 talk campaign.</p>
+</section>
+{% endblock %}

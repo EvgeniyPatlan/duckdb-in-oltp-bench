@@ -1,0 +1,13 @@
+{% macro chart(id, title, note="", height=360, wide=false) %}
+<section class="card">
+  <h3>{{ title }}</h3>
+  {% if note %}<p class="note">{{ note }}</p>{% endif %}
+  <div class="scrollx"><div class="chart{{ ' wide' if wide }}" data-chart="{{ id }}" style="height: {{ height }}px" role="img" aria-label="{{ title }}"></div></div>
+</section>
+{% endmacro %}
+{% macro key() %}
+<p class="key" aria-label="Cell marks">Marks on charts and tables:
+  <span class="mk fail">&#10007;</span> wrong result (never drawn as a bar),
+  <span class="mk">T/O</span> timeout, <span class="mk">E</span> error, <span class="mk">C</span> crashed,
+  <span class="mk">!</span> failed to run, <span class="mk">&ndash;</span> n/a. Hover a mark for the reason.</p>
+{% endmacro %}

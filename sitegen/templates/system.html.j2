@@ -1,0 +1,28 @@
+{% extends "base.html.j2" %}
+{% block title %}{{ p.label }}{% endblock %}
+{% block content %}
+<h1>{{ p.label }}</h1>
+<section class="card"><h2>Versions</h2>
+  {% if p.lock %}
+  <div class="tablewrap"><table><thead><tr><th>Run as</th><th>Image</th><th>Server</th><th>DuckDB</th><th>Digest</th></tr></thead><tbody>
+  {% for l in p.lock %}<tr><th scope="row">{{ l.label }}</th><td>{{ l.image }}</td><td>{{ l.server_version }}</td><td>{{ l.duckdb_version or "n/a" }}</td><td class="mono">{{ l.digest }}</td></tr>{% endfor %}
+  </tbody></table></div>
+  {% else %}<p>No versions recorded.</p>{% endif %}
+</section>
+<section class="card"><h2>Observed in this run</h2>
+  <p class="note">Generated the same way for every system from its result files: record counts per measure and status, and the reasons given for anything that is not ok.</p>
+  {% for f in p.facts %}
+  <h3>{{ f.system }}</h3>
+  <ul>{% for m, c in f.counts.items() | sort %}<li><strong>{{ m }}</strong>: {% for s, n in c.items() | sort %}{{ s }} {{ n }}{{ ", " if not loop.last }}{% endfor %}</li>{% endfor %}</ul>
+  {% if f.reasons %}<ul class="reasons">{% for r in f.reasons %}<li>{{ r }}</li>{% endfor %}{% if f.more %}<li>and {{ f.more }} more</li>{% endif %}</ul>{% endif %}
+  {% else %}<p>No results recorded for this system.</p>{% endfor %}
+</section>
+<section class="card"><h2>Settings that differ from the defaults</h2>
+  {% if p.settings %}
+  <div class="tablewrap"><table><thead><tr><th>Setting</th><th>Value</th><th>Reason</th><th>File</th></tr></thead><tbody>
+  {% for s in p.settings %}<tr><th scope="row"><code>{{ s.key }}</code></th><td>{{ s.value }}</td><td>{{ s.reason }}</td><td class="mono">{{ s.file }}</td></tr>{% endfor %}
+  </tbody></table></div>
+  {% else %}<p>No settings files for this system.</p>{% endif %}
+</section>
+<section class="card prose"><h2>README</h2>{{ p.readme | safe }}</section>
+{% endblock %}

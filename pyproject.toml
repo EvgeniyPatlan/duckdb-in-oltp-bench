@@ -23,11 +23,12 @@ dev = ["pytest", "ruff"]
 dbench = "dbench.cli:main"
 
 [tool.setuptools]
-packages = ["dbench", "dbench.queries", "dbench.systems", "dbench.measures", "dbench.schema"]
+packages = ["dbench", "dbench.queries", "dbench.systems", "dbench.measures", "dbench.schema", "sitegen"]
 
 [tool.setuptools.package-data]
 "dbench.queries" = ["tpch/*.sql"]
 "dbench.schema" = ["*.j2"]
+"sitegen" = ["templates/*.j2", "static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

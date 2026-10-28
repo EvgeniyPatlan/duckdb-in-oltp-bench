@@ -1,0 +1,43 @@
+{% extends "base.html.j2" %}
+{% from "_macros.html.j2" import chart, key %}
+{% block content %}
+<h1>DuckDB inside OLTP databases</h1>
+<p class="lead">A neutral comparison of database servers that embed DuckDB, against plain DuckDB at several versions and
+  row-store baselines, on the same TPC-H data with the same container limits. There is no overall score and no ranking:
+  read each measure with its failures and its n/a cells.</p>
+{% if empty %}
+<p class="card empty">No results have been published yet. The site fills in when result files are added to the repository.</p>
+{% else %}
+{{ key() }}
+<div class="controls" id="controls" data-controls="sf,systems"></div>
+<h2>Track A headlines</h2>
+<p class="note">Systems appear in the same order everywhere: database integrations A to Z, plain DuckDB, row-store baselines.
+  Totals use only the queries every integration completed correctly, so everyone is scored on the same work.</p>
+<div class="grid">
+{{ chart("headline_power", "Total query time, common queries (s)", "Sum of warm medians over the queries that every Track A integration ran correctly. Lower is better.", 340) }}
+{{ chart("headline_qph", "Throughput at 16 streams (queries per hour)", "Concurrent TPC-H streams, warm cache. Higher is better.", 340) }}
+{{ chart("headline_overhead", "Integration overhead vs plain DuckDB (geomean, common queries)", "Ratio to plain DuckDB at the same version; the headline uses the same queries for every system. Each system's own geomean and its coverage are in the table below.", 340) }}
+</div>
+<section class="card">
+  <h3>Headline numbers{% if default_sf %} (SF{{ default_sf }}){% endif %}</h3>
+  <div class="tablewrap"><table>
+    <thead><tr><th>System</th><th>DuckDB</th><th>Total, common queries</th><th>Own total (ok/total)</th>
+      <th>Throughput, 16 streams (qph)</th><th>Overhead, common</th><th>Overhead, own geomean (ok/total)</th><th>Plain baseline used</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr><th scope="row"><a href="{{ r.system.page }}">{{ r.system.label }}</a></th>
+        <td>{{ r.system.duckdb_version or "n/a" }}</td>
+        <td class="num {{ 'mark' if r.total.mark }}" title="{{ r.total.title }}">{{ r.total.text }}</td>
+        <td class="num">{{ r.own }}</td>
+        <td class="num {{ 'mark' if r.qph.mark }}" title="{{ r.qph.title }}">{{ r.qph.text }}</td>
+        <td class="num {{ 'mark' if r.over.mark }}" title="{{ r.over.title }}">{{ r.over.text }}</td>
+        <td class="num">{{ r.over_own }}</td>
+        <td>{{ r.plain }}</td></tr>
+    {% endfor %}
+    </tbody></table></div>
+</section>
+<p>Details: <a href="track_a.html">Track A charts</a>, <a href="track_b.html">Track B (VillageSQL, separate)</a>,
+  <a href="methodology.html">methodology and every setting</a>.</p>
+{% endif %}
+{% endblock %}
+{% block scripts %}{% if not empty %}{% include "_data.html.j2" %}{% endif %}{% endblock %}
