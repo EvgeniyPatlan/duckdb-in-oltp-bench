@@ -113,7 +113,7 @@ owner's decision, so that the documented 16 MiB `max_result_bytes` applies:
   of the same release (two rounds each, 1000 x `SELECT 1` and 50 x TPC-H q06 at SF1, timed region
   of `execute()`): `SELECT 1` median 0.40-0.43 ms (dev) vs 0.42-0.47 ms (stable), p95 about 1.6 ms
   on both; q06 median 21.4 / 19.3 ms (dev) vs 19.8 / 18.2 ms (stable), p95 30.8 / 21.7 ms vs
-  27.9 / 20.7 ms, so the development build was about 1 ms (5-8%) slower on q06 in both rounds,
+  27.9 / 20.7 ms, so the development build was about 1.2-1.6 ms (6-8%) slower on q06 in both rounds,
   a difference of the size of the run-to-run spread; container memory after the runs was
   734-784 MiB (dev) vs 735-924 MiB (stable), peak 763-811 vs 763-939 MiB, no measurable memory
   cost.

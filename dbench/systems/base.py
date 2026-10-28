@@ -127,7 +127,19 @@ class SystemAdapter(ABC):
 
     # storage and capability
     @abstractmethod
-    def storage_bytes(self) -> int: ...
+    def storage_bytes(self) -> int:
+        """Total size of the data directory in bytes. Measures only; never flushes."""
+
+    def storage_breakdown(self) -> dict:
+        """``{data_bytes, redo_wal_bytes, temp_bytes, other_bytes}`` of the data directory (see
+        ``dbench.systems.storage_layout``). It adds up to ``storage_bytes()``, except for plain
+        DuckDB, whose total covers only the database file and its WAL."""
+        raise NotImplementedError(f"{type(self).__name__} does not implement storage_breakdown()")
+
+    def checkpoint(self) -> str | None:
+        """Run the system's checkpoint so the data is in its final files. Returns None once
+        done, or the reason when the system has no checkpoint statement (an n/a cell)."""
+        return "no checkpoint statement is available for this system"
 
     @abstractmethod
     def supports(self, measure: str) -> tuple[bool, str | None]:

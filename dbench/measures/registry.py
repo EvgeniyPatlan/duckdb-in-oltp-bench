@@ -1,8 +1,15 @@
 """Measure id -> runner. Every runner has the signature ``run(adapter, ctx) -> list[ResultRecord]``.
 
 A campaign may only name registered measures (checked when its YAML is loaded). Later tasks
-register M2..M10 here. Track B is not a per-adapter measure; the campaign calls
-``run_track_b`` from its ``track_b`` section.
+register M4..M10 here.
+
+``Measure.phase`` says when the campaign runs a measure on a system: ``query`` (after the bulk
+load, M1), ``after_load`` (right after the bulk load, before any query: M3) or ``last`` (after
+every other measure, on a fresh datadir: M2's ``load_convert``). M2's ``load_bulk`` cell is the
+campaign's own bulk load, timed by ``dbench.measures.load.run_load_bulk``.
+
+Track B is not a per-adapter measure; the campaign calls ``run_track_b`` from its ``track_b``
+section.
 """
 from __future__ import annotations
 
@@ -13,6 +20,7 @@ from pathlib import Path
 from dbench import dockerctl, hostinfo
 from dbench.config import QUERY_TIMEOUT_S, Limits
 from dbench.datagen import DatasetPaths
+from dbench.measures import load, storage
 from dbench.measures.power import QUERY_NUMBERS, run_power
 from dbench.results import ResultRecord
 from dbench.systems.base import SystemAdapter
@@ -45,6 +53,7 @@ class Measure:
     items: Callable[[int], list[str]]  # planned items at a scale factor
     run: Runner
     needs_reference: bool = False
+    phase: str = "query"  # "query" | "after_load" | "last"
 
 
 _MEASURES: dict[str, Measure] = {}
@@ -78,3 +87,31 @@ def _run_power(adapter: SystemAdapter, ctx: MeasureContext) -> list[ResultRecord
 
 
 register(Measure("M1", "s", _power_items, _run_power, needs_reference=True))
+
+
+LOAD_BULK_ITEM = "load_bulk"  # recorded by the campaign's own bulk load, not by M2's runner
+CONVERT_ITEM = "load_convert"
+
+
+def _load_items(sf: int) -> list[str]:
+    return [LOAD_BULK_ITEM, CONVERT_ITEM]
+
+
+def _run_convert(adapter: SystemAdapter, ctx: MeasureContext) -> list[ResultRecord]:
+    if CONVERT_ITEM not in ctx.items:
+        return []
+    return [load.run_convert(adapter, ctx.data, ctx.sf, ctx.run_id, ctx.results, ctx.limits,
+                             host=ctx.host)]
+
+
+def _storage_items(sf: int) -> list[str]:
+    return list(storage.ITEMS)
+
+
+def _run_storage(adapter: SystemAdapter, ctx: MeasureContext) -> list[ResultRecord]:
+    return storage.run_storage(adapter, ctx.sf, ctx.run_id, ctx.results, ctx.items,
+                               host=ctx.host)
+
+
+register(Measure("M2", "s", _load_items, _run_convert, phase="last"))
+register(Measure("M3", "bytes", _storage_items, _run_storage, phase="after_load"))

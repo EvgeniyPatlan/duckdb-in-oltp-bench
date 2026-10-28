@@ -15,6 +15,7 @@ class InnoDB(MySQLFamilyAdapter):
     bench_schema_kind = "rowstore"
     image = "mysql:9.7"
     engine_clause = "ENGINE=InnoDB"
+    no_checkpoint_reason = "MySQL has no checkpoint statement; InnoDB flushes pages continuously"
     # Started as mysql so the image entrypoint does not try to chown the read-only /data
     # (secure_file_priv) mount.
     container_user = "mysql"

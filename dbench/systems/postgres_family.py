@@ -23,6 +23,7 @@ from dbench.systems._common import (
 )
 from dbench.systems._crash import classify_connection_failure
 from dbench.systems.base import LoadOutcome, Pushed, QueryOutcome
+from dbench.systems.storage_layout import classify_postgres
 
 WATCHDOG_GRACE_S = 10
 PORT = 5432
@@ -62,6 +63,8 @@ class PostgresFamilyAdapter(ContainerServerAdapter):
     engine_clause = ""
     version_key = "postgres"
     postgres_shm = True
+    layout_dir = '"$PGDATA"'
+    layout_classifier = staticmethod(classify_postgres)
     _generation = 0
 
     def __init__(self, *args, **kwargs):
@@ -135,12 +138,14 @@ class PostgresFamilyAdapter(ContainerServerAdapter):
         finally:
             conn.close()
 
-    def before_storage_measure(self) -> None:
+    def checkpoint(self) -> str | None:
         conn = self._connect()
         try:
+            conn.execute("SET statement_timeout = 0")
             conn.execute("CHECKPOINT")
         finally:
             conn.close()
+        return None
 
     # versions and DDL
     def versions(self) -> dict:

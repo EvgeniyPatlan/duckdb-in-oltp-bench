@@ -47,6 +47,9 @@ class MariaDBDuckDB(ConvertToDuckDBMixin, MySQLFamilyAdapter):
     engine_clause = "ENGINE=DuckDB"
     version_key = "mariadb"
     datadir = "/var/lib/mysql"
+    no_checkpoint_reason = (
+        "MariaDB has no CHECKPOINT statement; the DuckDB engine's run_in_duckdb() is refused "
+        "unless the server runs with --duckdb-allow-run-in-duckdb, which is off by default")
 
     def config_mounts(self, limits: Limits) -> dict:
         path = baseline_conf.write_rendered(

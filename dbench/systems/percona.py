@@ -65,6 +65,8 @@ class PerconaEngine(ConvertToDuckDBMixin, MySQLFamilyAdapter):
     engine_clause = "ENGINE=DuckDB"
     version_key = "mysql"
     datadir = "/var/lib/mysql"
+    no_checkpoint_reason = ("the Percona DuckDB engine has no checkpoint statement "
+                            "(CHECKPOINT is a syntax error and the engine has no function for it)")
 
     def container_env(self) -> dict[str, str]:
         if self._limits is None:

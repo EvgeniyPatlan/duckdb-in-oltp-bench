@@ -58,20 +58,49 @@ def test_container_query_and_timeout():
         a.remove_data()
 
 
-def test_bulk_load_copies_every_part_in_table_order(tmp_path):
+def counting_run(sent, counts):
+    def run(sql, timeout_s=600):
+        sent.append(sql)
+        if sql.startswith("SELECT COUNT(*) FROM "):
+            return {"status": "ok", "elapsed_s": 0.0,
+                    "rows": [[counts[sql.rsplit(" ", 1)[1]]]]}
+        return {"status": "ok", "elapsed_s": 1.0}
+    return run
+
+
+def test_bulk_load_copies_every_part_in_table_order(tmp_path, monkeypatch):
     from types import SimpleNamespace
 
+    from dbench.systems import duckdb_native
     from dbench.systems.duckdb_native import TPCH_DDL
 
     tables = {t: [tmp_path / f"{t}.1", tmp_path / f"{t}.2"] for t in TPCH_DDL}
+    monkeypatch.setattr(duckdb_native, "expected_rows", lambda data: dict.fromkeys(TPCH_DDL, 5))
     a = DuckDBNative("1.5.5", data_dir=tmp_path)
     sent = []
-    a._run = lambda sql, timeout_s=600: sent.append(sql) or {"status": "ok", "elapsed_s": 1.0}
+    a._run = counting_run(sent, dict.fromkeys(TPCH_DDL, 5))
     out = a.load_bulk(SimpleNamespace(tables=tables))
-    assert out.status == "ok" and out.elapsed_s == 16.0
-    assert len(sent) == 16
-    assert sent[0] == "COPY region FROM '/data/region.1' (DELIMITER '|', HEADER false)"
-    assert sent[-1].startswith("COPY lineitem FROM '/data/lineitem.2'")
+    assert out.status == "ok" and out.elapsed_s == 16.0  # the count check is not timed
+    assert out.extra["rows"] == dict.fromkeys(TPCH_DDL, 5)
+    copies = [s for s in sent if s.startswith("COPY")]
+    assert len(copies) == 16
+    assert copies[0] == "COPY region FROM '/data/region.1' (DELIMITER '|', HEADER false)"
+    assert copies[-1].startswith("COPY lineitem FROM '/data/lineitem.2'")
+
+
+def test_bulk_load_row_count_mismatch_is_an_error(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from dbench.systems import duckdb_native
+    from dbench.systems.duckdb_native import TPCH_DDL
+
+    tables = {t: [tmp_path / f"{t}.1"] for t in TPCH_DDL}
+    monkeypatch.setattr(duckdb_native, "expected_rows", lambda data: dict.fromkeys(TPCH_DDL, 5))
+    a = DuckDBNative("1.5.5", data_dir=tmp_path)
+    a._run = counting_run([], {**dict.fromkeys(TPCH_DDL, 5), "orders": 4})
+    out = a.load_bulk(SimpleNamespace(tables=tables))
+    assert out.status == "error" and out.extra["kind"] == "row_count"
+    assert out.extra["actual"]["orders"] == 4
 
 
 def test_bulk_load_stops_on_error(tmp_path):

@@ -22,6 +22,7 @@ from dbench.systems._common import (
 )
 from dbench.systems._crash import classify_connection_failure
 from dbench.systems.base import LoadOutcome, Pushed, QueryOutcome
+from dbench.systems.storage_layout import classify_mysql
 
 PORT = 3306
 DATABASE = "tpch"
@@ -75,6 +76,17 @@ class MySQLFamilyAdapter(ContainerServerAdapter):
     datadir = "/var/lib/mysql"
     # Replication logs (binlog) are excluded from storage; redo log and tablespaces count.
     du_command = "du -sb --exclude='binlog.*' /var/lib/mysql"
+    layout_dir = "/var/lib/mysql"
+    layout_classifier = staticmethod(classify_mysql)
+    # Statement that flushes the engine's data to its files; None: the server has none.
+    checkpoint_sql: str | None = None
+    no_checkpoint_reason = "the server has no checkpoint statement"
+
+    def checkpoint(self) -> str | None:
+        if self.checkpoint_sql is None:
+            return self.no_checkpoint_reason
+        self._run_statements([self.checkpoint_sql])
+        return None
 
     def _connect(self, *, read_timeout: float | None, connect_timeout: float = PROBE_TIMEOUT_S):
         return pymysql.connect(

@@ -55,6 +55,8 @@ class AliSQLDuckDB(ConvertToDuckDBMixin, MySQLFamilyAdapter):
     engine_clause = "ENGINE=DuckDB"
     version_key = "mysql"
     datadir = "/var/lib/mysql"
+    # AliSQL has no CHECKPOINT statement; the dbms_duckdb package runs one inside DuckDB.
+    checkpoint_sql = "CALL dbms_duckdb.query('CHECKPOINT')"
 
     def config_mounts(self, limits: Limits) -> dict:
         path = baseline_conf.write_rendered(

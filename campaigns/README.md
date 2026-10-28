@@ -124,7 +124,9 @@ from the lock or when a running image differs from it.
 
 ## Where the results land
 
-`$DBENCH_RESULTS/<run_id>/<system>/M1-sf<N>-q<NN>.json`, plus `<run_id>/_reference/` with the
+`$DBENCH_RESULTS/<run_id>/<system>/M1-sf<N>-q<NN>.json` (power run), `M2-sf<N>-load_bulk.json` /
+`M2-sf<N>-load_convert.json` (load paths) and `M3-sf<N>-after_load.json` /
+`M3-sf<N>-after_checkpoint.json` (storage; see `docs/methodology/storage.md`), plus `<run_id>/_reference/` with the
 cached reference rows. Track B results are under `<run_id>-trackb/`.
 
 ## Committing the results

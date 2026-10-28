@@ -11,6 +11,7 @@ from dbench import dockerctl
 from dbench.config import Limits
 from dbench.datagen import DatasetPaths
 from dbench.systems.base import LoadOutcome, Pushed, SystemAdapter
+from dbench.systems.storage_layout import FIND_COMMAND, Classifier, parse_listing, summarize
 
 DATA_MOUNT = "/data"
 PROBE_TIMEOUT_S = 10
@@ -83,6 +84,8 @@ class ContainerServerAdapter(SystemAdapter):
     image: str
     datadir: str  # where the data volume is mounted in the container
     du_command: str  # shell command printing the datadir size in bytes (first field)
+    layout_dir: str  # directory (shell-quoted) whose files ``storage_breakdown`` classifies
+    layout_classifier: Classifier
     postgres_shm = False
     container_user: str | None = None  # None: the image's default user
 
@@ -173,13 +176,16 @@ class ContainerServerAdapter(SystemAdapter):
             return False, NO_DUCKDB_REASON
         return True, None
 
-    def storage_bytes(self) -> int:
-        self.before_storage_measure()
+    def _sh(self, command: str) -> str:
         c = dockerctl._client().containers.get(self.container_name)
-        code, out = c.exec_run(["sh", "-c", self.du_command])
+        code, out = c.exec_run(["sh", "-c", command])
         if code != 0:
-            raise RuntimeError(f"du failed ({code}): {out.decode(errors='replace')}")
-        return int(out.decode().split()[0])
+            raise RuntimeError(f"`{command}` failed ({code}): {out.decode(errors='replace')}")
+        return out.decode(errors="replace")
 
-    def before_storage_measure(self) -> None:
-        """Hook: flush pending writes (checkpoint) before ``du``."""
+    def storage_bytes(self) -> int:
+        return int(self._sh(self.du_command).split()[0])
+
+    def storage_breakdown(self) -> dict:
+        listing = self._sh(FIND_COMMAND.format(dir=self.layout_dir))
+        return summarize(parse_listing(listing), self.layout_classifier)

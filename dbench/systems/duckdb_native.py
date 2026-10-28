@@ -13,7 +13,7 @@ from docker.errors import NotFound
 
 from dbench import dockerctl
 from dbench.config import Limits
-from dbench.datagen import DatasetPaths
+from dbench.datagen import DatasetPaths, expected_rows
 from dbench.systems._crash import classify_connection_failure
 from dbench.systems.base import (
     LoadOutcome,
@@ -21,9 +21,11 @@ from dbench.systems.base import (
     SystemAdapter,
     numeric_cols_from_types,
 )
+from dbench.systems.storage_layout import FIND_COMMAND, classify_duckdb, parse_listing, summarize
 
 PORT = 9999
 DB_FILE = "/var/lib/duckdb/tpch.duckdb"
+DB_DIR = "/var/lib/duckdb"
 DATA_MOUNT = "/data"
 SOCKET_MARGIN_S = 30
 PROBE_TIMEOUT_S = 10
@@ -213,7 +215,21 @@ class DuckDBNative(SystemAdapter):
                 total += resp["elapsed_s"] or 0.0
                 if resp["status"] != "ok":
                     return LoadOutcome(resp["status"], total, f"{table}: {resp['error']}")
-        return LoadOutcome("ok", total, None, {})
+        return self._check_rows(data, total)
+
+    def _check_rows(self, data: DatasetPaths, loaded_s: float) -> LoadOutcome:
+        """Row counts against the manifest (not part of the load time)."""
+        expected = expected_rows(data)
+        actual = {}
+        for table in TPCH_DDL:
+            resp = self._run(f"SELECT COUNT(*) FROM {table}")
+            if resp["status"] != "ok":
+                return LoadOutcome(resp["status"], loaded_s, f"count {table}: {resp['error']}")
+            actual[table] = int(resp["rows"][0][0])
+        if actual != expected:
+            return LoadOutcome("error", loaded_s, "row count does not match the manifest",
+                               {"kind": "row_count", "expected": expected, "actual": actual})
+        return LoadOutcome("ok", loaded_s, None, {"rows": actual})
 
     def _container_path(self, path: Path | str) -> str:
         if self.data_dir is None:
@@ -267,12 +283,25 @@ class DuckDBNative(SystemAdapter):
 
     # storage and capability
     def storage_bytes(self) -> int:
-        self._run("CHECKPOINT")
+        """Database file plus its WAL; measures only, never checkpoints."""
         c = dockerctl._client().containers.get(self.container_name)
         code, out = c.exec_run(
             ["sh", "-c", f"stat -c %s {DB_FILE} {DB_FILE}.wal 2>/dev/null || true"]
         )
         return sum(int(x) for x in out.decode().split())
+
+    def storage_breakdown(self) -> dict:
+        c = dockerctl._client().containers.get(self.container_name)
+        code, out = c.exec_run(["sh", "-c", FIND_COMMAND.format(dir=DB_DIR)])
+        if code != 0:
+            raise RuntimeError(f"listing {DB_DIR} failed ({code}): {out.decode(errors='replace')}")
+        return summarize(parse_listing(out.decode(errors="replace")), classify_duckdb)
+
+    def checkpoint(self) -> str | None:
+        resp = self._run("CHECKPOINT")
+        if resp["status"] != "ok":
+            raise RuntimeError(f"CHECKPOINT failed: {resp['error']}")
+        return None
 
     def supports(self, measure: str) -> tuple[bool, str | None]:
         if measure in ("M11", "M12"):

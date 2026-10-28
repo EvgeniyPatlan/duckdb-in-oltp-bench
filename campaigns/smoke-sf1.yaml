@@ -11,7 +11,7 @@ systems:
   - percona
   - pg_duckdb
   - pg_ducklake
-measures: [M1]
+measures: [M1, M2, M3]
 limits:
   db_cpuset: "0-7"
   runner_cpuset: "8-11"

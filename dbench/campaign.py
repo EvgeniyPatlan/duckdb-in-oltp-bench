@@ -13,7 +13,9 @@ Schema (all keys but ``timeout_s``, ``reference`` and ``track_b`` are required):
 
 Before any container starts the limits are validated against the CPUs and RAM the Docker daemon
 reports, and every image is checked against ``systems/versions.lock.json``. Systems then run one
-at a time: start, load (bulk path), measures, stop and delete the data. A cell whose result file
+at a time: start, load (bulk path, timed as M2 ``load_bulk`` when that cell is missing), M3
+storage before any query, the query measures, then M2 ``load_convert`` on a fresh datadir; stop
+and delete the data. A cell whose result file
 exists is skipped (resume), except automatic failures, which are retried. A measure the system
 does not support is written as ``n/a`` with the reason. A system that cannot start, load or finish
 is written as ``failed`` with ``extra.auto`` for its pending cells; ``mark-failed`` replaces those
@@ -44,6 +46,7 @@ from dbench.config import QUERY_TIMEOUT_S, Limits
 from dbench.correctness import compare
 from dbench.datagen import DatasetPaths
 from dbench.measures import registry as measures
+from dbench.measures.load import run_load_bulk
 from dbench.measures.power import SUSPEND_REASON, HostSuspended
 from dbench.reference import build_reference, cached_reference
 from dbench.results import ResultRecord, is_done, iter_records, write
@@ -328,17 +331,27 @@ class _Run:
         write(rec, self.root)
         self.summary.written += 1
 
-    def loaded(self, name: str) -> SystemAdapter:
-        """A started adapter with the schema created and the dataset bulk-loaded."""
+    def loaded(self, name: str, record_bulk: bool = False) -> SystemAdapter:
+        """A started adapter with the schema created and the dataset bulk-loaded. With
+        ``record_bulk`` the load is the M2 ``load_bulk`` measurement and its cell is written,
+        also when the load fails; otherwise it is only setup for the other measures."""
         adapter = self.deps.adapter_factory(name, self.data.root)
         adapter.remove_data()
         try:
             adapter.start(self.c.limits)
-            adapter.create_schema(self.c.sf, adapter.bench_schema_kind)
-            load = adapter.load_bulk(self.data)
-            if load.status != "ok":
-                raise RuntimeError(f"bulk load failed: {load.error} {load.extra}")
-            self.say(f"  loaded {name}: {load.elapsed_s or 0:.1f}s")
+            if record_bulk:
+                rec = run_load_bulk(adapter, self.data, self.c.sf, self.c.run_id, self.root,
+                                    clock=self.deps.clock, host=self.host)
+                self.summary.written += 1
+                if rec.status != "ok":
+                    raise RuntimeError(f"bulk load failed: {rec.status} {rec.error} {rec.extra}")
+                self.say(f"  loaded {name}: {rec.value:.1f}s")
+            else:
+                adapter.create_schema(self.c.sf, adapter.bench_schema_kind)
+                load = adapter.load_bulk(self.data)
+                if load.status != "ok":
+                    raise RuntimeError(f"bulk load failed: {load.error} {load.extra}")
+                self.say(f"  loaded {name}: {load.elapsed_s or 0:.1f}s")
         except BaseException:
             self._cleanup(adapter)
             raise
@@ -455,11 +468,30 @@ class _Run:
                                    measure=measure.id, item=item, status="failed",
                                    reason=reason, error=reason[:2000], extra={"auto": True}))
 
-    def _measure(self, adapter: SystemAdapter, todo) -> None:
+    def _context(self, measure: measures.Measure, pending: list[str],
+                 reference: dict[int, dict] | None) -> measures.MeasureContext:
         c = self.c
+        return measures.MeasureContext(
+            sf=c.sf, run_id=c.run_id, results=self.root, data=self.data,
+            reference=reference if measure.needs_reference else None,
+            timeout_s=c.timeout_s, limits=c.limits, items=pending,
+            drop_caches=self.deps.drop_caches, host=self.deps.host)
+
+    def _measure(self, adapter: SystemAdapter, todo) -> None:
+        """Bulk load (timed as M2 ``load_bulk`` when that cell is missing), M3 storage before
+        any query, the query measures, then M2 ``load_convert`` on a fresh datadir."""
         reference = self.reference() if any(m.needs_reference for m, _ in todo) else None
+        bulk_pending = any(m.id == "M2" and measures.LOAD_BULK_ITEM in p for m, p in todo)
+        phases = {"after_load": [], "query": [], "last": []}
+        for measure, pending in todo:
+            items = [i for i in pending
+                     if not (measure.id == "M2" and i == measures.LOAD_BULK_ITEM)]
+            if items:
+                phases[measure.phase].append((measure, items))
+        started = adapter
         try:
-            started = self.loaded(adapter.name)
+            if bulk_pending or phases["after_load"] or phases["query"]:
+                started = self.loaded(adapter.name, record_bulk=bulk_pending)
         except CampaignBlocked:
             raise
         except Exception as exc:  # noqa: BLE001 - a system that cannot start or load is a result
@@ -467,13 +499,10 @@ class _Run:
                                         f"{type(exc).__name__}: {exc}")
             return
         try:
-            for measure, pending in todo:
-                ctx = measures.MeasureContext(
-                    sf=c.sf, run_id=c.run_id, results=self.root, data=self.data,
-                    reference=reference if measure.needs_reference else None,
-                    timeout_s=c.timeout_s, limits=c.limits, items=pending,
-                    drop_caches=self.deps.drop_caches, host=self.deps.host)
-                self.summary.written += len(measure.run(started, ctx))
+            for phase in ("after_load", "query", "last"):
+                for measure, pending in phases[phase]:
+                    ctx = self._context(measure, pending, reference)
+                    self.summary.written += len(measure.run(started, ctx))
         except HostSuspended as exc:  # cells already measured stay; the rest retry on resume
             self._failed(adapter, todo, f"{SUSPEND_REASON}: {exc}")
         except Exception as exc:  # noqa: BLE001 - record what did not finish, then go on
