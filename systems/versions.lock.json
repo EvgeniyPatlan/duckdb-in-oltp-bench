@@ -147,9 +147,11 @@
   "villagesql": {
     "build_inputs": {
       "args": {
+        "ABI": "development",
         "DUCKDB_TAG": "v1.5.5",
         "EXT_COMMIT": "a3cefdb04dd477b5ab25f5e56203cc5a66b01101",
         "EXT_TAG": "0.0.3",
+        "RESULT_BUFFER_BYTES": "16777216",
         "SDK_SHA256": "3aa9338dfe203f9092e9d73cd4ef70e3fcbac968cbeca19f33d28a631b01e82c",
         "SDK_VERSION": "0.0.7"
       },
@@ -158,7 +160,7 @@
         "villagesql/server:mysql-8.4_0.0.7@sha256:a8326d3daeded00b147d47dc50d68a2ac4f8a750e51a7d1374e91aa7a97e88da"
       ]
     },
-    "digest": "sha256:0b04848bc66a1ef7207bbb73286078a4566d66d85e097025318a81ea0ae33c0f",
+    "digest": "sha256:3eabbac7e23426633f61c125991b0d70ff2af13630180433b892674e40f1589f",
     "digest_kind": "local",
     "duckdb_version": "1.5.5",
     "image": "dbench/villagesql:0.0.7-duckdb-0.0.3",

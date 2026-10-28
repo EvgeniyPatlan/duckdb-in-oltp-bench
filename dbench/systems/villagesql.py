@@ -138,8 +138,8 @@ class VillageSQL(MySQLFamilyAdapter):
                 conn.close()
         except Exception:  # noqa: BLE001 - versions() must not fail on a missing function
             pass
-        return {**info, "extension": "vsql_duckdb 0.0.3", "entry_point": "duckdb_query()",
-                "duckdb": duck,
+        return {**info, "extension": "vsql_duckdb 0.0.3", "abi": "development",
+                "entry_point": "duckdb_query()", "duckdb": duck,
                 "duckdb_source": "SELECT duckdb_status()"}
 
     # queries

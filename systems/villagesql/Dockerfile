@@ -1,7 +1,11 @@
 # VillageSQL Server 0.0.7 (MySQL 8.4 flavour) with the vsql_duckdb extension 0.0.3, built here.
 # Stage 1 builds the extension against the 0.0.7 extension SDK (the release asset
 # villagesql-extension-sdk-0.0.7.tar.gz, verified by SHA-256) with DuckDB v1.5.5, the extension's
-# own default. The build image is Ubuntu 24.04, the same base as the server image, so the .so
+# own default. Non-default build, at the benchmark owner's decision: the SDK's development headers
+# (include-dev, same tarball, selected with -DVSQL_USE_DEV_ABI=ON) replace the stable ones and the duckdb_query() buffer is raised
+# to 16 MiB, as the extension's README ("Returning more than one megabyte") describes, so that
+# vsql_duckdb.max_result_bytes (up to 16 MiB) is the effective limit instead of the stable ABI's
+# fixed 1 MiB buffer. The build image is Ubuntu 24.04, the same base as the server image, so the .so
 # links against the same glibc and libstdc++. Stage 2 is the official server image, pinned by
 # digest, with the .veb copied into the server's veb_dir (/usr/lib/veb).
 FROM ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c AS build
@@ -11,6 +15,10 @@ ARG SDK_SHA256=3aa9338dfe203f9092e9d73cd4ef70e3fcbac968cbeca19f33d28a631b01e82c
 ARG EXT_TAG=0.0.3
 ARG EXT_COMMIT=a3cefdb04dd477b5ab25f5e56203cc5a66b01101
 ARG DUCKDB_TAG=v1.5.5
+# Development ABI build (see the header). ABI only guards the build and is recorded in the lock;
+# the switch is -DVSQL_USE_DEV_ABI=ON. RESULT_BUFFER_BYTES is the duckdb_query() buffer.
+ARG ABI=development
+ARG RESULT_BUFFER_BYTES=16777216
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         build-essential cmake git ca-certificates curl libssl-dev libcurl4-openssl-dev \
@@ -23,8 +31,18 @@ RUN git clone --quiet https://github.com/villagesql/vsql-duckdb.git /src \
     && cd /src && git checkout --quiet "${EXT_COMMIT}" \
     && test "$(git rev-parse "${EXT_TAG}^{commit}")" = "${EXT_COMMIT}"
 WORKDIR /src
+# The two source edits the README names: raise kQueryBufferSize to 16 MiB (the ceiling that
+# effective_cap() clamps to) and declare .max_result_length() for duckdb_query(). Each sed is
+# followed by a grep so a changed source layout fails the build instead of silently doing nothing.
+RUN test "${ABI}" = development \
+    && sed -i 's/^constexpr size_t kQueryBufferSize = 1048576;/constexpr size_t kQueryBufferSize = '"${RESULT_BUFFER_BYTES}"';/' src/vsql_duckdb.cc \
+    && sed -i 's/^\( *\)\.buffer_size(kQueryBufferSize)/&\n\1.max_result_length(kQueryBufferSize)/' src/vsql_duckdb.cc \
+    && grep -q "kQueryBufferSize = ${RESULT_BUFFER_BYTES};" src/vsql_duckdb.cc \
+    && grep -q '\.max_result_length(kQueryBufferSize)' src/vsql_duckdb.cc
+# VSQL_USE_DEV_ABI=ON is the SDK's own switch: it points VillageSQLExtensionFramework_INCLUDE_DIR
+# at the SDK's include-dev tree instead of include.
 RUN cmake -S . -B build -DVillageSQL_SDK_DIR=/sdk -DDUCKDB_TAG="${DUCKDB_TAG}" \
-        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_BUILD_TYPE=Release -DVSQL_USE_DEV_ABI=ON \
     && cmake --build build --parallel "$(nproc)" \
     && ls -l build/vsql_duckdb.veb
 

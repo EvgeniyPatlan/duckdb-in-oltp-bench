@@ -260,13 +260,31 @@ def test_live_settings_match_config():
 
 @pytest.mark.docker
 @pytest.mark.skipif(os.environ.get("DBENCH_DOCKER") != "1", reason="set DBENCH_DOCKER=1")
-def test_live_escaping_roundtrip_and_result_cap():
+def test_live_escaping_roundtrip():
     a = _start_empty()
     try:
         out = a.execute("SELECT 'it''s' AS a, '\\' AS b", 30)
         assert out.status == "ok" and out.rows == [("it's", "\\")]
+    finally:
+        a.remove_data()
+
+
+@pytest.mark.docker
+@pytest.mark.skipif(os.environ.get("DBENCH_DOCKER") != "1", reason="set DBENCH_DOCKER=1")
+def test_live_result_cap_is_16_mib_on_the_development_abi():
+    """The image is built against the development ABI, so max_result_bytes (16 MiB) is the
+    effective limit: about 2 MiB (and 4.6 MB) come back whole, above 16 MiB is a result_cap."""
+    a = _start_empty()
+    try:
+        out = a.execute("SELECT i, repeat('x', 200) AS pad FROM range(10000) t(i)", 60)
+        assert out.status == "ok" and len(out.rows) == 10000, out  # ~2.2 MiB of JSON
         out = a.execute("SELECT i, repeat('x', 200) AS pad FROM range(20000) t(i)", 60)
-        assert out.status == "error" and out.extra["kind"] == "result_cap", out
+        assert out.status == "ok" and len(out.rows) == 20000, out  # ~4.5 MiB, over the old 1 MiB
+        out = a.execute("SELECT i, repeat('x', 200) AS pad FROM range(100000) t(i)", 120)
+        assert out.status == "error" and out.extra["kind"] == "result_cap", out  # ~22 MiB
+        assert "16777216" in out.error and "max_result_bytes" in out.error
+        assert a.execute("SELECT 1 AS one", 10).rows == [(1,)]
+        assert a.versions()["abi"] == "development"
     finally:
         a.remove_data()
 
