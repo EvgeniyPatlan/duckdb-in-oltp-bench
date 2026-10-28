@@ -160,7 +160,7 @@
         "villagesql/server:mysql-8.4_0.0.7@sha256:a8326d3daeded00b147d47dc50d68a2ac4f8a750e51a7d1374e91aa7a97e88da"
       ]
     },
-    "digest": "sha256:3eabbac7e23426633f61c125991b0d70ff2af13630180433b892674e40f1589f",
+    "digest": "sha256:06f8bb5974996f7a87a74bafb1fd437c128526ba2f3fd9dd8a7b4a88e0a8e913",
     "digest_kind": "local",
     "duckdb_version": "1.5.5",
     "image": "dbench/villagesql:0.0.7-duckdb-0.0.3",

@@ -291,6 +291,34 @@ def test_live_result_cap_is_16_mib_on_the_development_abi():
 
 @pytest.mark.docker
 @pytest.mark.skipif(os.environ.get("DBENCH_DOCKER") != "1", reason="set DBENCH_DOCKER=1")
+def test_live_result_cap_boundary_at_16_mib():
+    """One row whose JSON is just under 16 MiB comes back whole (its length is read inside the
+    server); one just over is refused as result_cap."""
+    cap = 16 << 20
+    a = _start_empty()
+    try:
+        conn = a.connect()
+        try:
+            cur = conn.cursor()
+
+            def json_length(n):
+                cur.execute("SELECT LENGTH(duckdb_query(%s))",
+                            (f"SELECT repeat('x', {n}) AS v",))
+                return cur.fetchone()[0]
+
+            overhead = json_length(0)
+            assert json_length(cap - overhead - 1024) == cap - 1024
+        finally:
+            conn.close()
+        out = a.execute(f"SELECT repeat('x', {cap - overhead + 1024}) AS v", 120)
+        assert out.status == "error" and out.extra["kind"] == "result_cap", out
+        assert a.execute("SELECT 1 AS one", 10).rows == [(1,)]
+    finally:
+        a.remove_data()
+
+
+@pytest.mark.docker
+@pytest.mark.skipif(os.environ.get("DBENCH_DOCKER") != "1", reason="set DBENCH_DOCKER=1")
 def test_heavy_duckdb_query_is_stopped_by_timeout_ms_and_server_recovers():
     a = _start_empty()
     try:

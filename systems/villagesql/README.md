@@ -102,10 +102,21 @@ owner's decision, so that the documented 16 MiB `max_result_bytes` applies:
   `.max_result_length(kQueryBufferSize)` for `duckdb_query()`. These are the only two source edits;
   the tag, commit, DuckDB version and server image are unchanged. The build args `ABI=development`
   and `RESULT_BUFFER_BYTES=16777216` are recorded in the lock's build inputs.
-- The server is still the 0.0.7 release image. `versions` records `abi: "development"`, and the
-  lock file lists the SDK in the build inputs.
-- The development ABI is shipped and tested but is not the stable surface; results here are for
-  this build, not for the released `.veb`.
+- The SDK and the server image are the same 0.0.7 release. That this server loads the
+  development-ABI `.veb` and honours the 16 MiB buffer is checked live by
+  `test_live_result_cap_is_16_mib_on_the_development_abi` and
+  `test_live_result_cap_boundary_at_16_mib` in `tests/test_villagesql.py`. `versions` records
+  `abi: "development"`, and the lock file lists the build args in the build inputs.
+- The development ABI is not the stable surface, and an extension built against it needs a matching
+  server; results here are for this build, not for the released `.veb`.
+- Cost of the 16 MiB buffer, measured at 16 GB / cores 0-7 on this build and on the stable-ABI build
+  of the same release (two rounds each, 1000 x `SELECT 1` and 50 x TPC-H q06 at SF1, timed region
+  of `execute()`): `SELECT 1` median 0.40-0.43 ms (dev) vs 0.42-0.47 ms (stable), p95 about 1.6 ms
+  on both; q06 median 21.4 / 19.3 ms (dev) vs 19.8 / 18.2 ms (stable), p95 30.8 / 21.7 ms vs
+  27.9 / 20.7 ms, so the development build was about 1 ms (5-8%) slower on q06 in both rounds,
+  a difference of the size of the run-to-run spread; container memory after the runs was
+  734-784 MiB (dev) vs 735-924 MiB (stable), peak 763-811 vs 763-939 MiB, no measurable memory
+  cost.
 
 A query whose answer is larger than 16 MiB is still refused with an error rather than returned cut
 (a cut JSON array would not parse), and is recorded as `error` with `extra.kind = "result_cap"`.

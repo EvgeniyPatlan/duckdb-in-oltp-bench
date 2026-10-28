@@ -33,12 +33,17 @@ RUN git clone --quiet https://github.com/villagesql/vsql-duckdb.git /src \
 WORKDIR /src
 # The two source edits the README names: raise kQueryBufferSize to 16 MiB (the ceiling that
 # effective_cap() clamps to) and declare .max_result_length() for duckdb_query(). Each sed is
-# followed by a grep so a changed source layout fails the build instead of silently doing nothing.
+# followed by checks so a changed source layout fails the build instead of silently doing nothing:
+# exactly one .max_result_length( call and three kQueryBufferSize uses (definition, buffer_size,
+# max_result_length), the new call inside the duckdb_query registration.
 RUN test "${ABI}" = development \
     && sed -i 's/^constexpr size_t kQueryBufferSize = 1048576;/constexpr size_t kQueryBufferSize = '"${RESULT_BUFFER_BYTES}"';/' src/vsql_duckdb.cc \
     && sed -i 's/^\( *\)\.buffer_size(kQueryBufferSize)/&\n\1.max_result_length(kQueryBufferSize)/' src/vsql_duckdb.cc \
     && grep -q "kQueryBufferSize = ${RESULT_BUFFER_BYTES};" src/vsql_duckdb.cc \
-    && grep -q '\.max_result_length(kQueryBufferSize)' src/vsql_duckdb.cc
+    && test "$(grep -c '^ *\.max_result_length(' src/vsql_duckdb.cc)" = 1 \
+    && test "$(grep -c 'kQueryBufferSize' src/vsql_duckdb.cc)" = 3 \
+    && sed -n '/\.func(make_func<&duckdb_query_impl>/,/\.build())/p' src/vsql_duckdb.cc \
+        | grep -q '\.max_result_length(kQueryBufferSize)'
 # VSQL_USE_DEV_ABI=ON is the SDK's own switch: it points VillageSQLExtensionFramework_INCLUDE_DIR
 # at the SDK's include-dev tree instead of include.
 RUN cmake -S . -B build -DVillageSQL_SDK_DIR=/sdk -DDUCKDB_TAG="${DUCKDB_TAG}" \
