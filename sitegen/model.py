@@ -16,11 +16,13 @@ ROWSTORE_COLORS = {"innodb": "#8c7b6b", "postgres": "#6b8c86"}
 # Engines the repo knows; fixed so a colour does not depend on which results exist.
 KNOWN_ENGINES = ("alisql", "mariadb", "percona", "pg_duckdb", "pg_ducklake", "villagesql")
 TRACKB_SUFFIX = "-trackb"
+# Short labels name who provides the DuckDB integration, in one style for everyone: the
+# project/vendor for MySQL-family servers, the extension for PostgreSQL (both run on the same
+# server). The full product with versions comes from systems/versions.lock.json on each page.
 LABELS = {
-    "alisql": "AliSQL", "mariadb": "MariaDB DuckDB engine",
-    "percona": "Percona ducksdb-mysql-engine", "pg_duckdb": "pg_duckdb",
-    "pg_ducklake": "pg_ducklake", "villagesql": "VillageSQL vsql_duckdb",
-    "innodb": "InnoDB (MySQL 9.7)", "postgres": "PostgreSQL 18 (heap)",
+    "alisql": "AliSQL", "mariadb": "MariaDB", "percona": "Percona",
+    "pg_duckdb": "pg_duckdb", "pg_ducklake": "pg_ducklake", "villagesql": "VillageSQL",
+    "innodb": "MySQL InnoDB", "postgres": "PostgreSQL",
     "pg_duckdb-trackb": "pg_duckdb (duckdb.query)",
     "mariadb-trackb": "MariaDB (run_in_duckdb)",
 }

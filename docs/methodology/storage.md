@@ -25,9 +25,9 @@ Checkpoint statements:
 | plain DuckDB | `CHECKPOINT` |
 | PostgreSQL, pg_duckdb, pg_ducklake | `CHECKPOINT` |
 | AliSQL | `CALL dbms_duckdb.query('CHECKPOINT')` (the server rejects a bare `CHECKPOINT`) |
-| MySQL 9.7 (InnoDB) | none: `n/a`, InnoDB flushes pages continuously |
-| Percona DuckDB engine | none: `n/a`, no statement or function exists |
-| MariaDB DuckDB engine | none: `n/a`, `run_in_duckdb()` is refused unless the server runs with `--duckdb-allow-run-in-duckdb`, which is off by default and not changed here |
+| MySQL InnoDB | none: `n/a`, InnoDB flushes pages continuously |
+| Percona | none: `n/a`, no statement or function exists |
+| MariaDB | none: `n/a`, `run_in_duckdb()` is refused unless the server runs with `--duckdb-allow-run-in-duckdb`, which is off by default and not changed here |
 
 ## Breakdown
 

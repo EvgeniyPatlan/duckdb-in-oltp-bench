@@ -166,3 +166,25 @@ def test_system_pages_use_readme_and_measured_facts(built):
     _, out = built
     html = text(out, "systems/percona.html")
     assert "DUCKSDB_MEMORY_LIMIT" in html and "Observed in this run" in html
+
+
+def test_system_labels_follow_one_rule():
+    """Short labels name who provides the integration, never a product line or engine jargon;
+    the full product with versions comes from the lock file on each system page."""
+    from sitegen.methodology import DIR_LABELS
+    from sitegen.model import LABELS, config_dir
+
+    assert {k: LABELS[k] for k in ("alisql", "mariadb", "percona", "pg_duckdb", "pg_ducklake",
+                                   "villagesql", "innodb", "postgres")} == {
+        "alisql": "AliSQL", "mariadb": "MariaDB", "percona": "Percona",
+        "pg_duckdb": "pg_duckdb", "pg_ducklake": "pg_ducklake", "villagesql": "VillageSQL",
+        "innodb": "MySQL InnoDB", "postgres": "PostgreSQL"}
+    for name, label in LABELS.items():
+        if not name.endswith("-trackb"):
+            assert DIR_LABELS[config_dir(name)] == label, name
+
+
+def test_lock_names_the_server_each_image_runs():
+    lock = json.loads((Path(__file__).parents[1] / "systems" / "versions.lock.json").read_text())
+    assert lock["percona"]["server_version"].startswith("MySQL 9.7")
+    assert "Percona Server" not in json.dumps(lock)

@@ -1,4 +1,4 @@
-"""Percona Server 9.7 with the built-in DuckDB storage engine (``ENGINE=DuckDB``).
+"""MySQL 9.7 with Percona's built-in DuckDB storage engine (``ENGINE=DuckDB``).
 
 The image entrypoint runs ``mysqld --no-defaults``, so settings are mysqld command-line
 arguments rendered from ``systems/percona/mysqld-args.j2`` plus two environment variables.

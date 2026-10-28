@@ -1,4 +1,4 @@
-# Percona Server 9.7 + DuckDB engine (`ENGINE=DuckDB`)
+# MySQL 9.7.0 + Percona ducksdb-mysql-engine v0.2.3 (`ENGINE=DuckDB`)
 
 Image `perconalab/ducksdb-mysql-engine:9.7-duckdb-v0.2.3`, pinned by digest
 `sha256:5e4af8b2bede83db7b296be977a9c22fb30e8a05a565e3b3b0fe08fea9a96640` (the image reference
