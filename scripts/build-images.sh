@@ -2,9 +2,29 @@
 # Build every locally built image and pull the registry images at the digests pinned in
 # systems/versions.lock.json, so `dbench lock` can refresh the local image ids.
 # Tags must match the images named in dbench/systems/. Needs docker with buildx.
+# TMPDIR defaults to <parent of $DBENCH_DATA>/tmp.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if ! docker buildx version >/dev/null 2>&1; then
+    echo "error: 'docker buildx' is not available; install the Docker buildx plugin" \
+         "(docker-buildx-plugin) and run this script again." >&2
+    exit 1
+fi
+
+# Builds write large temporary files. Keep them beside the data (the big disk), not in /tmp on
+# the root disk. An explicit TMPDIR wins; otherwise use <parent of $DBENCH_DATA>/tmp.
+if [ -z "${TMPDIR:-}" ] && [ -n "${DBENCH_DATA:-}" ]; then
+    TMPDIR="$(dirname "${DBENCH_DATA%/}")/tmp"
+fi
+if [ -n "${TMPDIR:-}" ]; then
+    mkdir -p "$TMPDIR"
+    export TMPDIR
+    echo "using TMPDIR=$TMPDIR"
+else
+    echo "warning: TMPDIR and DBENCH_DATA are unset; builds will use /tmp (root disk)" >&2
+fi
 DUCKDB="$ROOT/systems/duckdb"
 
 build_duckdb() { # version [extra build args...]
