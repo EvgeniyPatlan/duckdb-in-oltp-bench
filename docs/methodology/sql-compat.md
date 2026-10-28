@@ -6,7 +6,7 @@ the share of statements that quietly left DuckDB.
 
 ## M5: the probe suite
 
-`probes/probes.yaml` holds 119 probes in nine categories: `types` (each column type round trips),
+`probes/probes.yaml` holds 120 probes in nine categories: `types` (each column type round trips),
 `functions` (string, date, math, `GROUP_CONCAT`/`string_agg`, `DATE_FORMAT`, JSON), `joins`
 (inner, outer, semi, anti, and joins between an engine table and a row-store table), `subqueries`,
 `cte` (plain and recursive), `window`, `dml` (single-row and bulk writes, `INSERT ... SELECT`,
@@ -26,12 +26,14 @@ upsert, transactions with rollback), `ddl` (`ALTER`, rename, `TRUNCATE`, index, 
   `{{ rowstore_clause }}` (`ENGINE=InnoDB`, or a plain heap table) for a small row-store table
   joined with an engine table. Read-only probes may read the TPC-H tables `nation`, `region` and
   `supplier`. A leftover table from an interrupted run is dropped before `setup`.
-- **No primary keys unless the probe is about them.** Most scratch tables have none, so one
-  system's refusal of a constraint does not turn a hundred probes into errors; upsert,
-  auto-increment and `ADD PRIMARY KEY` probes test constraints on purpose. Some engines refuse a
-  table without a primary key anyway (AliSQL and MariaDB: error 1173 "This table type requires a
-  primary key"); there those probes are `error` at stage `setup`, whatever the statement under
-  test would have done.
+- **Every probe table has a primary key** (a natural `id` column; a surrogate `pk` column where
+  ids repeat), as the TPC-H schema has wherever a system accepts one. Without it, an engine that
+  requires a key (AliSQL and MariaDB: error 1173) would fail every probe at `setup`, and the run
+  would never show whether it supports the feature a probe is about. The single exception is
+  `ddl_create_table_without_pk`, which creates a table without a key and inserts a row, so that
+  requirement is measured once, on its own. (A MySQL `CREATE TABLE ... AS SELECT` declares its key;
+  PostgreSQL has no such syntax.) This was decided before any engine-specific tuning; the first
+  version of the suite had no keys and was replaced for that reason.
 - **Every read touches a table.** A statement that reads no rows leaves a status counter such as
   MariaDB's `Rows_read` unchanged and would look pushed.
 

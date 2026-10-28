@@ -480,3 +480,15 @@ def test_explain_outside_a_transaction_is_plain():
     conn = _Conn(pq.TransactionStatus.IDLE, explain_fails=True)
     assert PostgresFamilyAdapter._explain_pushed(PgDuckDB("x"), conn, "SELECT 1") == "unknown"
     assert conn.sent == ["EXPLAIN SELECT 1"]
+
+
+def test_probe_scratch_tables_have_primary_keys_except_the_dedicated_probe():
+    create = re.compile(r"CREATE\s+TABLE\s+\w+\s*\(", re.I)
+    for p in load_probes():
+        for dialect in ("mysql", "postgres"):
+            for s in _per_dialect(p.setup, dialect):
+                if create.match(s.strip()):
+                    assert "PRIMARY KEY" in s.upper(), f"{p.id} [{dialect}]: {s}"
+    dedicated = next(p for p in load_probes() if p.id == "ddl_create_table_without_pk")
+    assert not _per_dialect(dedicated.setup, "mysql")
+    assert "PRIMARY KEY" not in " ".join(_per_dialect(dedicated.sql["mysql"], "mysql")).upper()

@@ -18,6 +18,12 @@
 #                         baseline (InnoDB / Postgres) is the expectation
 #   note                  why a dialect is spelled differently
 #
+# Every probe table carries a primary key (a natural id column; a surrogate pk column where ids
+# repeat), as the benchmark's TPC-H schema does wherever a system accepts one.
+# ddl_create_table_without_pk is the single probe that creates a table without one, so that
+# requirement is measured once instead of failing every probe's setup. This was decided before
+# any engine-specific tuning.
+#
 # Probes that read a table always read at least one row, so a status counter can tell whether
 # DuckDB ran them. Only the TPC-H tables nation, region and supplier are read (never written).
 
@@ -27,10 +33,10 @@ probes:
     title: "INT round trip including both limits"
     setup:
       mysql:
-        - "CREATE TABLE pc_types_int (id INT, v INT) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_int (id INT PRIMARY KEY, v INT) {{ engine_clause }}"
         - "INSERT INTO pc_types_int VALUES (1, -2147483648), (2, 0), (3, 2147483647), (4, NULL)"
       postgres:
-        - "CREATE TABLE pc_types_int (id INT, v INT) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_int (id INT PRIMARY KEY, v INT) {{ engine_clause }}"
         - "INSERT INTO pc_types_int VALUES (1, -2147483648), (2, 0), (3, 2147483647), (4, NULL)"
     teardown:
       - "DROP TABLE IF EXISTS pc_types_int"
@@ -41,10 +47,10 @@ probes:
     title: "BIGINT round trip near both limits"
     setup:
       mysql:
-        - "CREATE TABLE pc_types_bigint (id INT, v BIGINT) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_bigint (id INT PRIMARY KEY, v BIGINT) {{ engine_clause }}"
         - "INSERT INTO pc_types_bigint VALUES (1, -9223372036854775807), (2, 0), (3, 9223372036854775807), (4, NULL)"
       postgres:
-        - "CREATE TABLE pc_types_bigint (id INT, v BIGINT) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_bigint (id INT PRIMARY KEY, v BIGINT) {{ engine_clause }}"
         - "INSERT INTO pc_types_bigint VALUES (1, -9223372036854775807), (2, 0), (3, 9223372036854775807), (4, NULL)"
     teardown:
       - "DROP TABLE IF EXISTS pc_types_bigint"
@@ -55,10 +61,10 @@ probes:
     title: "Unsigned 64-bit integer above the signed range (NUMERIC(20,0) on PostgreSQL)"
     setup:
       mysql:
-        - "CREATE TABLE pc_types_unsigned_bigint (id INT, v BIGINT UNSIGNED) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_unsigned_bigint (id INT PRIMARY KEY, v BIGINT UNSIGNED) {{ engine_clause }}"
         - "INSERT INTO pc_types_unsigned_bigint VALUES (1, 0), (2, 9223372036854775808), (3, 18446744073709551615), (4, NULL)"
       postgres:
-        - "CREATE TABLE pc_types_unsigned_bigint (id INT, v NUMERIC(20,0)) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_unsigned_bigint (id INT PRIMARY KEY, v NUMERIC(20,0)) {{ engine_clause }}"
         - "INSERT INTO pc_types_unsigned_bigint VALUES (1, 0), (2, 9223372036854775808), (3, 18446744073709551615), (4, NULL)"
     teardown:
       - "DROP TABLE IF EXISTS pc_types_unsigned_bigint"
@@ -69,10 +75,10 @@ probes:
     title: "DECIMAL(10,2) values with sign and zero"
     setup:
       mysql:
-        - "CREATE TABLE pc_types_decimal_money (id INT, v DECIMAL(10,2)) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_decimal_money (id INT PRIMARY KEY, v DECIMAL(10,2)) {{ engine_clause }}"
         - "INSERT INTO pc_types_decimal_money VALUES (1, 12345678.90), (2, -0.01), (3, 0.00), (4, NULL)"
       postgres:
-        - "CREATE TABLE pc_types_decimal_money (id INT, v DECIMAL(10,2)) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_decimal_money (id INT PRIMARY KEY, v DECIMAL(10,2)) {{ engine_clause }}"
         - "INSERT INTO pc_types_decimal_money VALUES (1, 12345678.90), (2, -0.01), (3, 0.00), (4, NULL)"
     teardown:
       - "DROP TABLE IF EXISTS pc_types_decimal_money"
@@ -83,10 +89,10 @@ probes:
     title: "DECIMAL(38,10) beyond double precision, compared as text too"
     setup:
       mysql:
-        - "CREATE TABLE pc_types_decimal_wide (id INT, v DECIMAL(38,10)) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_decimal_wide (id INT PRIMARY KEY, v DECIMAL(38,10)) {{ engine_clause }}"
         - "INSERT INTO pc_types_decimal_wide VALUES (1, 12345678901234567890.1234567891), (2, -0.0000000001), (3, NULL)"
       postgres:
-        - "CREATE TABLE pc_types_decimal_wide (id INT, v DECIMAL(38,10)) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_decimal_wide (id INT PRIMARY KEY, v DECIMAL(38,10)) {{ engine_clause }}"
         - "INSERT INTO pc_types_decimal_wide VALUES (1, 12345678901234567890.1234567891), (2, -0.0000000001), (3, NULL)"
     teardown:
       - "DROP TABLE IF EXISTS pc_types_decimal_wide"
@@ -97,10 +103,10 @@ probes:
     title: "Single-precision float with exactly representable values"
     setup:
       mysql:
-        - "CREATE TABLE pc_types_float (id INT, v FLOAT) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_float (id INT PRIMARY KEY, v FLOAT) {{ engine_clause }}"
         - "INSERT INTO pc_types_float VALUES (1, 1.5), (2, -2.25), (3, 1024), (4, NULL)"
       postgres:
-        - "CREATE TABLE pc_types_float (id INT, v REAL) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_float (id INT PRIMARY KEY, v REAL) {{ engine_clause }}"
         - "INSERT INTO pc_types_float VALUES (1, 1.5), (2, -2.25), (3, 1024), (4, NULL)"
     teardown:
       - "DROP TABLE IF EXISTS pc_types_float"
@@ -111,10 +117,10 @@ probes:
     title: "Double-precision float including extreme exponents"
     setup:
       mysql:
-        - "CREATE TABLE pc_types_double (id INT, v DOUBLE) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_double (id INT PRIMARY KEY, v DOUBLE) {{ engine_clause }}"
         - "INSERT INTO pc_types_double VALUES (1, 3.141592653589793), (2, 1e300), (3, -1e-300), (4, NULL)"
       postgres:
-        - "CREATE TABLE pc_types_double (id INT, v DOUBLE PRECISION) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_double (id INT PRIMARY KEY, v DOUBLE PRECISION) {{ engine_clause }}"
         - "INSERT INTO pc_types_double VALUES (1, 3.141592653589793), (2, 1e300), (3, -1e-300), (4, NULL)"
     teardown:
       - "DROP TABLE IF EXISTS pc_types_double"
@@ -125,10 +131,10 @@ probes:
     title: "BOOLEAN true, false and NULL read back as integers"
     setup:
       mysql:
-        - "CREATE TABLE pc_types_boolean (id INT, v BOOLEAN) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_boolean (id INT PRIMARY KEY, v BOOLEAN) {{ engine_clause }}"
         - "INSERT INTO pc_types_boolean VALUES (1, TRUE), (2, FALSE), (3, NULL)"
       postgres:
-        - "CREATE TABLE pc_types_boolean (id INT, v BOOLEAN) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_boolean (id INT PRIMARY KEY, v BOOLEAN) {{ engine_clause }}"
         - "INSERT INTO pc_types_boolean VALUES (1, TRUE), (2, FALSE), (3, NULL)"
     teardown:
       - "DROP TABLE IF EXISTS pc_types_boolean"
@@ -139,10 +145,10 @@ probes:
     title: "CHAR(5) values shorter than, equal to and empty vs the width"
     setup:
       mysql:
-        - "CREATE TABLE pc_types_char_fixed (id INT, v CHAR(5)) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_char_fixed (id INT PRIMARY KEY, v CHAR(5)) {{ engine_clause }}"
         - "INSERT INTO pc_types_char_fixed VALUES (1, 'ab'), (2, 'abcde'), (3, ''), (4, NULL)"
       postgres:
-        - "CREATE TABLE pc_types_char_fixed (id INT, v CHAR(5)) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_char_fixed (id INT PRIMARY KEY, v CHAR(5)) {{ engine_clause }}"
         - "INSERT INTO pc_types_char_fixed VALUES (1, 'ab'), (2, 'abcde'), (3, ''), (4, NULL)"
     teardown:
       - "DROP TABLE IF EXISTS pc_types_char_fixed"
@@ -153,10 +159,10 @@ probes:
     title: "VARCHAR(255) filled to its limit"
     setup:
       mysql:
-        - "CREATE TABLE pc_types_varchar_max (id INT, v VARCHAR(255)) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_varchar_max (id INT PRIMARY KEY, v VARCHAR(255)) {{ engine_clause }}"
         - "INSERT INTO pc_types_varchar_max VALUES (1, REPEAT('x', 255)), (2, ''), (3, NULL)"
       postgres:
-        - "CREATE TABLE pc_types_varchar_max (id INT, v VARCHAR(255)) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_varchar_max (id INT PRIMARY KEY, v VARCHAR(255)) {{ engine_clause }}"
         - "INSERT INTO pc_types_varchar_max VALUES (1, REPEAT('x', 255)), (2, ''), (3, NULL)"
     teardown:
       - "DROP TABLE IF EXISTS pc_types_varchar_max"
@@ -167,10 +173,10 @@ probes:
     title: "TEXT with accents, CJK and an emoji"
     setup:
       mysql:
-        - "CREATE TABLE pc_types_text_unicode (id INT, v TEXT) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_text_unicode (id INT PRIMARY KEY, v TEXT) {{ engine_clause }}"
         - "INSERT INTO pc_types_text_unicode VALUES (1, 'héllo wörld'), (2, '日本語のテキスト'), (3, 'emoji 🙂 end'), (4, NULL)"
       postgres:
-        - "CREATE TABLE pc_types_text_unicode (id INT, v TEXT) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_text_unicode (id INT PRIMARY KEY, v TEXT) {{ engine_clause }}"
         - "INSERT INTO pc_types_text_unicode VALUES (1, 'héllo wörld'), (2, '日本語のテキスト'), (3, 'emoji 🙂 end'), (4, NULL)"
     teardown:
       - "DROP TABLE IF EXISTS pc_types_text_unicode"
@@ -181,10 +187,10 @@ probes:
     title: "DATE across the supported range"
     setup:
       mysql:
-        - "CREATE TABLE pc_types_date (id INT, v DATE) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_date (id INT PRIMARY KEY, v DATE) {{ engine_clause }}"
         - "INSERT INTO pc_types_date VALUES (1, '1970-01-01'), (2, '2024-02-29'), (3, '9999-12-31'), (4, NULL)"
       postgres:
-        - "CREATE TABLE pc_types_date (id INT, v DATE) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_date (id INT PRIMARY KEY, v DATE) {{ engine_clause }}"
         - "INSERT INTO pc_types_date VALUES (1, '1970-01-01'), (2, '2024-02-29'), (3, '9999-12-31'), (4, NULL)"
     teardown:
       - "DROP TABLE IF EXISTS pc_types_date"
@@ -195,10 +201,10 @@ probes:
     title: "DATETIME / TIMESTAMP without time zone"
     setup:
       mysql:
-        - "CREATE TABLE pc_types_datetime (id INT, v DATETIME) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_datetime (id INT PRIMARY KEY, v DATETIME) {{ engine_clause }}"
         - "INSERT INTO pc_types_datetime VALUES (1, '2024-02-29 13:45:10'), (2, '1999-12-31 23:59:59'), (3, NULL)"
       postgres:
-        - "CREATE TABLE pc_types_datetime (id INT, v TIMESTAMP) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_datetime (id INT PRIMARY KEY, v TIMESTAMP) {{ engine_clause }}"
         - "INSERT INTO pc_types_datetime VALUES (1, '2024-02-29 13:45:10'), (2, '1999-12-31 23:59:59'), (3, NULL)"
     teardown:
       - "DROP TABLE IF EXISTS pc_types_datetime"
@@ -209,10 +215,10 @@ probes:
     title: "Timestamp with microsecond precision"
     setup:
       mysql:
-        - "CREATE TABLE pc_types_datetime_micro (id INT, v DATETIME(6)) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_datetime_micro (id INT PRIMARY KEY, v DATETIME(6)) {{ engine_clause }}"
         - "INSERT INTO pc_types_datetime_micro VALUES (1, '2024-02-29 13:45:10.123456'), (2, '2000-01-01 00:00:00.000001'), (3, NULL)"
       postgres:
-        - "CREATE TABLE pc_types_datetime_micro (id INT, v TIMESTAMP(6)) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_datetime_micro (id INT PRIMARY KEY, v TIMESTAMP(6)) {{ engine_clause }}"
         - "INSERT INTO pc_types_datetime_micro VALUES (1, '2024-02-29 13:45:10.123456'), (2, '2000-01-01 00:00:00.000001'), (3, NULL)"
     teardown:
       - "DROP TABLE IF EXISTS pc_types_datetime_micro"
@@ -223,10 +229,10 @@ probes:
     title: "TIME of day"
     setup:
       mysql:
-        - "CREATE TABLE pc_types_time (id INT, v TIME) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_time (id INT PRIMARY KEY, v TIME) {{ engine_clause }}"
         - "INSERT INTO pc_types_time VALUES (1, '13:45:10'), (2, '23:59:59'), (3, '10:00:00'), (4, NULL)"
       postgres:
-        - "CREATE TABLE pc_types_time (id INT, v TIME) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_time (id INT PRIMARY KEY, v TIME) {{ engine_clause }}"
         - "INSERT INTO pc_types_time VALUES (1, '13:45:10'), (2, '23:59:59'), (3, '10:00:00'), (4, NULL)"
     teardown:
       - "DROP TABLE IF EXISTS pc_types_time"
@@ -237,10 +243,10 @@ probes:
     title: "BLOB / BYTEA bytes including NUL"
     setup:
       mysql:
-        - "CREATE TABLE pc_types_binary_blob (id INT, v BLOB) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_binary_blob (id INT PRIMARY KEY, v BLOB) {{ engine_clause }}"
         - "INSERT INTO pc_types_binary_blob VALUES (1, X'DEADBEEF'), (2, X'00FF00'), (3, NULL)"
       postgres:
-        - "CREATE TABLE pc_types_binary_blob (id INT, v BYTEA) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_binary_blob (id INT PRIMARY KEY, v BYTEA) {{ engine_clause }}"
         - "INSERT INTO pc_types_binary_blob VALUES (1, decode('DEADBEEF', 'hex')), (2, decode('00FF00', 'hex')), (3, NULL)"
     teardown:
       - "DROP TABLE IF EXISTS pc_types_binary_blob"
@@ -251,10 +257,10 @@ probes:
     title: "JSON document stored and one member extracted"
     setup:
       mysql:
-        - "CREATE TABLE pc_types_json (id INT, v JSON) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_json (id INT PRIMARY KEY, v JSON) {{ engine_clause }}"
         - "INSERT INTO pc_types_json VALUES (1, '{\"a\": 1, \"b\": [1, 2, 3], \"c\": \"x\"}'), (2, '{\"a\": 2, \"b\": [], \"c\": \"y\"}'), (3, NULL)"
       postgres:
-        - "CREATE TABLE pc_types_json (id INT, v JSONB) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_json (id INT PRIMARY KEY, v JSONB) {{ engine_clause }}"
         - "INSERT INTO pc_types_json VALUES (1, '{\"a\": 1, \"b\": [1, 2, 3], \"c\": \"x\"}'), (2, '{\"a\": 2, \"b\": [], \"c\": \"y\"}'), (3, NULL)"
     teardown:
       - "DROP TABLE IF EXISTS pc_types_json"
@@ -265,11 +271,11 @@ probes:
     title: "ENUM column grouped by value"
     setup:
       mysql:
-        - "CREATE TABLE pc_types_enum (id INT, c ENUM('red', 'green', 'blue')) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_enum (id INT PRIMARY KEY, c ENUM('red', 'green', 'blue')) {{ engine_clause }}"
         - "INSERT INTO pc_types_enum VALUES (1, 'red'), (2, 'blue'), (3, 'red'), (4, NULL)"
       postgres:
         - "CREATE TYPE pc_types_enum_color AS ENUM ('red', 'green', 'blue')"
-        - "CREATE TABLE pc_types_enum (id INT, c pc_types_enum_color) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_enum (id INT PRIMARY KEY, c pc_types_enum_color) {{ engine_clause }}"
         - "INSERT INTO pc_types_enum VALUES (1, 'red'), (2, 'blue'), (3, 'red'), (4, NULL)"
     teardown:
       mysql:
@@ -285,10 +291,10 @@ probes:
     title: "UUID values (CHAR(36) on MySQL, UUID on PostgreSQL)"
     setup:
       mysql:
-        - "CREATE TABLE pc_types_uuid (id INT, u CHAR(36)) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_uuid (id INT PRIMARY KEY, u CHAR(36)) {{ engine_clause }}"
         - "INSERT INTO pc_types_uuid VALUES (1, '123e4567-e89b-12d3-a456-426614174000'), (2, '00000000-0000-0000-0000-000000000000'), (3, NULL)"
       postgres:
-        - "CREATE TABLE pc_types_uuid (id INT, u UUID) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_uuid (id INT PRIMARY KEY, u UUID) {{ engine_clause }}"
         - "INSERT INTO pc_types_uuid VALUES (1, '123e4567-e89b-12d3-a456-426614174000'), (2, '00000000-0000-0000-0000-000000000000'), (3, NULL)"
     teardown:
       - "DROP TABLE IF EXISTS pc_types_uuid"
@@ -298,8 +304,8 @@ probes:
     category: types
     title: "A row of NULLs in int, varchar, date and decimal columns"
     setup:
-      - "CREATE TABLE pc_types_all_null (i INT, s VARCHAR(10), d DATE, n DECIMAL(8,2)) {{ engine_clause }}"
-      - "INSERT INTO pc_types_all_null VALUES (NULL, NULL, NULL, NULL), (1, 'a', '2024-01-01', 1.50)"
+      - "CREATE TABLE pc_types_all_null (id INT PRIMARY KEY, i INT, s VARCHAR(10), d DATE, n DECIMAL(8,2)) {{ engine_clause }}"
+      - "INSERT INTO pc_types_all_null VALUES (1, NULL, NULL, NULL, NULL), (2, 1, 'a', '2024-01-01', 1.50)"
     teardown:
       - "DROP TABLE IF EXISTS pc_types_all_null"
     sql_mysql: "SELECT COUNT(*), COUNT(i), COUNT(s), COUNT(d), COUNT(n), SUM(n) FROM pc_types_all_null"
@@ -309,10 +315,10 @@ probes:
     title: "A 100000-character text value (LONGTEXT on MySQL, whose TEXT stops at 64 KB)"
     setup:
       mysql:
-        - "CREATE TABLE pc_types_long_text (id INT, s LONGTEXT) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_long_text (id INT PRIMARY KEY, s LONGTEXT) {{ engine_clause }}"
         - "INSERT INTO pc_types_long_text VALUES (1, REPEAT('ab', 50000))"
       postgres:
-        - "CREATE TABLE pc_types_long_text (id INT, s TEXT) {{ engine_clause }}"
+        - "CREATE TABLE pc_types_long_text (id INT PRIMARY KEY, s TEXT) {{ engine_clause }}"
         - "INSERT INTO pc_types_long_text VALUES (1, REPEAT('ab', 50000))"
     teardown:
       - "DROP TABLE IF EXISTS pc_types_long_text"
@@ -322,7 +328,7 @@ probes:
     category: functions
     title: "String concatenation, NULL propagates"
     setup:
-      - "CREATE TABLE pc_fn_concat (id INT, s VARCHAR(50)) {{ engine_clause }}"
+      - "CREATE TABLE pc_fn_concat (id INT PRIMARY KEY, s VARCHAR(50)) {{ engine_clause }}"
       - "INSERT INTO pc_fn_concat VALUES (1, 'Alpha'), (2, 'beta '), (3, NULL), (4, '  gamma delta'), (5, 'ab12')"
     teardown:
       - "DROP TABLE IF EXISTS pc_fn_concat"
@@ -332,7 +338,7 @@ probes:
     category: functions
     title: "UPPER and LOWER"
     setup:
-      - "CREATE TABLE pc_fn_upper_lower (id INT, s VARCHAR(50)) {{ engine_clause }}"
+      - "CREATE TABLE pc_fn_upper_lower (id INT PRIMARY KEY, s VARCHAR(50)) {{ engine_clause }}"
       - "INSERT INTO pc_fn_upper_lower VALUES (1, 'Alpha'), (2, 'beta '), (3, NULL), (4, '  gamma delta'), (5, 'ab12')"
     teardown:
       - "DROP TABLE IF EXISTS pc_fn_upper_lower"
@@ -342,7 +348,7 @@ probes:
     category: functions
     title: "SUBSTRING with start and length"
     setup:
-      - "CREATE TABLE pc_fn_substring (id INT, s VARCHAR(50)) {{ engine_clause }}"
+      - "CREATE TABLE pc_fn_substring (id INT PRIMARY KEY, s VARCHAR(50)) {{ engine_clause }}"
       - "INSERT INTO pc_fn_substring VALUES (1, 'Alpha'), (2, 'beta '), (3, NULL), (4, '  gamma delta'), (5, 'ab12')"
     teardown:
       - "DROP TABLE IF EXISTS pc_fn_substring"
@@ -352,7 +358,7 @@ probes:
     category: functions
     title: "TRIM and REPLACE"
     setup:
-      - "CREATE TABLE pc_fn_trim_replace (id INT, s VARCHAR(50)) {{ engine_clause }}"
+      - "CREATE TABLE pc_fn_trim_replace (id INT PRIMARY KEY, s VARCHAR(50)) {{ engine_clause }}"
       - "INSERT INTO pc_fn_trim_replace VALUES (1, 'Alpha'), (2, 'beta '), (3, NULL), (4, '  gamma delta'), (5, 'ab12')"
     teardown:
       - "DROP TABLE IF EXISTS pc_fn_trim_replace"
@@ -362,7 +368,7 @@ probes:
     category: functions
     title: "LOWER(s) LIKE pattern in WHERE"
     setup:
-      - "CREATE TABLE pc_fn_like_lower (id INT, s VARCHAR(50)) {{ engine_clause }}"
+      - "CREATE TABLE pc_fn_like_lower (id INT PRIMARY KEY, s VARCHAR(50)) {{ engine_clause }}"
       - "INSERT INTO pc_fn_like_lower VALUES (1, 'Alpha'), (2, 'beta '), (3, NULL), (4, '  gamma delta'), (5, 'ab12')"
     teardown:
       - "DROP TABLE IF EXISTS pc_fn_like_lower"
@@ -372,7 +378,7 @@ probes:
     category: functions
     title: "Case-sensitive regular expression in WHERE"
     setup:
-      - "CREATE TABLE pc_fn_regexp (id INT, s VARCHAR(50)) {{ engine_clause }}"
+      - "CREATE TABLE pc_fn_regexp (id INT PRIMARY KEY, s VARCHAR(50)) {{ engine_clause }}"
       - "INSERT INTO pc_fn_regexp VALUES (1, 'Alpha'), (2, 'beta '), (3, NULL), (4, '  gamma delta'), (5, 'ab12')"
     teardown:
       - "DROP TABLE IF EXISTS pc_fn_regexp"
@@ -382,7 +388,7 @@ probes:
     category: functions
     title: "LPAD over a cast of an integer"
     setup:
-      - "CREATE TABLE pc_fn_lpad_cast (id INT, s VARCHAR(50)) {{ engine_clause }}"
+      - "CREATE TABLE pc_fn_lpad_cast (id INT PRIMARY KEY, s VARCHAR(50)) {{ engine_clause }}"
       - "INSERT INTO pc_fn_lpad_cast VALUES (1, 'Alpha'), (2, 'beta '), (3, NULL), (4, '  gamma delta'), (5, 'ab12')"
     teardown:
       - "DROP TABLE IF EXISTS pc_fn_lpad_cast"
@@ -392,7 +398,7 @@ probes:
     category: functions
     title: "NULLIF and COALESCE"
     setup:
-      - "CREATE TABLE pc_fn_nullif_coalesce (id INT, s VARCHAR(50)) {{ engine_clause }}"
+      - "CREATE TABLE pc_fn_nullif_coalesce (id INT PRIMARY KEY, s VARCHAR(50)) {{ engine_clause }}"
       - "INSERT INTO pc_fn_nullif_coalesce VALUES (1, 'Alpha'), (2, 'beta '), (3, NULL), (4, '  gamma delta'), (5, 'ab12')"
     teardown:
       - "DROP TABLE IF EXISTS pc_fn_nullif_coalesce"
@@ -402,7 +408,7 @@ probes:
     category: functions
     title: "Searched CASE"
     setup:
-      - "CREATE TABLE pc_fn_case_when (id INT, s VARCHAR(50)) {{ engine_clause }}"
+      - "CREATE TABLE pc_fn_case_when (id INT PRIMARY KEY, s VARCHAR(50)) {{ engine_clause }}"
       - "INSERT INTO pc_fn_case_when VALUES (1, 'Alpha'), (2, 'beta '), (3, NULL), (4, '  gamma delta'), (5, 'ab12')"
     teardown:
       - "DROP TABLE IF EXISTS pc_fn_case_when"
@@ -412,7 +418,7 @@ probes:
     category: functions
     title: "CAST of numeric strings to integer"
     setup:
-      - "CREATE TABLE pc_fn_cast_string_int (id INT, s VARCHAR(50)) {{ engine_clause }}"
+      - "CREATE TABLE pc_fn_cast_string_int (id INT PRIMARY KEY, s VARCHAR(50)) {{ engine_clause }}"
       - "INSERT INTO pc_fn_cast_string_int VALUES (1, '12'), (2, '-7'), (3, NULL), (4, '0')"
     teardown:
       - "DROP TABLE IF EXISTS pc_fn_cast_string_int"
@@ -422,8 +428,8 @@ probes:
     category: functions
     title: "GROUP_CONCAT / string_agg with ORDER BY inside the aggregate"
     setup:
-      - "CREATE TABLE pc_fn_group_concat (grp INT, s VARCHAR(20)) {{ engine_clause }}"
-      - "INSERT INTO pc_fn_group_concat VALUES (1, 'b'), (1, 'a'), (1, NULL), (2, 'z'), (2, 'y'), (3, 'q')"
+      - "CREATE TABLE pc_fn_group_concat (pk INT PRIMARY KEY, grp INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "INSERT INTO pc_fn_group_concat VALUES (1, 1, 'b'), (2, 1, 'a'), (3, 1, NULL), (4, 2, 'z'), (5, 2, 'y'), (6, 3, 'q')"
     teardown:
       - "DROP TABLE IF EXISTS pc_fn_group_concat"
     sql_mysql: "SELECT grp, GROUP_CONCAT(s ORDER BY s SEPARATOR ',') FROM pc_fn_group_concat GROUP BY grp"
@@ -432,7 +438,7 @@ probes:
     category: functions
     title: "ROUND to one decimal"
     setup:
-      - "CREATE TABLE pc_fn_round (id INT, x DECIMAL(10,3), k INT) {{ engine_clause }}"
+      - "CREATE TABLE pc_fn_round (id INT PRIMARY KEY, x DECIMAL(10,3), k INT) {{ engine_clause }}"
       - "INSERT INTO pc_fn_round VALUES (1, 2.500, 10), (2, -2.500, 7), (3, 3.141, -3), (4, 0.000, 0)"
     teardown:
       - "DROP TABLE IF EXISTS pc_fn_round"
@@ -442,7 +448,7 @@ probes:
     category: functions
     title: "FLOOR and CEIL on negative and positive decimals"
     setup:
-      - "CREATE TABLE pc_fn_floor_ceil (id INT, x DECIMAL(10,3), k INT) {{ engine_clause }}"
+      - "CREATE TABLE pc_fn_floor_ceil (id INT PRIMARY KEY, x DECIMAL(10,3), k INT) {{ engine_clause }}"
       - "INSERT INTO pc_fn_floor_ceil VALUES (1, 2.500, 10), (2, -2.500, 7), (3, 3.141, -3), (4, 0.000, 0)"
     teardown:
       - "DROP TABLE IF EXISTS pc_fn_floor_ceil"
@@ -452,7 +458,7 @@ probes:
     category: functions
     title: "Modulo, POWER, ABS and SIGN"
     setup:
-      - "CREATE TABLE pc_fn_mod_power_abs (id INT, x DECIMAL(10,3), k INT) {{ engine_clause }}"
+      - "CREATE TABLE pc_fn_mod_power_abs (id INT PRIMARY KEY, x DECIMAL(10,3), k INT) {{ engine_clause }}"
       - "INSERT INTO pc_fn_mod_power_abs VALUES (1, 2.500, 10), (2, -2.500, 7), (3, 3.141, -3), (4, 0.000, 0)"
     teardown:
       - "DROP TABLE IF EXISTS pc_fn_mod_power_abs"
@@ -462,7 +468,7 @@ probes:
     category: functions
     title: "DATE_FORMAT / to_char"
     setup:
-      - "CREATE TABLE pc_fn_date_format (id INT, d DATE, d2 DATE) {{ engine_clause }}"
+      - "CREATE TABLE pc_fn_date_format (id INT PRIMARY KEY, d DATE, d2 DATE) {{ engine_clause }}"
       - "INSERT INTO pc_fn_date_format VALUES (1, '2024-02-29', '2024-03-31'), (2, '2023-12-31', '2024-01-01'), (3, NULL, '2024-01-01')"
     teardown:
       - "DROP TABLE IF EXISTS pc_fn_date_format"
@@ -472,7 +478,7 @@ probes:
     category: functions
     title: "Date plus an interval of 30 days"
     setup:
-      - "CREATE TABLE pc_fn_date_add_interval (id INT, d DATE, d2 DATE) {{ engine_clause }}"
+      - "CREATE TABLE pc_fn_date_add_interval (id INT PRIMARY KEY, d DATE, d2 DATE) {{ engine_clause }}"
       - "INSERT INTO pc_fn_date_add_interval VALUES (1, '2024-02-29', '2024-03-31'), (2, '2023-12-31', '2024-01-01'), (3, NULL, '2024-01-01')"
     teardown:
       - "DROP TABLE IF EXISTS pc_fn_date_add_interval"
@@ -483,7 +489,7 @@ probes:
     category: functions
     title: "Difference of two dates in days"
     setup:
-      - "CREATE TABLE pc_fn_date_diff (id INT, d DATE, d2 DATE) {{ engine_clause }}"
+      - "CREATE TABLE pc_fn_date_diff (id INT PRIMARY KEY, d DATE, d2 DATE) {{ engine_clause }}"
       - "INSERT INTO pc_fn_date_diff VALUES (1, '2024-02-29', '2024-03-31'), (2, '2023-12-31', '2024-01-01'), (3, NULL, '2024-01-01')"
     teardown:
       - "DROP TABLE IF EXISTS pc_fn_date_diff"
@@ -493,7 +499,7 @@ probes:
     category: functions
     title: "EXTRACT year, month and day of week"
     setup:
-      - "CREATE TABLE pc_fn_extract_parts (id INT, d DATE, d2 DATE) {{ engine_clause }}"
+      - "CREATE TABLE pc_fn_extract_parts (id INT PRIMARY KEY, d DATE, d2 DATE) {{ engine_clause }}"
       - "INSERT INTO pc_fn_extract_parts VALUES (1, '2024-02-29', '2024-03-31'), (2, '2023-12-31', '2024-01-01'), (3, NULL, '2024-01-01')"
     teardown:
       - "DROP TABLE IF EXISTS pc_fn_extract_parts"
@@ -503,7 +509,7 @@ probes:
     category: functions
     title: "Parse a date from text"
     setup:
-      - "CREATE TABLE pc_fn_str_to_date (id INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "CREATE TABLE pc_fn_str_to_date (id INT PRIMARY KEY, s VARCHAR(20)) {{ engine_clause }}"
       - "INSERT INTO pc_fn_str_to_date VALUES (1, '29.02.2024'), (2, '01.01.1999')"
     teardown:
       - "DROP TABLE IF EXISTS pc_fn_str_to_date"
@@ -513,7 +519,7 @@ probes:
     category: functions
     title: "CURRENT_DATE is usable in WHERE"
     setup:
-      - "CREATE TABLE pc_fn_current_date (id INT, s VARCHAR(50)) {{ engine_clause }}"
+      - "CREATE TABLE pc_fn_current_date (id INT PRIMARY KEY, s VARCHAR(50)) {{ engine_clause }}"
       - "INSERT INTO pc_fn_current_date VALUES (1, 'Alpha'), (2, 'beta '), (3, NULL), (4, '  gamma delta'), (5, 'ab12')"
     teardown:
       - "DROP TABLE IF EXISTS pc_fn_current_date"
@@ -523,7 +529,7 @@ probes:
     category: functions
     title: "A random function in WHERE"
     setup:
-      - "CREATE TABLE pc_fn_random (id INT, s VARCHAR(50)) {{ engine_clause }}"
+      - "CREATE TABLE pc_fn_random (id INT PRIMARY KEY, s VARCHAR(50)) {{ engine_clause }}"
       - "INSERT INTO pc_fn_random VALUES (1, 'Alpha'), (2, 'beta '), (3, NULL), (4, '  gamma delta'), (5, 'ab12')"
     teardown:
       - "DROP TABLE IF EXISTS pc_fn_random"
@@ -534,10 +540,10 @@ probes:
     title: "Length of a JSON array member"
     setup:
       mysql:
-        - "CREATE TABLE pc_fn_json_array_length (id INT, j JSON) {{ engine_clause }}"
+        - "CREATE TABLE pc_fn_json_array_length (id INT PRIMARY KEY, j JSON) {{ engine_clause }}"
         - "INSERT INTO pc_fn_json_array_length VALUES (1, '{\"b\": [1, 2, 3]}'), (2, '{\"b\": []}')"
       postgres:
-        - "CREATE TABLE pc_fn_json_array_length (id INT, j JSONB) {{ engine_clause }}"
+        - "CREATE TABLE pc_fn_json_array_length (id INT PRIMARY KEY, j JSONB) {{ engine_clause }}"
         - "INSERT INTO pc_fn_json_array_length VALUES (1, '{\"b\": [1, 2, 3]}'), (2, '{\"b\": []}')"
     teardown:
       - "DROP TABLE IF EXISTS pc_fn_json_array_length"
@@ -548,10 +554,10 @@ probes:
     title: "Build a JSON object and read it as text"
     setup:
       mysql:
-        - "CREATE TABLE pc_fn_json_build (id INT, j JSON) {{ engine_clause }}"
+        - "CREATE TABLE pc_fn_json_build (id INT PRIMARY KEY, j JSON) {{ engine_clause }}"
         - "INSERT INTO pc_fn_json_build VALUES (1, '{\"b\": [1, 2, 3]}'), (2, '{\"b\": []}')"
       postgres:
-        - "CREATE TABLE pc_fn_json_build (id INT, j JSONB) {{ engine_clause }}"
+        - "CREATE TABLE pc_fn_json_build (id INT PRIMARY KEY, j JSONB) {{ engine_clause }}"
         - "INSERT INTO pc_fn_json_build VALUES (1, '{\"b\": [1, 2, 3]}'), (2, '{\"b\": []}')"
     teardown:
       - "DROP TABLE IF EXISTS pc_fn_json_build"
@@ -561,10 +567,10 @@ probes:
     category: joins
     title: "INNER JOIN with a duplicate match"
     setup:
-      - "CREATE TABLE pc_join_inner_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "CREATE TABLE pc_join_inner_a (id INT PRIMARY KEY, v VARCHAR(10)) {{ engine_clause }}"
       - "INSERT INTO pc_join_inner_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
-      - "CREATE TABLE pc_join_inner_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
-      - "INSERT INTO pc_join_inner_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+      - "CREATE TABLE pc_join_inner_b (pk INT PRIMARY KEY, id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_inner_b VALUES (1, 2, 'b2'), (2, 3, 'b3'), (3, 3, 'b3x'), (4, 5, 'b5')"
     teardown:
       - "DROP TABLE IF EXISTS pc_join_inner_a"
       - "DROP TABLE IF EXISTS pc_join_inner_b"
@@ -574,10 +580,10 @@ probes:
     category: joins
     title: "LEFT JOIN keeps unmatched rows"
     setup:
-      - "CREATE TABLE pc_join_left_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "CREATE TABLE pc_join_left_a (id INT PRIMARY KEY, v VARCHAR(10)) {{ engine_clause }}"
       - "INSERT INTO pc_join_left_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
-      - "CREATE TABLE pc_join_left_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
-      - "INSERT INTO pc_join_left_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+      - "CREATE TABLE pc_join_left_b (pk INT PRIMARY KEY, id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_left_b VALUES (1, 2, 'b2'), (2, 3, 'b3'), (3, 3, 'b3x'), (4, 5, 'b5')"
     teardown:
       - "DROP TABLE IF EXISTS pc_join_left_a"
       - "DROP TABLE IF EXISTS pc_join_left_b"
@@ -587,10 +593,10 @@ probes:
     category: joins
     title: "RIGHT JOIN keeps unmatched rows"
     setup:
-      - "CREATE TABLE pc_join_right_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "CREATE TABLE pc_join_right_a (id INT PRIMARY KEY, v VARCHAR(10)) {{ engine_clause }}"
       - "INSERT INTO pc_join_right_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
-      - "CREATE TABLE pc_join_right_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
-      - "INSERT INTO pc_join_right_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+      - "CREATE TABLE pc_join_right_b (pk INT PRIMARY KEY, id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_right_b VALUES (1, 2, 'b2'), (2, 3, 'b3'), (3, 3, 'b3x'), (4, 5, 'b5')"
     teardown:
       - "DROP TABLE IF EXISTS pc_join_right_a"
       - "DROP TABLE IF EXISTS pc_join_right_b"
@@ -600,10 +606,10 @@ probes:
     category: joins
     title: "FULL OUTER JOIN (UNION of left and right joins on MySQL, which has no FULL JOIN)"
     setup:
-      - "CREATE TABLE pc_join_full_outer_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "CREATE TABLE pc_join_full_outer_a (id INT PRIMARY KEY, v VARCHAR(10)) {{ engine_clause }}"
       - "INSERT INTO pc_join_full_outer_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
-      - "CREATE TABLE pc_join_full_outer_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
-      - "INSERT INTO pc_join_full_outer_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+      - "CREATE TABLE pc_join_full_outer_b (pk INT PRIMARY KEY, id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_full_outer_b VALUES (1, 2, 'b2'), (2, 3, 'b3'), (3, 3, 'b3x'), (4, 5, 'b5')"
     teardown:
       - "DROP TABLE IF EXISTS pc_join_full_outer_a"
       - "DROP TABLE IF EXISTS pc_join_full_outer_b"
@@ -613,10 +619,10 @@ probes:
     category: joins
     title: "Semi join with EXISTS"
     setup:
-      - "CREATE TABLE pc_join_semi_exists_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "CREATE TABLE pc_join_semi_exists_a (id INT PRIMARY KEY, v VARCHAR(10)) {{ engine_clause }}"
       - "INSERT INTO pc_join_semi_exists_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
-      - "CREATE TABLE pc_join_semi_exists_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
-      - "INSERT INTO pc_join_semi_exists_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+      - "CREATE TABLE pc_join_semi_exists_b (pk INT PRIMARY KEY, id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_semi_exists_b VALUES (1, 2, 'b2'), (2, 3, 'b3'), (3, 3, 'b3x'), (4, 5, 'b5')"
     teardown:
       - "DROP TABLE IF EXISTS pc_join_semi_exists_a"
       - "DROP TABLE IF EXISTS pc_join_semi_exists_b"
@@ -626,10 +632,10 @@ probes:
     category: joins
     title: "Anti join with NOT EXISTS"
     setup:
-      - "CREATE TABLE pc_join_anti_not_exists_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "CREATE TABLE pc_join_anti_not_exists_a (id INT PRIMARY KEY, v VARCHAR(10)) {{ engine_clause }}"
       - "INSERT INTO pc_join_anti_not_exists_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
-      - "CREATE TABLE pc_join_anti_not_exists_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
-      - "INSERT INTO pc_join_anti_not_exists_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+      - "CREATE TABLE pc_join_anti_not_exists_b (pk INT PRIMARY KEY, id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_anti_not_exists_b VALUES (1, 2, 'b2'), (2, 3, 'b3'), (3, 3, 'b3x'), (4, 5, 'b5')"
     teardown:
       - "DROP TABLE IF EXISTS pc_join_anti_not_exists_a"
       - "DROP TABLE IF EXISTS pc_join_anti_not_exists_b"
@@ -639,10 +645,10 @@ probes:
     category: joins
     title: "JOIN ... USING"
     setup:
-      - "CREATE TABLE pc_join_using_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "CREATE TABLE pc_join_using_a (id INT PRIMARY KEY, v VARCHAR(10)) {{ engine_clause }}"
       - "INSERT INTO pc_join_using_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
-      - "CREATE TABLE pc_join_using_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
-      - "INSERT INTO pc_join_using_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+      - "CREATE TABLE pc_join_using_b (pk INT PRIMARY KEY, id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_using_b VALUES (1, 2, 'b2'), (2, 3, 'b3'), (3, 3, 'b3x'), (4, 5, 'b5')"
     teardown:
       - "DROP TABLE IF EXISTS pc_join_using_a"
       - "DROP TABLE IF EXISTS pc_join_using_b"
@@ -652,10 +658,10 @@ probes:
     category: joins
     title: "Non-equality join condition"
     setup:
-      - "CREATE TABLE pc_join_non_equi_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "CREATE TABLE pc_join_non_equi_a (id INT PRIMARY KEY, v VARCHAR(10)) {{ engine_clause }}"
       - "INSERT INTO pc_join_non_equi_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
-      - "CREATE TABLE pc_join_non_equi_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
-      - "INSERT INTO pc_join_non_equi_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+      - "CREATE TABLE pc_join_non_equi_b (pk INT PRIMARY KEY, id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_non_equi_b VALUES (1, 2, 'b2'), (2, 3, 'b3'), (3, 3, 'b3x'), (4, 5, 'b5')"
     teardown:
       - "DROP TABLE IF EXISTS pc_join_non_equi_a"
       - "DROP TABLE IF EXISTS pc_join_non_equi_b"
@@ -665,10 +671,10 @@ probes:
     category: joins
     title: "LEFT JOIN with GROUP BY and COUNT"
     setup:
-      - "CREATE TABLE pc_join_left_aggregate_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "CREATE TABLE pc_join_left_aggregate_a (id INT PRIMARY KEY, v VARCHAR(10)) {{ engine_clause }}"
       - "INSERT INTO pc_join_left_aggregate_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
-      - "CREATE TABLE pc_join_left_aggregate_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
-      - "INSERT INTO pc_join_left_aggregate_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+      - "CREATE TABLE pc_join_left_aggregate_b (pk INT PRIMARY KEY, id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_left_aggregate_b VALUES (1, 2, 'b2'), (2, 3, 'b3'), (3, 3, 'b3x'), (4, 5, 'b5')"
     teardown:
       - "DROP TABLE IF EXISTS pc_join_left_aggregate_a"
       - "DROP TABLE IF EXISTS pc_join_left_aggregate_b"
@@ -678,11 +684,11 @@ probes:
     category: joins
     title: "Three-table join"
     setup:
-      - "CREATE TABLE pc_join_three_way_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "CREATE TABLE pc_join_three_way_a (id INT PRIMARY KEY, v VARCHAR(10)) {{ engine_clause }}"
       - "INSERT INTO pc_join_three_way_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
-      - "CREATE TABLE pc_join_three_way_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
-      - "INSERT INTO pc_join_three_way_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
-      - "CREATE TABLE pc_join_three_way_c (id INT, z INT) {{ engine_clause }}"
+      - "CREATE TABLE pc_join_three_way_b (pk INT PRIMARY KEY, id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_three_way_b VALUES (1, 2, 'b2'), (2, 3, 'b3'), (3, 3, 'b3x'), (4, 5, 'b5')"
+      - "CREATE TABLE pc_join_three_way_c (id INT PRIMARY KEY, z INT) {{ engine_clause }}"
       - "INSERT INTO pc_join_three_way_c VALUES (2, 20), (3, 30)"
     teardown:
       - "DROP TABLE IF EXISTS pc_join_three_way_a"
@@ -699,9 +705,9 @@ probes:
     category: joins
     title: "INNER JOIN (engine table with a row-store table)"
     setup:
-      - "CREATE TABLE pc_join_mixed_inner_e (id INT, amt DECIMAL(10,2)) {{ engine_clause }}"
-      - "INSERT INTO pc_join_mixed_inner_e VALUES (1, 10.00), (2, 20.00), (3, 30.00), (3, 5.50)"
-      - "CREATE TABLE pc_join_mixed_inner_r (id INT, label VARCHAR(10), grp INT) {{ rowstore_clause }}"
+      - "CREATE TABLE pc_join_mixed_inner_e (pk INT PRIMARY KEY, id INT, amt DECIMAL(10,2)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_mixed_inner_e VALUES (1, 1, 10.00), (2, 2, 20.00), (3, 3, 30.00), (4, 3, 5.50)"
+      - "CREATE TABLE pc_join_mixed_inner_r (id INT PRIMARY KEY, label VARCHAR(10), grp INT) {{ rowstore_clause }}"
       - "INSERT INTO pc_join_mixed_inner_r VALUES (1, 'one', 1), (2, 'two', 1), (3, 'three', 2), (9, 'nine', 2)"
     teardown:
       - "DROP TABLE IF EXISTS pc_join_mixed_inner_e"
@@ -712,9 +718,9 @@ probes:
     category: joins
     title: "LEFT JOIN from the row-store side (engine table with a row-store table)"
     setup:
-      - "CREATE TABLE pc_join_mixed_left_e (id INT, amt DECIMAL(10,2)) {{ engine_clause }}"
-      - "INSERT INTO pc_join_mixed_left_e VALUES (1, 10.00), (2, 20.00), (3, 30.00), (3, 5.50)"
-      - "CREATE TABLE pc_join_mixed_left_r (id INT, label VARCHAR(10), grp INT) {{ rowstore_clause }}"
+      - "CREATE TABLE pc_join_mixed_left_e (pk INT PRIMARY KEY, id INT, amt DECIMAL(10,2)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_mixed_left_e VALUES (1, 1, 10.00), (2, 2, 20.00), (3, 3, 30.00), (4, 3, 5.50)"
+      - "CREATE TABLE pc_join_mixed_left_r (id INT PRIMARY KEY, label VARCHAR(10), grp INT) {{ rowstore_clause }}"
       - "INSERT INTO pc_join_mixed_left_r VALUES (1, 'one', 1), (2, 'two', 1), (3, 'three', 2), (9, 'nine', 2)"
     teardown:
       - "DROP TABLE IF EXISTS pc_join_mixed_left_e"
@@ -725,9 +731,9 @@ probes:
     category: joins
     title: "JOIN with GROUP BY on a row-store column (engine table with a row-store table)"
     setup:
-      - "CREATE TABLE pc_join_mixed_group_e (id INT, amt DECIMAL(10,2)) {{ engine_clause }}"
-      - "INSERT INTO pc_join_mixed_group_e VALUES (1, 10.00), (2, 20.00), (3, 30.00), (3, 5.50)"
-      - "CREATE TABLE pc_join_mixed_group_r (id INT, label VARCHAR(10), grp INT) {{ rowstore_clause }}"
+      - "CREATE TABLE pc_join_mixed_group_e (pk INT PRIMARY KEY, id INT, amt DECIMAL(10,2)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_mixed_group_e VALUES (1, 1, 10.00), (2, 2, 20.00), (3, 3, 30.00), (4, 3, 5.50)"
+      - "CREATE TABLE pc_join_mixed_group_r (id INT PRIMARY KEY, label VARCHAR(10), grp INT) {{ rowstore_clause }}"
       - "INSERT INTO pc_join_mixed_group_r VALUES (1, 'one', 1), (2, 'two', 1), (3, 'three', 2), (9, 'nine', 2)"
     teardown:
       - "DROP TABLE IF EXISTS pc_join_mixed_group_e"
@@ -738,9 +744,9 @@ probes:
     category: joins
     title: "EXISTS across the two (engine table with a row-store table)"
     setup:
-      - "CREATE TABLE pc_join_mixed_exists_e (id INT, amt DECIMAL(10,2)) {{ engine_clause }}"
-      - "INSERT INTO pc_join_mixed_exists_e VALUES (1, 10.00), (2, 20.00), (3, 30.00), (3, 5.50)"
-      - "CREATE TABLE pc_join_mixed_exists_r (id INT, label VARCHAR(10), grp INT) {{ rowstore_clause }}"
+      - "CREATE TABLE pc_join_mixed_exists_e (pk INT PRIMARY KEY, id INT, amt DECIMAL(10,2)) {{ engine_clause }}"
+      - "INSERT INTO pc_join_mixed_exists_e VALUES (1, 1, 10.00), (2, 2, 20.00), (3, 3, 30.00), (4, 3, 5.50)"
+      - "CREATE TABLE pc_join_mixed_exists_r (id INT PRIMARY KEY, label VARCHAR(10), grp INT) {{ rowstore_clause }}"
       - "INSERT INTO pc_join_mixed_exists_r VALUES (1, 'one', 1), (2, 'two', 1), (3, 'three', 2), (9, 'nine', 2)"
     teardown:
       - "DROP TABLE IF EXISTS pc_join_mixed_exists_e"
@@ -751,7 +757,7 @@ probes:
     category: joins
     title: "Row-store lookup table joined with TPC-H nation (the TPC-H table is the engine table)"
     setup:
-      - "CREATE TABLE pc_join_mixed_tpch_dimension (k INT, label VARCHAR(10)) {{ rowstore_clause }}"
+      - "CREATE TABLE pc_join_mixed_tpch_dimension (k INT PRIMARY KEY, label VARCHAR(10)) {{ rowstore_clause }}"
       - "INSERT INTO pc_join_mixed_tpch_dimension VALUES (0, 'zero'), (7, 'seven'), (24, 'last')"
     teardown:
       - "DROP TABLE IF EXISTS pc_join_mixed_tpch_dimension"
@@ -761,10 +767,10 @@ probes:
     category: subqueries
     title: "Scalar subquery in WHERE"
     setup:
-      - "CREATE TABLE pc_sub_scalar_uncorrelated_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "CREATE TABLE pc_sub_scalar_uncorrelated_a (id INT PRIMARY KEY, v VARCHAR(10)) {{ engine_clause }}"
       - "INSERT INTO pc_sub_scalar_uncorrelated_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
-      - "CREATE TABLE pc_sub_scalar_uncorrelated_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
-      - "INSERT INTO pc_sub_scalar_uncorrelated_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+      - "CREATE TABLE pc_sub_scalar_uncorrelated_b (pk INT PRIMARY KEY, id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_sub_scalar_uncorrelated_b VALUES (1, 2, 'b2'), (2, 3, 'b3'), (3, 3, 'b3x'), (4, 5, 'b5')"
     teardown:
       - "DROP TABLE IF EXISTS pc_sub_scalar_uncorrelated_a"
       - "DROP TABLE IF EXISTS pc_sub_scalar_uncorrelated_b"
@@ -774,10 +780,10 @@ probes:
     category: subqueries
     title: "Correlated scalar subquery in the select list"
     setup:
-      - "CREATE TABLE pc_sub_scalar_correlated_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "CREATE TABLE pc_sub_scalar_correlated_a (id INT PRIMARY KEY, v VARCHAR(10)) {{ engine_clause }}"
       - "INSERT INTO pc_sub_scalar_correlated_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
-      - "CREATE TABLE pc_sub_scalar_correlated_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
-      - "INSERT INTO pc_sub_scalar_correlated_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+      - "CREATE TABLE pc_sub_scalar_correlated_b (pk INT PRIMARY KEY, id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_sub_scalar_correlated_b VALUES (1, 2, 'b2'), (2, 3, 'b3'), (3, 3, 'b3x'), (4, 5, 'b5')"
     teardown:
       - "DROP TABLE IF EXISTS pc_sub_scalar_correlated_a"
       - "DROP TABLE IF EXISTS pc_sub_scalar_correlated_b"
@@ -787,10 +793,10 @@ probes:
     category: subqueries
     title: "IN (subquery)"
     setup:
-      - "CREATE TABLE pc_sub_in_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "CREATE TABLE pc_sub_in_a (id INT PRIMARY KEY, v VARCHAR(10)) {{ engine_clause }}"
       - "INSERT INTO pc_sub_in_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
-      - "CREATE TABLE pc_sub_in_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
-      - "INSERT INTO pc_sub_in_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+      - "CREATE TABLE pc_sub_in_b (pk INT PRIMARY KEY, id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_sub_in_b VALUES (1, 2, 'b2'), (2, 3, 'b3'), (3, 3, 'b3x'), (4, 5, 'b5')"
     teardown:
       - "DROP TABLE IF EXISTS pc_sub_in_a"
       - "DROP TABLE IF EXISTS pc_sub_in_b"
@@ -800,10 +806,10 @@ probes:
     category: subqueries
     title: "NOT IN (subquery)"
     setup:
-      - "CREATE TABLE pc_sub_not_in_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "CREATE TABLE pc_sub_not_in_a (id INT PRIMARY KEY, v VARCHAR(10)) {{ engine_clause }}"
       - "INSERT INTO pc_sub_not_in_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
-      - "CREATE TABLE pc_sub_not_in_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
-      - "INSERT INTO pc_sub_not_in_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+      - "CREATE TABLE pc_sub_not_in_b (pk INT PRIMARY KEY, id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_sub_not_in_b VALUES (1, 2, 'b2'), (2, 3, 'b3'), (3, 3, 'b3x'), (4, 5, 'b5')"
     teardown:
       - "DROP TABLE IF EXISTS pc_sub_not_in_a"
       - "DROP TABLE IF EXISTS pc_sub_not_in_b"
@@ -813,10 +819,10 @@ probes:
     category: subqueries
     title: "Derived table in FROM"
     setup:
-      - "CREATE TABLE pc_sub_derived_table_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "CREATE TABLE pc_sub_derived_table_a (id INT PRIMARY KEY, v VARCHAR(10)) {{ engine_clause }}"
       - "INSERT INTO pc_sub_derived_table_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
-      - "CREATE TABLE pc_sub_derived_table_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
-      - "INSERT INTO pc_sub_derived_table_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+      - "CREATE TABLE pc_sub_derived_table_b (pk INT PRIMARY KEY, id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_sub_derived_table_b VALUES (1, 2, 'b2'), (2, 3, 'b3'), (3, 3, 'b3x'), (4, 5, 'b5')"
     teardown:
       - "DROP TABLE IF EXISTS pc_sub_derived_table_a"
       - "DROP TABLE IF EXISTS pc_sub_derived_table_b"
@@ -826,10 +832,10 @@ probes:
     category: subqueries
     title: "ANY and ALL comparisons"
     setup:
-      - "CREATE TABLE pc_sub_any_all_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "CREATE TABLE pc_sub_any_all_a (id INT PRIMARY KEY, v VARCHAR(10)) {{ engine_clause }}"
       - "INSERT INTO pc_sub_any_all_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
-      - "CREATE TABLE pc_sub_any_all_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
-      - "INSERT INTO pc_sub_any_all_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+      - "CREATE TABLE pc_sub_any_all_b (pk INT PRIMARY KEY, id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_sub_any_all_b VALUES (1, 2, 'b2'), (2, 3, 'b3'), (3, 3, 'b3x'), (4, 5, 'b5')"
     teardown:
       - "DROP TABLE IF EXISTS pc_sub_any_all_a"
       - "DROP TABLE IF EXISTS pc_sub_any_all_b"
@@ -839,10 +845,10 @@ probes:
     category: subqueries
     title: "LATERAL derived table"
     setup:
-      - "CREATE TABLE pc_sub_lateral_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "CREATE TABLE pc_sub_lateral_a (id INT PRIMARY KEY, v VARCHAR(10)) {{ engine_clause }}"
       - "INSERT INTO pc_sub_lateral_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
-      - "CREATE TABLE pc_sub_lateral_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
-      - "INSERT INTO pc_sub_lateral_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+      - "CREATE TABLE pc_sub_lateral_b (pk INT PRIMARY KEY, id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_sub_lateral_b VALUES (1, 2, 'b2'), (2, 3, 'b3'), (3, 3, 'b3x'), (4, 5, 'b5')"
     teardown:
       - "DROP TABLE IF EXISTS pc_sub_lateral_a"
       - "DROP TABLE IF EXISTS pc_sub_lateral_b"
@@ -857,10 +863,10 @@ probes:
     category: cte
     title: "One CTE used once"
     setup:
-      - "CREATE TABLE pc_cte_plain_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "CREATE TABLE pc_cte_plain_a (id INT PRIMARY KEY, v VARCHAR(10)) {{ engine_clause }}"
       - "INSERT INTO pc_cte_plain_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
-      - "CREATE TABLE pc_cte_plain_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
-      - "INSERT INTO pc_cte_plain_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+      - "CREATE TABLE pc_cte_plain_b (pk INT PRIMARY KEY, id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_cte_plain_b VALUES (1, 2, 'b2'), (2, 3, 'b3'), (3, 3, 'b3x'), (4, 5, 'b5')"
     teardown:
       - "DROP TABLE IF EXISTS pc_cte_plain_a"
       - "DROP TABLE IF EXISTS pc_cte_plain_b"
@@ -870,10 +876,10 @@ probes:
     category: cte
     title: "Two CTEs, the second reading the first"
     setup:
-      - "CREATE TABLE pc_cte_multiple_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "CREATE TABLE pc_cte_multiple_a (id INT PRIMARY KEY, v VARCHAR(10)) {{ engine_clause }}"
       - "INSERT INTO pc_cte_multiple_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
-      - "CREATE TABLE pc_cte_multiple_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
-      - "INSERT INTO pc_cte_multiple_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+      - "CREATE TABLE pc_cte_multiple_b (pk INT PRIMARY KEY, id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_cte_multiple_b VALUES (1, 2, 'b2'), (2, 3, 'b3'), (3, 3, 'b3x'), (4, 5, 'b5')"
     teardown:
       - "DROP TABLE IF EXISTS pc_cte_multiple_a"
       - "DROP TABLE IF EXISTS pc_cte_multiple_b"
@@ -883,10 +889,10 @@ probes:
     category: cte
     title: "A CTE referenced twice (self join)"
     setup:
-      - "CREATE TABLE pc_cte_referenced_twice_a (id INT, v VARCHAR(10)) {{ engine_clause }}"
+      - "CREATE TABLE pc_cte_referenced_twice_a (id INT PRIMARY KEY, v VARCHAR(10)) {{ engine_clause }}"
       - "INSERT INTO pc_cte_referenced_twice_a VALUES (1, 'a1'), (2, 'a2'), (3, 'a3'), (4, NULL)"
-      - "CREATE TABLE pc_cte_referenced_twice_b (id INT, w VARCHAR(10)) {{ engine_clause }}"
-      - "INSERT INTO pc_cte_referenced_twice_b VALUES (2, 'b2'), (3, 'b3'), (3, 'b3x'), (5, 'b5')"
+      - "CREATE TABLE pc_cte_referenced_twice_b (pk INT PRIMARY KEY, id INT, w VARCHAR(10)) {{ engine_clause }}"
+      - "INSERT INTO pc_cte_referenced_twice_b VALUES (1, 2, 'b2'), (2, 3, 'b3'), (3, 3, 'b3x'), (4, 5, 'b5')"
     teardown:
       - "DROP TABLE IF EXISTS pc_cte_referenced_twice_a"
       - "DROP TABLE IF EXISTS pc_cte_referenced_twice_b"
@@ -896,7 +902,7 @@ probes:
     category: cte
     title: "Recursive CTE counting from a table value to 10"
     setup:
-      - "CREATE TABLE pc_cte_recursive_counter (id INT) {{ engine_clause }}"
+      - "CREATE TABLE pc_cte_recursive_counter (id INT PRIMARY KEY) {{ engine_clause }}"
       - "INSERT INTO pc_cte_recursive_counter VALUES (1)"
     teardown:
       - "DROP TABLE IF EXISTS pc_cte_recursive_counter"
@@ -906,7 +912,7 @@ probes:
     category: cte
     title: "Recursive CTE walking a management tree with depth"
     setup:
-      - "CREATE TABLE pc_cte_recursive_tree (id INT, mgr INT, name VARCHAR(20)) {{ engine_clause }}"
+      - "CREATE TABLE pc_cte_recursive_tree (id INT PRIMARY KEY, mgr INT, name VARCHAR(20)) {{ engine_clause }}"
       - "INSERT INTO pc_cte_recursive_tree VALUES (1, NULL, 'root'), (2, 1, 'a'), (3, 1, 'b'), (4, 2, 'a1'), (5, 4, 'a1x'), (6, 3, 'b1')"
     teardown:
       - "DROP TABLE IF EXISTS pc_cte_recursive_tree"
@@ -916,7 +922,7 @@ probes:
     category: cte
     title: "Recursive CTE building a path string"
     setup:
-      - "CREATE TABLE pc_cte_recursive_tree (id INT, mgr INT, name VARCHAR(20)) {{ engine_clause }}"
+      - "CREATE TABLE pc_cte_recursive_tree (id INT PRIMARY KEY, mgr INT, name VARCHAR(20)) {{ engine_clause }}"
       - "INSERT INTO pc_cte_recursive_tree VALUES (1, NULL, 'root'), (2, 1, 'a'), (3, 1, 'b'), (4, 2, 'a1'), (5, 4, 'a1x'), (6, 3, 'b1')"
     teardown:
       - "DROP TABLE IF EXISTS pc_cte_recursive_tree"
@@ -931,7 +937,7 @@ probes:
     category: window
     title: "ROW_NUMBER over a partition"
     setup:
-      - "CREATE TABLE pc_win_row_number (id INT, dept VARCHAR(5), amt INT) {{ engine_clause }}"
+      - "CREATE TABLE pc_win_row_number (id INT PRIMARY KEY, dept VARCHAR(5), amt INT) {{ engine_clause }}"
       - "INSERT INTO pc_win_row_number VALUES (1, 'x', 10), (2, 'x', 30), (3, 'x', 30), (4, 'y', 5), (5, 'y', 15), (6, 'z', 7)"
     teardown:
       - "DROP TABLE IF EXISTS pc_win_row_number"
@@ -941,7 +947,7 @@ probes:
     category: window
     title: "RANK and DENSE_RANK with ties"
     setup:
-      - "CREATE TABLE pc_win_rank_dense_rank (id INT, dept VARCHAR(5), amt INT) {{ engine_clause }}"
+      - "CREATE TABLE pc_win_rank_dense_rank (id INT PRIMARY KEY, dept VARCHAR(5), amt INT) {{ engine_clause }}"
       - "INSERT INTO pc_win_rank_dense_rank VALUES (1, 'x', 10), (2, 'x', 30), (3, 'x', 30), (4, 'y', 5), (5, 'y', 15), (6, 'z', 7)"
     teardown:
       - "DROP TABLE IF EXISTS pc_win_rank_dense_rank"
@@ -951,7 +957,7 @@ probes:
     category: window
     title: "LAG and LEAD with defaults"
     setup:
-      - "CREATE TABLE pc_win_lag_lead (id INT, dept VARCHAR(5), amt INT) {{ engine_clause }}"
+      - "CREATE TABLE pc_win_lag_lead (id INT PRIMARY KEY, dept VARCHAR(5), amt INT) {{ engine_clause }}"
       - "INSERT INTO pc_win_lag_lead VALUES (1, 'x', 10), (2, 'x', 30), (3, 'x', 30), (4, 'y', 5), (5, 'y', 15), (6, 'z', 7)"
     teardown:
       - "DROP TABLE IF EXISTS pc_win_lag_lead"
@@ -961,7 +967,7 @@ probes:
     category: window
     title: "Running SUM with an explicit ROWS frame"
     setup:
-      - "CREATE TABLE pc_win_running_sum (id INT, dept VARCHAR(5), amt INT) {{ engine_clause }}"
+      - "CREATE TABLE pc_win_running_sum (id INT PRIMARY KEY, dept VARCHAR(5), amt INT) {{ engine_clause }}"
       - "INSERT INTO pc_win_running_sum VALUES (1, 'x', 10), (2, 'x', 30), (3, 'x', 30), (4, 'y', 5), (5, 'y', 15), (6, 'z', 7)"
     teardown:
       - "DROP TABLE IF EXISTS pc_win_running_sum"
@@ -971,7 +977,7 @@ probes:
     category: window
     title: "Moving AVG over three rows"
     setup:
-      - "CREATE TABLE pc_win_moving_avg (id INT, dept VARCHAR(5), amt INT) {{ engine_clause }}"
+      - "CREATE TABLE pc_win_moving_avg (id INT PRIMARY KEY, dept VARCHAR(5), amt INT) {{ engine_clause }}"
       - "INSERT INTO pc_win_moving_avg VALUES (1, 'x', 10), (2, 'x', 30), (3, 'x', 30), (4, 'y', 5), (5, 'y', 15), (6, 'z', 7)"
     teardown:
       - "DROP TABLE IF EXISTS pc_win_moving_avg"
@@ -981,7 +987,7 @@ probes:
     category: window
     title: "NTILE"
     setup:
-      - "CREATE TABLE pc_win_ntile (id INT, dept VARCHAR(5), amt INT) {{ engine_clause }}"
+      - "CREATE TABLE pc_win_ntile (id INT PRIMARY KEY, dept VARCHAR(5), amt INT) {{ engine_clause }}"
       - "INSERT INTO pc_win_ntile VALUES (1, 'x', 10), (2, 'x', 30), (3, 'x', 30), (4, 'y', 5), (5, 'y', 15), (6, 'z', 7)"
     teardown:
       - "DROP TABLE IF EXISTS pc_win_ntile"
@@ -991,7 +997,7 @@ probes:
     category: window
     title: "FIRST_VALUE and LAST_VALUE per partition"
     setup:
-      - "CREATE TABLE pc_win_first_last_value (id INT, dept VARCHAR(5), amt INT) {{ engine_clause }}"
+      - "CREATE TABLE pc_win_first_last_value (id INT PRIMARY KEY, dept VARCHAR(5), amt INT) {{ engine_clause }}"
       - "INSERT INTO pc_win_first_last_value VALUES (1, 'x', 10), (2, 'x', 30), (3, 'x', 30), (4, 'y', 5), (5, 'y', 15), (6, 'z', 7)"
     teardown:
       - "DROP TABLE IF EXISTS pc_win_first_last_value"
@@ -1001,7 +1007,7 @@ probes:
     category: window
     title: "PERCENT_RANK and CUME_DIST"
     setup:
-      - "CREATE TABLE pc_win_percent_rank_cume_dist (id INT, dept VARCHAR(5), amt INT) {{ engine_clause }}"
+      - "CREATE TABLE pc_win_percent_rank_cume_dist (id INT PRIMARY KEY, dept VARCHAR(5), amt INT) {{ engine_clause }}"
       - "INSERT INTO pc_win_percent_rank_cume_dist VALUES (1, 'x', 10), (2, 'x', 30), (3, 'x', 30), (4, 'y', 5), (5, 'y', 15), (6, 'z', 7)"
     teardown:
       - "DROP TABLE IF EXISTS pc_win_percent_rank_cume_dist"
@@ -1016,7 +1022,7 @@ probes:
     category: dml
     title: "Single-row INSERT"
     setup:
-      - "CREATE TABLE pc_dml_insert_single (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "CREATE TABLE pc_dml_insert_single (id INT PRIMARY KEY, v INT, s VARCHAR(20)) {{ engine_clause }}"
       - "INSERT INTO pc_dml_insert_single VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
     teardown:
       - "DROP TABLE IF EXISTS pc_dml_insert_single"
@@ -1028,7 +1034,7 @@ probes:
     category: dml
     title: "Multi-row INSERT"
     setup:
-      - "CREATE TABLE pc_dml_insert_multi (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "CREATE TABLE pc_dml_insert_multi (id INT PRIMARY KEY, v INT, s VARCHAR(20)) {{ engine_clause }}"
       - "INSERT INTO pc_dml_insert_multi VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
     teardown:
       - "DROP TABLE IF EXISTS pc_dml_insert_multi"
@@ -1040,7 +1046,7 @@ probes:
     category: dml
     title: "INSERT relying on a column DEFAULT"
     setup:
-      - "CREATE TABLE pc_dml_insert_default (id INT, v INT DEFAULT 7, s VARCHAR(20) DEFAULT 'dflt') {{ engine_clause }}"
+      - "CREATE TABLE pc_dml_insert_default (id INT PRIMARY KEY, v INT DEFAULT 7, s VARCHAR(20) DEFAULT 'dflt') {{ engine_clause }}"
       - "INSERT INTO pc_dml_insert_default VALUES (1, 10, 'a')"
     teardown:
       - "DROP TABLE IF EXISTS pc_dml_insert_default"
@@ -1052,7 +1058,7 @@ probes:
     category: dml
     title: "UPDATE one row by id"
     setup:
-      - "CREATE TABLE pc_dml_update_single_row (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "CREATE TABLE pc_dml_update_single_row (id INT PRIMARY KEY, v INT, s VARCHAR(20)) {{ engine_clause }}"
       - "INSERT INTO pc_dml_update_single_row VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
     teardown:
       - "DROP TABLE IF EXISTS pc_dml_update_single_row"
@@ -1064,7 +1070,7 @@ probes:
     category: dml
     title: "UPDATE every row with an expression"
     setup:
-      - "CREATE TABLE pc_dml_update_expression (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "CREATE TABLE pc_dml_update_expression (id INT PRIMARY KEY, v INT, s VARCHAR(20)) {{ engine_clause }}"
       - "INSERT INTO pc_dml_update_expression VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
     teardown:
       - "DROP TABLE IF EXISTS pc_dml_update_expression"
@@ -1076,9 +1082,9 @@ probes:
     category: dml
     title: "UPDATE from a second table"
     setup:
-      - "CREATE TABLE pc_dml_update_join (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "CREATE TABLE pc_dml_update_join (id INT PRIMARY KEY, v INT, s VARCHAR(20)) {{ engine_clause }}"
       - "INSERT INTO pc_dml_update_join VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
-      - "CREATE TABLE pc_dml_update_join_u (id INT, w INT) {{ engine_clause }}"
+      - "CREATE TABLE pc_dml_update_join_u (id INT PRIMARY KEY, w INT) {{ engine_clause }}"
       - "INSERT INTO pc_dml_update_join_u VALUES (1, 111), (3, 333)"
     teardown:
       - "DROP TABLE IF EXISTS pc_dml_update_join"
@@ -1091,7 +1097,7 @@ probes:
     category: dml
     title: "DELETE one row"
     setup:
-      - "CREATE TABLE pc_dml_delete_single (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "CREATE TABLE pc_dml_delete_single (id INT PRIMARY KEY, v INT, s VARCHAR(20)) {{ engine_clause }}"
       - "INSERT INTO pc_dml_delete_single VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
     teardown:
       - "DROP TABLE IF EXISTS pc_dml_delete_single"
@@ -1103,9 +1109,9 @@ probes:
     category: dml
     title: "DELETE with IN (subquery)"
     setup:
-      - "CREATE TABLE pc_dml_delete_subquery (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "CREATE TABLE pc_dml_delete_subquery (id INT PRIMARY KEY, v INT, s VARCHAR(20)) {{ engine_clause }}"
       - "INSERT INTO pc_dml_delete_subquery VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
-      - "CREATE TABLE pc_dml_delete_subquery_u (id INT, w INT) {{ engine_clause }}"
+      - "CREATE TABLE pc_dml_delete_subquery_u (id INT PRIMARY KEY, w INT) {{ engine_clause }}"
       - "INSERT INTO pc_dml_delete_subquery_u VALUES (1, 111), (3, 333)"
     teardown:
       - "DROP TABLE IF EXISTS pc_dml_delete_subquery"
@@ -1118,9 +1124,9 @@ probes:
     category: dml
     title: "INSERT ... SELECT into a table of the same engine"
     setup:
-      - "CREATE TABLE pc_dml_insert_select (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "CREATE TABLE pc_dml_insert_select (id INT PRIMARY KEY, v INT, s VARCHAR(20)) {{ engine_clause }}"
       - "INSERT INTO pc_dml_insert_select VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
-      - "CREATE TABLE pc_dml_insert_select_n (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "CREATE TABLE pc_dml_insert_select_n (id INT PRIMARY KEY, v INT, s VARCHAR(20)) {{ engine_clause }}"
     teardown:
       - "DROP TABLE IF EXISTS pc_dml_insert_select"
       - "DROP TABLE IF EXISTS pc_dml_insert_select_n"
@@ -1132,9 +1138,9 @@ probes:
     category: dml
     title: "INSERT ... SELECT from an engine table into a row-store table"
     setup:
-      - "CREATE TABLE pc_dml_insert_select_cross_engine (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "CREATE TABLE pc_dml_insert_select_cross_engine (id INT PRIMARY KEY, v INT, s VARCHAR(20)) {{ engine_clause }}"
       - "INSERT INTO pc_dml_insert_select_cross_engine VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
-      - "CREATE TABLE pc_dml_insert_select_cross_engine_n (id INT, v INT, s VARCHAR(20)) {{ rowstore_clause }}"
+      - "CREATE TABLE pc_dml_insert_select_cross_engine_n (id INT PRIMARY KEY, v INT, s VARCHAR(20)) {{ rowstore_clause }}"
     teardown:
       - "DROP TABLE IF EXISTS pc_dml_insert_select_cross_engine"
       - "DROP TABLE IF EXISTS pc_dml_insert_select_cross_engine_n"
@@ -1146,9 +1152,9 @@ probes:
     category: dml
     title: "INSERT ... SELECT from a row-store table into an engine table"
     setup:
-      - "CREATE TABLE pc_dml_insert_select_from_rowstore (id INT, v INT, s VARCHAR(20)) {{ rowstore_clause }}"
+      - "CREATE TABLE pc_dml_insert_select_from_rowstore (id INT PRIMARY KEY, v INT, s VARCHAR(20)) {{ rowstore_clause }}"
       - "INSERT INTO pc_dml_insert_select_from_rowstore VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
-      - "CREATE TABLE pc_dml_insert_select_from_rowstore_n (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "CREATE TABLE pc_dml_insert_select_from_rowstore_n (id INT PRIMARY KEY, v INT, s VARCHAR(20)) {{ engine_clause }}"
     teardown:
       - "DROP TABLE IF EXISTS pc_dml_insert_select_from_rowstore"
       - "DROP TABLE IF EXISTS pc_dml_insert_select_from_rowstore_n"
@@ -1186,7 +1192,7 @@ probes:
     category: dml
     title: "BEGIN, INSERT and UPDATE, COMMIT"
     setup:
-      - "CREATE TABLE pc_dml_txn_commit (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "CREATE TABLE pc_dml_txn_commit (id INT PRIMARY KEY, v INT, s VARCHAR(20)) {{ engine_clause }}"
       - "INSERT INTO pc_dml_txn_commit VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
     teardown:
       - "DROP TABLE IF EXISTS pc_dml_txn_commit"
@@ -1206,7 +1212,7 @@ probes:
     category: dml
     title: "INSERT inside a transaction that is rolled back"
     setup:
-      - "CREATE TABLE pc_dml_txn_rollback_insert (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "CREATE TABLE pc_dml_txn_rollback_insert (id INT PRIMARY KEY, v INT, s VARCHAR(20)) {{ engine_clause }}"
       - "INSERT INTO pc_dml_txn_rollback_insert VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
     teardown:
       - "DROP TABLE IF EXISTS pc_dml_txn_rollback_insert"
@@ -1224,7 +1230,7 @@ probes:
     category: dml
     title: "UPDATE inside a transaction that is rolled back"
     setup:
-      - "CREATE TABLE pc_dml_txn_rollback_update (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "CREATE TABLE pc_dml_txn_rollback_update (id INT PRIMARY KEY, v INT, s VARCHAR(20)) {{ engine_clause }}"
       - "INSERT INTO pc_dml_txn_rollback_update VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
     teardown:
       - "DROP TABLE IF EXISTS pc_dml_txn_rollback_update"
@@ -1242,7 +1248,7 @@ probes:
     category: dml
     title: "DELETE inside a transaction that is rolled back"
     setup:
-      - "CREATE TABLE pc_dml_txn_rollback_delete (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "CREATE TABLE pc_dml_txn_rollback_delete (id INT PRIMARY KEY, v INT, s VARCHAR(20)) {{ engine_clause }}"
       - "INSERT INTO pc_dml_txn_rollback_delete VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
     teardown:
       - "DROP TABLE IF EXISTS pc_dml_txn_rollback_delete"
@@ -1260,7 +1266,7 @@ probes:
     category: dml
     title: "Locking read inside a transaction"
     setup:
-      - "CREATE TABLE pc_dml_select_for_update (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "CREATE TABLE pc_dml_select_for_update (id INT PRIMARY KEY, v INT, s VARCHAR(20)) {{ engine_clause }}"
       - "INSERT INTO pc_dml_select_for_update VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
     teardown:
       - "DROP TABLE IF EXISTS pc_dml_select_for_update"
@@ -1276,7 +1282,7 @@ probes:
     category: ddl
     title: "ALTER TABLE ADD COLUMN"
     setup:
-      - "CREATE TABLE pc_ddl_add_column (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "CREATE TABLE pc_ddl_add_column (id INT PRIMARY KEY, v INT, s VARCHAR(20)) {{ engine_clause }}"
       - "INSERT INTO pc_ddl_add_column VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
     teardown:
       - "DROP TABLE IF EXISTS pc_ddl_add_column"
@@ -1288,7 +1294,7 @@ probes:
     category: ddl
     title: "ADD COLUMN with a DEFAULT applied to existing rows"
     setup:
-      - "CREATE TABLE pc_ddl_add_column_default (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "CREATE TABLE pc_ddl_add_column_default (id INT PRIMARY KEY, v INT, s VARCHAR(20)) {{ engine_clause }}"
       - "INSERT INTO pc_ddl_add_column_default VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
     teardown:
       - "DROP TABLE IF EXISTS pc_ddl_add_column_default"
@@ -1300,7 +1306,7 @@ probes:
     category: ddl
     title: "ALTER TABLE DROP COLUMN"
     setup:
-      - "CREATE TABLE pc_ddl_drop_column (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "CREATE TABLE pc_ddl_drop_column (id INT PRIMARY KEY, v INT, s VARCHAR(20)) {{ engine_clause }}"
       - "INSERT INTO pc_ddl_drop_column VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
     teardown:
       - "DROP TABLE IF EXISTS pc_ddl_drop_column"
@@ -1312,7 +1318,7 @@ probes:
     category: ddl
     title: "RENAME COLUMN"
     setup:
-      - "CREATE TABLE pc_ddl_rename_column (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "CREATE TABLE pc_ddl_rename_column (id INT PRIMARY KEY, v INT, s VARCHAR(20)) {{ engine_clause }}"
       - "INSERT INTO pc_ddl_rename_column VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
     teardown:
       - "DROP TABLE IF EXISTS pc_ddl_rename_column"
@@ -1324,7 +1330,7 @@ probes:
     category: ddl
     title: "Rename a table"
     setup:
-      - "CREATE TABLE pc_ddl_rename_table (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "CREATE TABLE pc_ddl_rename_table (id INT PRIMARY KEY, v INT, s VARCHAR(20)) {{ engine_clause }}"
       - "INSERT INTO pc_ddl_rename_table VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
     teardown:
       - "DROP TABLE IF EXISTS pc_ddl_rename_table"
@@ -1337,7 +1343,7 @@ probes:
     category: ddl
     title: "TRUNCATE TABLE"
     setup:
-      - "CREATE TABLE pc_ddl_truncate (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "CREATE TABLE pc_ddl_truncate (id INT PRIMARY KEY, v INT, s VARCHAR(20)) {{ engine_clause }}"
       - "INSERT INTO pc_ddl_truncate VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
     teardown:
       - "DROP TABLE IF EXISTS pc_ddl_truncate"
@@ -1349,7 +1355,7 @@ probes:
     category: ddl
     title: "Widen a column's type"
     setup:
-      - "CREATE TABLE pc_ddl_modify_column_type (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "CREATE TABLE pc_ddl_modify_column_type (id INT PRIMARY KEY, v INT, s VARCHAR(20)) {{ engine_clause }}"
       - "INSERT INTO pc_ddl_modify_column_type VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
     teardown:
       - "DROP TABLE IF EXISTS pc_ddl_modify_column_type"
@@ -1361,7 +1367,7 @@ probes:
     category: ddl
     title: "CREATE INDEX, then a query that could use it"
     setup:
-      - "CREATE TABLE pc_ddl_create_index (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "CREATE TABLE pc_ddl_create_index (id INT PRIMARY KEY, v INT, s VARCHAR(20)) {{ engine_clause }}"
       - "INSERT INTO pc_ddl_create_index VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
     teardown:
       - "DROP TABLE IF EXISTS pc_ddl_create_index"
@@ -1373,7 +1379,7 @@ probes:
     category: ddl
     title: "DROP INDEX"
     setup:
-      - "CREATE TABLE pc_ddl_drop_index (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "CREATE TABLE pc_ddl_drop_index (id INT PRIMARY KEY, v INT, s VARCHAR(20)) {{ engine_clause }}"
       - "INSERT INTO pc_ddl_drop_index VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
       - "CREATE INDEX pc_ddl_drop_index_i ON pc_ddl_drop_index (v)"
     teardown:
@@ -1382,36 +1388,53 @@ probes:
     sql_postgres: "DROP INDEX pc_ddl_drop_index_i"
     check_mysql: "SELECT id FROM pc_ddl_drop_index WHERE v = 20"
     check_postgres: "SELECT id FROM pc_ddl_drop_index WHERE v = 20"
-  - id: ddl_add_primary_key
+  - id: ddl_change_primary_key
     category: ddl
-    title: "ADD PRIMARY KEY to an existing table"
+    title: "Replace the primary key with a composite one"
     setup:
-      - "CREATE TABLE pc_ddl_add_primary_key (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
-      - "INSERT INTO pc_ddl_add_primary_key VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
+      - "CREATE TABLE pc_ddl_change_primary_key (id INT PRIMARY KEY, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "INSERT INTO pc_ddl_change_primary_key VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
     teardown:
-      - "DROP TABLE IF EXISTS pc_ddl_add_primary_key"
-    sql_mysql: "ALTER TABLE pc_ddl_add_primary_key ADD PRIMARY KEY (id)"
-    sql_postgres: "ALTER TABLE pc_ddl_add_primary_key ADD PRIMARY KEY (id)"
-    check_mysql: "SELECT id, v, s FROM pc_ddl_add_primary_key ORDER BY id"
-    check_postgres: "SELECT id, v, s FROM pc_ddl_add_primary_key ORDER BY id"
+      - "DROP TABLE IF EXISTS pc_ddl_change_primary_key"
+    sql_mysql: "ALTER TABLE pc_ddl_change_primary_key DROP PRIMARY KEY, ADD PRIMARY KEY (id, v)"
+    sql_postgres: "ALTER TABLE pc_ddl_change_primary_key DROP CONSTRAINT pc_ddl_change_primary_key_pkey, ADD PRIMARY KEY (id, v)"
+    check_mysql: "SELECT id, v, s FROM pc_ddl_change_primary_key ORDER BY id"
+    check_postgres: "SELECT id, v, s FROM pc_ddl_change_primary_key ORDER BY id"
+    note: "The PostgreSQL primary key constraint has the default name <table>_pkey."
+  - id: ddl_create_table_without_pk
+    category: ddl
+    title: "CREATE TABLE without a primary key, then insert a row"
+    setup:
+    teardown:
+      - "DROP TABLE IF EXISTS pc_ddl_create_table_without_pk_n"
+    sql_mysql:
+      - "CREATE TABLE pc_ddl_create_table_without_pk_n (id INT, v INT) {{ engine_clause }}"
+      - "INSERT INTO pc_ddl_create_table_without_pk_n VALUES (1, 10)"
+    sql_postgres:
+      - "CREATE TABLE pc_ddl_create_table_without_pk_n (id INT, v INT) {{ engine_clause }}"
+      - "INSERT INTO pc_ddl_create_table_without_pk_n VALUES (1, 10)"
+    check_mysql: "SELECT id, v FROM pc_ddl_create_table_without_pk_n"
+    check_postgres: "SELECT id, v FROM pc_ddl_create_table_without_pk_n"
+    note: "The only probe table without a primary key: records that requirement once, on its own."
   - id: ddl_create_table_as_select
     category: ddl
     title: "CREATE TABLE ... AS SELECT in the system's engine"
     setup:
-      - "CREATE TABLE pc_ddl_create_table_as_select (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "CREATE TABLE pc_ddl_create_table_as_select (id INT PRIMARY KEY, v INT, s VARCHAR(20)) {{ engine_clause }}"
       - "INSERT INTO pc_ddl_create_table_as_select VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
     teardown:
       - "DROP TABLE IF EXISTS pc_ddl_create_table_as_select"
       - "DROP TABLE IF EXISTS pc_ddl_create_table_as_select_n"
-    sql_mysql: "CREATE TABLE pc_ddl_create_table_as_select_n {{ engine_clause }} AS SELECT id, v FROM pc_ddl_create_table_as_select WHERE v >= 20"
+    sql_mysql: "CREATE TABLE pc_ddl_create_table_as_select_n (PRIMARY KEY (id)) {{ engine_clause }} AS SELECT id, v FROM pc_ddl_create_table_as_select WHERE v >= 20"
     sql_postgres: "CREATE TABLE pc_ddl_create_table_as_select_n {{ engine_clause }} AS SELECT id, v FROM pc_ddl_create_table_as_select WHERE v >= 20"
     check_mysql: "SELECT id, v FROM pc_ddl_create_table_as_select_n ORDER BY id"
     check_postgres: "SELECT id, v FROM pc_ddl_create_table_as_select_n ORDER BY id"
+    note: "MySQL declares the primary key in the CTAS; PostgreSQL has no such syntax, so its target table has none."
   - id: var_user_variable_filter
     category: variables
     title: "A user variable (session setting on PostgreSQL) in WHERE"
     setup:
-      - "CREATE TABLE pc_var_user_variable_filter (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "CREATE TABLE pc_var_user_variable_filter (id INT PRIMARY KEY, v INT, s VARCHAR(20)) {{ engine_clause }}"
       - "INSERT INTO pc_var_user_variable_filter VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
     teardown:
       - "DROP TABLE IF EXISTS pc_var_user_variable_filter"
@@ -1425,7 +1448,7 @@ probes:
     category: variables
     title: "A user variable in an arithmetic expression in the select list"
     setup:
-      - "CREATE TABLE pc_var_user_variable_expression (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "CREATE TABLE pc_var_user_variable_expression (id INT PRIMARY KEY, v INT, s VARCHAR(20)) {{ engine_clause }}"
       - "INSERT INTO pc_var_user_variable_expression VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
     teardown:
       - "DROP TABLE IF EXISTS pc_var_user_variable_expression"
@@ -1439,7 +1462,7 @@ probes:
     category: variables
     title: "Assigning a variable inside a SELECT and returning it"
     setup:
-      - "CREATE TABLE pc_var_assign_in_select (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "CREATE TABLE pc_var_assign_in_select (id INT PRIMARY KEY, v INT, s VARCHAR(20)) {{ engine_clause }}"
       - "INSERT INTO pc_var_assign_in_select VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
     teardown:
       - "DROP TABLE IF EXISTS pc_var_assign_in_select"
@@ -1451,7 +1474,7 @@ probes:
     category: variables
     title: "Row numbering with a user variable (window function on PostgreSQL)"
     setup:
-      - "CREATE TABLE pc_var_row_numbering (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "CREATE TABLE pc_var_row_numbering (id INT PRIMARY KEY, v INT, s VARCHAR(20)) {{ engine_clause }}"
       - "INSERT INTO pc_var_row_numbering VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
     teardown:
       - "DROP TABLE IF EXISTS pc_var_row_numbering"
@@ -1464,7 +1487,7 @@ probes:
     category: variables
     title: "A prepared statement with a parameter"
     setup:
-      - "CREATE TABLE pc_var_prepared_statement (id INT, v INT, s VARCHAR(20)) {{ engine_clause }}"
+      - "CREATE TABLE pc_var_prepared_statement (id INT PRIMARY KEY, v INT, s VARCHAR(20)) {{ engine_clause }}"
       - "INSERT INTO pc_var_prepared_statement VALUES (1, 10, 'a'), (2, 20, 'b'), (3, 30, 'c')"
     teardown:
       - "DROP TABLE IF EXISTS pc_var_prepared_statement"
@@ -1479,7 +1502,7 @@ probes:
     category: variables
     title: "Session time zone changes how timestamps convert to epoch seconds"
     setup:
-      - "CREATE TABLE pc_var_session_time_zone (id INT, ts TIMESTAMP) {{ engine_clause }}"
+      - "CREATE TABLE pc_var_session_time_zone (id INT PRIMARY KEY, ts TIMESTAMP) {{ engine_clause }}"
       - "INSERT INTO pc_var_session_time_zone VALUES (1, '2024-02-29 13:45:10'), (2, '2000-01-01 00:00:00')"
     teardown:
       - "DROP TABLE IF EXISTS pc_var_session_time_zone"
