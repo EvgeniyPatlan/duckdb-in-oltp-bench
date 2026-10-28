@@ -55,6 +55,9 @@ class Measure:
     run: Runner
     needs_reference: bool = False
     phase: str = "query"  # "query" | "after_load" | "last"
+    # Items whose existing record must be redone (the data they were derived from changed):
+    # ``stale(adapter, results_root, run_id, sf) -> set of items``; resume treats them as pending.
+    stale: Callable[[SystemAdapter, Path, str, int], set[str]] | None = None
 
 
 _MEASURES: dict[str, Measure] = {}
@@ -151,5 +154,14 @@ def _fallback_items(sf: int) -> list[str]:
 
 # Both run in the query phase, after M1 and M4 (measures run in id order); M8 reads the M1 and M5
 # records of the same system and run, so it must come last.
-register(Measure("M5", "class", _probe_items, _run_sqlcompat))
-register(Measure("M8", "ratio", _fallback_items, fallback.run_fallback))
+def _stale_probes(adapter: SystemAdapter, root: Path, run_id: str, sf: int) -> set[str]:
+    return sqlcompat.stale_items(adapter, root, run_id, sf)
+
+
+def _stale_fallback(adapter: SystemAdapter, root: Path, run_id: str, sf: int) -> set[str]:
+    """M8 is derived from M5: any M5 cell that reruns makes all of M8 stale."""
+    return set(fallback.ITEMS) if sqlcompat.stale_items(adapter, root, run_id, sf) else set()
+
+
+register(Measure("M5", "class", _probe_items, _run_sqlcompat, stale=_stale_probes))
+register(Measure("M8", "ratio", _fallback_items, fallback.run_fallback, stale=_stale_fallback))

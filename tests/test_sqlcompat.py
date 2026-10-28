@@ -1,6 +1,7 @@
 """M5 (SQL compatibility probes) and M8 (silent slow paths)."""
 from __future__ import annotations
 
+import json
 import re
 from datetime import UTC, datetime
 
@@ -616,3 +617,178 @@ def test_probe_file_flags_json_probe_and_keeps_keys_stable():
     assert probes["fn_json_build"].compare == "json"
     assert all(p.compare in (None, "json") for p in probes.values())
     assert probes["ddl_truncate"].main("mysql")[-1].startswith("INSERT")
+
+
+# ---- reference keyed to the baseline rendering; resume rebuilds ---------------------------
+
+def test_changed_baseline_clause_invalidates_the_reference(tmp_path, monkeypatch):
+    p = probe("p1", setup=["CREATE TABLE a (x INT) {{ engine_clause }}"])
+    before = p.content_key("mysql")
+    store = ProbeReferenceStore(tmp_path, "r1", sf=1)
+    store.save("mysql", "p1", "innodb", [(1,)], {0}, ["a"], before)
+    assert store.state("mysql", "p1", before) == "ok"
+    monkeypatch.setattr(InnoDB, "engine_clause", "ENGINE=MyISAM")
+    after = p.content_key("mysql")
+    assert after != before
+    assert store.state("mysql", "p1", after) == "stale"
+    assert ProbeReferenceStore(tmp_path, "other", sf=1).state("mysql", "p1", after) == "absent"
+    # an engine clause of the adapter under test does not enter the key: only the baseline's does
+    assert probe("p1", setup=["CREATE TABLE a (x INT) {{ engine_clause }}"]).content_key(
+        "postgres") != after
+
+
+def test_engine_record_without_a_usable_reference_says_why(tmp_path):
+    p = probe("p1")
+    store = ProbeReferenceStore(tmp_path, "r1", sf=1)
+    a = ProbeAdapter("alisql", "mysql", "session", {})
+    (absent,) = run(a, [p], tmp_path)
+    assert absent.extra["reference"] == "absent" and absent.extra["compared"] is False
+    store.save("mysql", "p1", "innodb", [(1,)], {0}, ["a"], "old-wording")
+    (stale,) = run(a, [p], tmp_path)
+    assert stale.extra["reference"] == "stale" and stale.extra["compared"] is False
+    store.save("mysql", "p1", "innodb", [(1,)], {0}, ["a"], p.content_key("mysql"))
+    (fresh,) = run(a, [p], tmp_path)
+    assert fresh.extra["reference"] == "ok" and fresh.extra["compared"] is True
+    assert fresh.extra["reference_key"] == p.content_key("mysql")
+
+
+def test_stale_items_after_a_probe_edit(tmp_path):
+    from dbench.measures.sqlcompat import stale_items
+
+    old = probe("p1")
+    inno = ProbeAdapter("innodb", "mysql", "none", {"FROM t": out([(7,)], "n/a")},
+                        track="baseline")
+    eng = ProbeAdapter("alisql", "mysql", "session", {"FROM t": out([(7,)], "duckdb")})
+    run(inno, [old], tmp_path)
+    run(eng, [old], tmp_path)
+    assert stale_items(inno, tmp_path, "r1", 1, [old]) == set()
+    assert stale_items(eng, tmp_path, "r1", 1, [old]) == set()
+    edited = probe("p1", sql={"mysql": "SELECT 2 FROM t", "postgres": "SELECT 1 FROM t"})
+    assert stale_items(inno, tmp_path, "r1", 1, [edited]) == {"p1"}
+    # the engine cell is only stale once the baseline has rebuilt the reference
+    assert stale_items(eng, tmp_path, "r1", 1, [edited]) == set()
+    run(inno, [edited], tmp_path)
+    assert stale_items(inno, tmp_path, "r1", 1, [edited]) == set()
+    assert stale_items(eng, tmp_path, "r1", 1, [edited]) == {"p1"}
+    (again,) = run(eng, [edited], tmp_path)
+    assert again.extra["compared"] is True and again.extra["reference"] == "ok"
+    assert stale_items(eng, tmp_path, "r1", 1, [edited]) == set()
+
+
+def test_baseline_cell_with_a_lost_cache_is_stale(tmp_path):
+    from dbench.measures.sqlcompat import stale_items
+
+    p = probe("p1")
+    inno = ProbeAdapter("innodb", "mysql", "none", {}, track="baseline")
+    run(inno, [p], tmp_path)
+    assert stale_items(inno, tmp_path, "r1", 1, [p]) == set()
+    for f in (tmp_path / "r1" / "_probe_reference").glob("*.json"):
+        f.unlink()
+    assert stale_items(inno, tmp_path, "r1", 1, [p]) == {"p1"}
+
+
+def test_failed_baseline_probe_is_not_stale_forever(tmp_path):
+    from dbench.measures.sqlcompat import stale_items
+
+    p = probe("p1")
+    inno = ProbeAdapter("innodb", "mysql", "none",
+                        {"FROM t": out(None, "n/a", status="error", error="bad")},
+                        track="baseline")
+    run(inno, [p], tmp_path)
+    assert stale_items(inno, tmp_path, "r1", 1, [p]) == set()
+
+
+class _CampaignProbeAdapter(ProbeAdapter):
+    def remove_data(self):
+        pass
+
+
+def test_campaign_resume_rebuilds_the_reference_after_a_probe_edit(tmp_path, monkeypatch):
+    from dbench.campaign import run_campaign
+    from dbench.measures import sqlcompat
+    from tests.test_campaign import Env, write_yaml
+
+    yaml_copy = tmp_path / "probes.yaml"
+    text = sqlcompat.PROBES_FILE.read_text(encoding="utf-8")
+    yaml_copy.write_text(text, encoding="utf-8")
+    monkeypatch.setattr(sqlcompat, "PROBES_FILE", yaml_copy)
+
+    env = Env(tmp_path)
+
+    def factory(name, data_dir):
+        if name == "innodb":
+            return _CampaignProbeAdapter("innodb", "mysql", "none", {}, track="baseline",
+                                         engine_clause="ENGINE=InnoDB")
+        return _CampaignProbeAdapter(name, "mysql", "session", {})
+
+    deps = env.deps()
+    deps.adapter_factory = factory
+    res = tmp_path / "res"
+    path = write_yaml(tmp_path, sf=100, systems=["innodb", "alisql"], measures=["M5", "M8"],
+                      reference={"system": "duckdb-1.5.5"})
+    run_campaign(path, res, deps)
+    cell = res / "r1" / "alisql" / "M5-sf100-fn_upper_lower.json"
+    other = res / "r1" / "alisql" / "M5-sf100-fn_substring.json"
+    kept = other.read_text()
+    assert json.loads(cell.read_text())["extra"]["reference"] == "ok"
+
+    # nothing edited: a resume writes nothing
+    again = run_campaign(path, res, deps)
+    assert again.written == 0
+
+    yaml_copy.write_text(text.replace("SELECT id, UPPER(s), LOWER(s) FROM pc_fn_upper_lower",
+                                      "SELECT id, UPPER(s) FROM pc_fn_upper_lower"),
+                         encoding="utf-8")
+    summary = run_campaign(path, res, deps)
+    assert summary.written > 0
+    edited_key = next(p for p in sqlcompat.load_probes()
+                      if p.id == "fn_upper_lower").content_key("mysql")
+    base = json.loads((res / "r1" / "innodb" / "M5-sf100-fn_upper_lower.json").read_text())
+    eng = json.loads(cell.read_text())
+    assert base["extra"]["reference_key"] == edited_key
+    assert eng["extra"]["reference"] == "ok" and eng["extra"]["compared"] is True
+    assert eng["extra"]["reference_key"] == edited_key
+    assert other.read_text() == kept  # untouched probes are not redone
+
+
+def test_session_prepare_query_canceled_is_a_timeout_not_a_crash():
+    from psycopg import errors as pgerrors
+
+    class Info:
+        backend_pid = 42
+
+    class Conn:
+        info = Info()
+
+        def execute(self, sql):
+            if sql == "BEGIN":
+                raise pgerrors.QueryCanceled("canceling statement due to statement timeout")
+            return _Cursor([])
+
+    a = PgDuckDB("x")
+    a._session = lambda: Conn()
+    a._drop_session = lambda: None
+    outcome = a.execute_session(["BEGIN", "SELECT 1"], 5)
+    assert outcome.status == "timeout" and outcome.stopped is True
+
+
+def test_join_mixed_tpch_dimension_is_na_on_pg_duckdb(tmp_path):
+    from dbench.measures.sqlcompat import _nothing_to_mix
+
+    p = next(p for p in load_probes() if p.id == "join_mixed_tpch_dimension")
+    assert p.mixes is True and p.mixes_engines("mysql")
+    assert _nothing_to_mix(PgDuckDB("x"), p)
+    assert not _nothing_to_mix(PgDuckLake("x"), p)
+    assert not _nothing_to_mix(AliSQLDuckDB("x"), p)
+    heap = ProbeAdapter("pg_duckdb", "postgres", "explain", {}, engine_clause="")
+    heap.rowstore_clause = ""
+    (rec,) = run(heap, [p], tmp_path)
+    assert rec.status == "n/a" and "no separate engine table to mix with" in rec.reason
+
+
+def test_content_key_survives_non_json_expected():
+    import datetime as dt
+
+    p = probe("p1", expected=[[dt.date(2024, 1, 1), 1]])
+    assert p.content_key("mysql") == probe("p1", expected=[[dt.date(2024, 1, 1), 1]]).content_key(
+        "mysql")

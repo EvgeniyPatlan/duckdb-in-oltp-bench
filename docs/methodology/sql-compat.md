@@ -43,10 +43,16 @@ When a probe has no literal `expected`, the expectation is the result of the sam
 row-store baseline of the same dialect (`innodb` for MySQL-dialect probes, `postgres` for
 PostgreSQL ones). The baselines run first, cache each result under
 `results/<run_id>/_probe_reference/<probe>.<dialect>.json` together with a hash of the probe's
-text for that dialect (setup, statements, check, compare mode, literal expected), and record every
+text for that dialect (setup, teardown, statements, check, compare mode, literal expected) and of
+its rendering for the baseline (so a change to the baseline's clauses or to the template rendering
+counts too), and record every
 probe as `n/a`
-(reason "row-store baseline; reference for the probe suite"). A cached result whose hash differs from the probe's current text is treated as missing, never
-reused. Comparison is the one M1 uses
+(reason "row-store baseline; reference for the probe suite"). A cached result whose hash differs from the probe's current one is treated as missing, never
+reused: an engine record without a usable reference carries `extra.reference = "stale"` or
+`"absent"` (`"ok"` otherwise) and `extra.compared = false`. On resume the stale cells are redone:
+a baseline's cell whose cache is missing or keyed differently runs again and rebuilds the
+reference, an engine's cell compared with an older reference runs again and is compared with the
+new one, and M8 is recomputed. Comparison is the one M1 uses
 (`dbench.correctness.compare`: order independent, numeric and CHAR tolerance, NULL only equals
 NULL). A probe with `compare: json` additionally parses every cell that holds a JSON object or
 array and re-serialises it canonically (sorted keys, no whitespace) on both sides, because systems
@@ -119,7 +125,12 @@ Made for every system alike, none for an engine's outcome; the YAML header lists
 - `fn_json_build` has `compare: json`: JSON text was a false `wrong_result` (`{"k": 1}` vs
   `{"k":1}`), a representation difference the comparison now ignores.
 - Write probes are classed `ok_unobserved` instead of by the follow-up SELECT's pushdown.
-- The probe reference is keyed by a hash of the probe text.
+- The probe reference is keyed by a hash of the probe text and its baseline rendering; resume
+  rebuilds stale references and re-runs the cells that depend on them.
+- M8's TPC-H share now counts the same statuses as the probe share (`ok` and `wrong_result`).
+- `join_mixed_tpch_dimension` carries `mixes: true` (it joins a row-store table with the TPC-H
+  engine table), so the generic mixed-engine rule makes it `n/a` where the two clauses are the
+  same.
 - `ddl_truncate` inserts a sentinel row after `TRUNCATE` and counts rows, so the check reads a row.
   `var_session_time_zone` now reads a wall-clock timestamp on both sides (MySQL `DATETIME`,
   PostgreSQL `TIMESTAMP`, cast to `timestamptz`) and converts it in the session time zone (UTC+2);

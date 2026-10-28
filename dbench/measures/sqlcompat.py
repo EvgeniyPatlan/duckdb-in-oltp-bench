@@ -43,7 +43,7 @@ from dbench import hostinfo
 from dbench.correctness import compare
 from dbench.measures.records import make_record
 from dbench.reference import encode
-from dbench.results import ResultRecord, Status
+from dbench.results import ResultRecord, Status, cell_record
 from dbench.systems.base import QueryOutcome, SystemAdapter
 from dbench.systems.duckdb_native import decode
 
@@ -79,19 +79,24 @@ class Probe:
     expected: list | None = None
     note: str | None = None
     compare: str | None = None  # "json": cells holding JSON text are compared canonically
+    mixes: bool = False  # explicit mixed-engine marker (besides using both placeholders)
 
     def content_key(self, dialect: str) -> str:
-        """Hash of everything that decides this dialect's result (the unrendered templates), so
-        a cached reference built from an older wording of the probe is never reused."""
-        doc = {"setup": self.statements("setup", dialect), "sql": self.main(dialect),
-               "check": self.check[dialect], "compare": self.compare,
-               "expected": self.expected}
-        return hashlib.sha256(json.dumps(doc, sort_keys=True).encode()).hexdigest()[:16]
+        """Hash of everything that decides this dialect's reference result: the templates and
+        their rendering for the dialect's row-store baseline, so a change to the probe, to the
+        baseline's clauses or to ``render_sql`` never leaves a stale reference in use."""
+        baseline = baseline_class(dialect)
+        templates = [*self.statements("setup", dialect), *self.statements("teardown", dialect),
+                     *self.main(dialect), *([self.check[dialect]] if self.check[dialect] else [])]
+        doc = {"templates": templates, "rendered": [render_sql(t, baseline) for t in templates],
+               "compare": self.compare, "expected": self.expected, "mixes": self.mixes}
+        text = json.dumps(doc, sort_keys=True, default=str)
+        return hashlib.sha256(text.encode()).hexdigest()[:16]
 
     def mixes_engines(self, dialect: str) -> bool:
         """The probe makes both an engine table and a row-store table."""
         text = " ".join(self.statements("setup", dialect) + self.main(dialect))
-        return "{{ engine_clause }}" in text and "{{ rowstore_clause }}" in text
+        return self.mixes or ("{{ engine_clause }}" in text and "{{ rowstore_clause }}" in text)
 
     def statements(self, kind: str, dialect: str) -> list[str]:
         """``setup`` or ``teardown`` of this dialect, as a flat list of templates."""
@@ -151,7 +156,7 @@ def _parse(entry: Any) -> Probe:
     if entry.get("compare") not in (None, *COMPARE_MODES):
         raise ProbeFileError(f"{pid}: compare must be one of {list(COMPARE_MODES)}")
     return Probe(id=pid, category=entry["category"], title=str(entry.get("title") or ""),
-                 compare=entry.get("compare"),
+                 compare=entry.get("compare"), mixes=bool(entry.get("mixes")),
                  sql=sql, check=check, setup=entry.get("setup"),
                  teardown=entry.get("teardown"), expected=entry.get("expected"),
                  note=entry.get("note"))
@@ -163,6 +168,13 @@ def render_sql(sql: str, adapter: SystemAdapter | type[SystemAdapter]) -> str:
         engine_clause=getattr(adapter, "engine_clause", "").strip(),
         rowstore_clause=getattr(adapter, "rowstore_clause", "").strip())
     return text.rstrip()
+
+
+def baseline_class(dialect: str) -> type[SystemAdapter]:
+    """The adapter class of the row-store baseline that builds the reference for ``dialect``."""
+    from dbench.systems.registry import _factories
+
+    return _factories()[BASELINES[dialect]]
 
 
 def classify_probe(*, status: str, pushed: str, scope: str, matches: bool | None,
@@ -203,6 +215,13 @@ class ProbeReferenceStore:
         tmp = path.with_name(path.name + ".tmp")
         tmp.write_text(json.dumps(doc), encoding="utf-8")
         tmp.replace(path)
+
+    def state(self, dialect: str, probe_id: str, key: str) -> str:
+        """``ok`` (usable), ``stale`` (cached for another wording, key or scale factor) or
+        ``absent`` (nothing cached)."""
+        if self.load(dialect, probe_id, key) is not None:
+            return "ok"
+        return "stale" if self.load(dialect, probe_id) is not None else "absent"
 
     def load(self, dialect: str, probe_id: str, key: str | None = None) -> dict | None:
         """The cached result, or None when missing, for another scale factor, or (when ``key`` is
@@ -335,7 +354,8 @@ def _baseline_extra(probe: Probe, dialect: str, system: str, obs: _Observed,
                     store: ProbeReferenceStore) -> dict:
     """The record of a baseline run: it builds the reference and checks it against the other
     baseline's result for the same probe (a disagreement means the probe is not equivalent)."""
-    extra: dict = {"class": "n/a", "outcome": "ok" if obs.outcome else obs.failure.status}
+    extra: dict = {"class": "n/a", "outcome": "ok" if obs.outcome else obs.failure.status,
+                   "reference_key": probe.content_key(dialect)}
     if obs.outcome is None:
         extra["baseline_error"] = obs.failure.error
         extra["stage"] = obs.stage
@@ -367,6 +387,11 @@ def _probe_extra(probe: Probe, adapter: SystemAdapter, obs: _Observed,
         return "error", "error", extra, fail.error
     res = obs.outcome
     expected, numeric = _expected(probe, dialect, store, res.numeric_cols)
+    key = probe.content_key(dialect)
+    state = store.state(dialect, probe.id, key)
+    if probe.expected is None:
+        extra["reference"] = state  # ok | stale | absent: why a result was or was not compared
+        extra["reference_key"] = key if state == "ok" else None
     matches = None
     if expected is not None:
         cmp = compare(_prepared(probe, expected), _prepared(probe, res.rows or []), numeric)
@@ -381,6 +406,36 @@ def _probe_extra(probe: Probe, adapter: SystemAdapter, obs: _Observed,
     # as a fact about the check and kept out of the pushdown shares (M8).
     extra["check_pushed" if probe.writes else "pushed"] = res.pushed
     return ("wrong_result" if cls == "wrong_result" else "ok"), cls, extra, None
+
+
+def stale_items(adapter: SystemAdapter, root: Path, run_id: str, sf: int,
+                probes: list[Probe] | None = None) -> set[str]:
+    """Probe ids whose recorded M5 cell must run again although it exists, because the reference
+    it was built from or compared with is not the current one: a baseline whose cache is missing
+    or keyed to an older wording, or an engine whose result was compared with (or could not be
+    compared for lack of) a reference that is now different."""
+    dialect = adapter.dialect
+    if dialect not in BASELINES:
+        return set()
+    store = ProbeReferenceStore(root, run_id, sf)
+    baseline = adapter.name == BASELINES[dialect]
+    stale: set[str] = set()
+    for probe in load_probes() if probes is None else probes:
+        rec = cell_record(root, adapter.name, "M5", sf, probe.id, run_id)
+        if rec is None:
+            continue
+        key = probe.content_key(dialect)
+        if baseline:
+            built = rec.extra.get("reference_key") == key
+            kept = rec.extra.get("baseline_error") is not None or (
+                store.state(dialect, probe.id, key) == "ok")
+            if not (built and kept):
+                stale.add(probe.id)
+        elif (rec.status in ("ok", "wrong_result") and probe.expected is None
+              and store.state(dialect, probe.id, key) == "ok"
+              and rec.extra.get("reference_key") != key):
+            stale.add(probe.id)
+    return stale
 
 
 def _nothing_to_mix(adapter: SystemAdapter, probe: Probe) -> bool:

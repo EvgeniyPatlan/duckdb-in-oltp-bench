@@ -463,7 +463,10 @@ class _Run:
         for m in c.measures:
             measure = measures.get(m)
             items = c.items(m)
-            pending = [i for i in items if not is_done(self.root, name, m, c.sf, i, c.run_id)]
+            stale = (measure.stale(adapter, self.root, c.run_id, c.sf)
+                     if measure.stale is not None else set())
+            pending = [i for i in items
+                       if i in stale or not is_done(self.root, name, m, c.sf, i, c.run_id)]
             self.summary.skipped += len(items) - len(pending)
             if not pending:
                 continue

@@ -14,6 +14,8 @@
 #                         to a plain row-store table (ENGINE=InnoDB, or nothing for a Postgres heap).
 #   sql_mysql / sql_postgres  the statement; a list is one session, the last statement is the probe
 #   check_mysql / check_postgres  follow-up SELECT, required for dml and ddl probes
+#   mixes                 optional true: the probe mixes engine and row-store tables even without
+#                         using both placeholders (n/a where the two clauses are the same)
 #   expected              optional literal rows; without it the result of the same-dialect row-store
 #                         baseline (InnoDB / Postgres) is the expectation
 #   note                  why a dialect is spelled differently
@@ -35,7 +37,11 @@
 #     is kept as extra.check_pushed and left out of the pushdown shares.
 #   - A probe that uses both {{ engine_clause }} and {{ rowstore_clause }} is n/a on a system
 #     where the two are the same (pg_duckdb queries heap tables).
-#   - Cached baseline results carry a hash of the probe's text and are rebuilt when it changes.
+#   - Cached baseline results carry a hash of the probe's text and of its rendering for the
+#     baseline; a mismatch rebuilds the reference, and a resume re-runs the stale cells.
+#   - M8's TPC-H share now counts the same statuses as the probe share (ok and wrong_result).
+#   - join_mixed_tpch_dimension carries `mixes: true`: it joins a row-store table with the TPC-H
+#     engine table, so it is n/a where engine and row-store clauses are the same.
 #   (Earlier: primary keys on every scratch table; types_long_text and cte_recursive_path fixed
 #   because their baseline result was invalid.)
 #
@@ -782,6 +788,7 @@ probes:
       - "DROP TABLE IF EXISTS pc_join_mixed_tpch_dimension"
     sql_mysql: "SELECT n.n_name, d.label FROM nation n JOIN pc_join_mixed_tpch_dimension d ON n.n_nationkey = d.k"
     sql_postgres: "SELECT n.n_name, d.label FROM nation n JOIN pc_join_mixed_tpch_dimension d ON n.n_nationkey = d.k"
+    mixes: true
   - id: sub_scalar_uncorrelated
     category: subqueries
     title: "Scalar subquery in WHERE"
