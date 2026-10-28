@@ -13,6 +13,17 @@ Results and data live outside the checkout. In the commands below `/srv/dbench/d
 `/srv/dbench/results` are examples; use any directories with enough space. Set the variables
 inline on every command, as shown (do not `export` them).
 
+## Smoke run on a development machine
+
+Same flow with `campaigns/smoke-sf1.yaml` (20 cores: database `0-7`, runner `8-11`):
+
+```bash
+DBENCH_DATA=$HOME/dbench/data scripts/dev.sh dbench datagen --sf 1
+DBENCH_DATA=$HOME/dbench/data DBENCH_RESULTS=$HOME/dbench/results \
+DBENCH_RUNNER_CPUSET=8-11 \
+    scripts/dev.sh dbench campaign campaigns/smoke-sf1.yaml
+```
+
 ## Running the SF10 gate on the bench host
 
 Prerequisites: Docker with buildx, and git. Everything else runs in containers.
@@ -125,8 +136,9 @@ the results directory and the checkout used for running are never switched under
 # first time only (creates the branch); later: git worktree add ../bench-results results
 git worktree add -b results ../bench-results
 
+mkdir -p ../bench-results/results ../bench-results/systems
 cp -r /srv/dbench/results/gate-sf10 /srv/dbench/results/gate-sf10-trackb ../bench-results/results/
-mkdir -p ../bench-results/systems && cp systems/versions.lock.json ../bench-results/systems/
+cp systems/versions.lock.json ../bench-results/systems/
 cd ../bench-results
 git add -f results/ systems/versions.lock.json
 git commit -m "results: gate-sf10"

@@ -497,6 +497,33 @@ def test_stuck_container_blocks_the_next_system(tmp_path):
     assert "postgres" not in env.started()
 
 
+def test_load_failure_with_stuck_cleanup_blocks_the_run(tmp_path):
+    env = Env(tmp_path)
+    factory = env.factory
+    calls = {"remove": 0}
+
+    def stuck_after_failed_start(name, data_dir):
+        a = factory(name, data_dir)
+        if name == "innodb":
+            def start(limits):
+                raise RuntimeError("load failed")
+
+            def remove_data():
+                calls["remove"] += 1
+                if calls["remove"] > 1:  # the first call is the clean slate before start
+                    raise RuntimeError("cannot remove container")
+
+            a.start, a.remove_data = start, remove_data  # alive() still answers
+        return a
+
+    deps = env.deps()
+    deps.adapter_factory = stuck_after_failed_start
+    with pytest.raises(CampaignBlocked, match="innodb.*still running"):
+        run_campaign(write_yaml(tmp_path), tmp_path / "res", deps)
+    assert "postgres" not in env.started()
+    assert records(tmp_path / "res", "innodb") == []  # not turned into auto-failures
+
+
 def test_cli_mark_failed_requires_campaign():
     from dbench import cli
 

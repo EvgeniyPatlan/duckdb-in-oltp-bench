@@ -459,6 +459,8 @@ class _Run:
         reference = self.reference() if any(m.needs_reference for m, _ in todo) else None
         try:
             started = self.loaded(adapter.name)
+        except CampaignBlocked:
+            raise
         except Exception as exc:  # noqa: BLE001 - a system that cannot start or load is a result
             self._failed(adapter, todo, f"{adapter.name} did not start or load: "
                                         f"{type(exc).__name__}: {exc}")
