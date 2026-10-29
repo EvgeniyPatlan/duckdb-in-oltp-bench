@@ -254,8 +254,15 @@ scripts/dev.sh python -m sitegen.build --results "$DBENCH_RESULTS" --out _site
 python3 -m http.server --directory _site 8000      # then open http://localhost:8000/
 ```
 
-The site is static (HTML, vendored ECharts and `data/*.json`). For each system and scale factor it
-uses only one run, the one with the most records. Publishing is deliberate: the Pages workflow
+The site is static (HTML, vendored ECharts and `data/*.json`). The root pages show every result,
+using for each system and scale factor only one run, the one with the most records. Each campaign
+is also a report of its own under `reports/<run_id>/`, with the same pages built from that
+campaign's records alone (Track B's `<run_id>-trackb` belongs to it); `reports.html` lists the
+reports and compares a measure across them. Every overview opens with findings computed from its
+records. To add your own reading of a report, put it in `<results>/notes/<run_id>.md`; it is shown
+on that report's overview under "Author's notes", separate from the findings. The Explore page
+compares two systems query by query, shows one query across all systems and filters every probe
+result; its choices are kept in the page address, and its tables download as CSV. Publishing is deliberate: the Pages workflow
 builds from the tracked `published/` directory, so copy the records you want to publish there
 and commit them; see `published/README.md`.
 
