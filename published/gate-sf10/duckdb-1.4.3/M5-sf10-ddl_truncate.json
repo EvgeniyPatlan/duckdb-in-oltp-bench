@@ -1,0 +1,23 @@
+{
+  "config_ref": "systems/duckdb/",
+  "error": null,
+  "extra": {},
+  "host": {
+    "cpus": 80,
+    "docker_version": "29.1.3",
+    "kernel": "6.8.0-60-generic",
+    "mem_gb": 187
+  },
+  "item": "ddl_truncate",
+  "measure": "M5",
+  "reason": "plain DuckDB is the engine itself: no MySQL/Postgres dialect to probe, no fallback",
+  "run_id": "gate-sf10",
+  "sf": 10,
+  "started_at": "2026-10-28T15:53:43.623014+00:00",
+  "status": "n/a",
+  "system": "duckdb-1.4.3",
+  "track": "baseline",
+  "unit": "class",
+  "value": null,
+  "versions": {}
+}

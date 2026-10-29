@@ -1,0 +1,40 @@
+{
+  "config_ref": "systems/pgduckdb/",
+  "error": null,
+  "extra": {
+    "category": "functions",
+    "class": "duckdb",
+    "compared": true,
+    "error": null,
+    "outcome": "ok",
+    "pushed": "duckdb",
+    "reference": "ok",
+    "reference_key": "806f72caae67cdfd",
+    "title": "String concatenation, NULL propagates"
+  },
+  "host": {
+    "cpus": 80,
+    "docker_version": "29.1.3",
+    "kernel": "6.8.0-60-generic",
+    "mem_gb": 187
+  },
+  "item": "fn_concat",
+  "measure": "M5",
+  "reason": null,
+  "run_id": "gate-sf10",
+  "sf": 10,
+  "started_at": "2026-10-28T19:44:06.695959+00:00",
+  "status": "ok",
+  "system": "pg_duckdb",
+  "track": "A",
+  "unit": "class",
+  "value": null,
+  "versions": {
+    "duckdb": "1.4.3",
+    "duckdb_source": "SELECT * FROM duckdb.query('SELECT version()')",
+    "extension": "pg_duckdb 1.1.0",
+    "image": "pgduckdb/pgduckdb:18-v1.1.1",
+    "image_digest": "pgduckdb/pgduckdb@sha256:44c88eb9207971af1d7f9804a37429b1bb36f413cd8d7118c81e1288ddde85d1",
+    "postgres": "18.1 (Debian 18.1-1.pgdg12+2)"
+  }
+}

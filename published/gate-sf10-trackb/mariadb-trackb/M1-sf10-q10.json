@@ -1,0 +1,42 @@
+{
+  "config_ref": "systems/mariadb/",
+  "error": null,
+  "extra": {
+    "checksum": "43f7129b8fdd40614388de705969fa34f3823a63a949219e6a310550d4c7c73a",
+    "cold_s": 0.6641430631279945,
+    "compared": true,
+    "pushed": "duckdb",
+    "warm_s": [
+      0.43803846277296543,
+      0.42531028017401695,
+      0.43544289469718933
+    ]
+  },
+  "host": {
+    "cpus": 80,
+    "docker_version": "29.1.3",
+    "kernel": "6.8.0-60-generic",
+    "mem_gb": 187
+  },
+  "item": "q10",
+  "measure": "M1",
+  "reason": null,
+  "run_id": "gate-sf10-trackb",
+  "sf": 10,
+  "started_at": "2026-10-28T20:06:34.227212+00:00",
+  "status": "ok",
+  "system": "mariadb-trackb",
+  "track": "B",
+  "unit": "s",
+  "value": 0.43544289469718933,
+  "versions": {
+    "duckdb": "1.5.5",
+    "duckdb_allow_run_in_duckdb": "ON (Track B only)",
+    "duckdb_source": "status variable Duckdb_version",
+    "engine": "MariaDB-duckdb-engine 13.0.2-1.el9 (gamma)",
+    "entry_point": "run_in_duckdb()",
+    "image": "dbench/mariadb-duckdb:13.0.2",
+    "image_digest": "sha256:f7efdb9bd7041b96291c5b80be97bed3d327a489e3061a97a44944ee2be13eb7",
+    "mariadb": "13.0.2-MariaDB"
+  }
+}

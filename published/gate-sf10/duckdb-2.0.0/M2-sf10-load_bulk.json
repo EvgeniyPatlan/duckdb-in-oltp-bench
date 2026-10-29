@@ -1,0 +1,39 @@
+{
+  "config_ref": "systems/duckdb/",
+  "error": null,
+  "extra": {
+    "rows": {
+      "customer": 1500000,
+      "lineitem": 59986052,
+      "nation": 25,
+      "orders": 15000000,
+      "part": 2000000,
+      "partsupp": 8000000,
+      "region": 5,
+      "supplier": 100000
+    },
+    "rows_checked": true
+  },
+  "host": {
+    "cpus": 80,
+    "docker_version": "29.1.3",
+    "kernel": "6.8.0-60-generic",
+    "mem_gb": 187
+  },
+  "item": "load_bulk",
+  "measure": "M2",
+  "reason": null,
+  "run_id": "gate-sf10",
+  "sf": 10,
+  "started_at": "2026-10-29T05:57:47.880695+00:00",
+  "status": "ok",
+  "system": "duckdb-2.0.0",
+  "track": "baseline",
+  "unit": "s",
+  "value": 136.66988892294466,
+  "versions": {
+    "duckdb": "v2.0.0",
+    "image": "dbench/duckdb:2.0.0",
+    "requested": "2.0.0"
+  }
+}

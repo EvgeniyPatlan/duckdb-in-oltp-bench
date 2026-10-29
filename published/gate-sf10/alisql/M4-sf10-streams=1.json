@@ -1,0 +1,161 @@
+{
+  "config_ref": "systems/alisql/",
+  "error": null,
+  "extra": {
+    "contaminated": false,
+    "counts_by_status": {
+      "ok": 22
+    },
+    "elapsed_s": 5.2030751053243876,
+    "ok_queries": 22,
+    "p50": 0.145677,
+    "p95": 0.598012,
+    "per_query_latency": [
+      [
+        [
+          "q21",
+          0.598012,
+          "ok"
+        ],
+        [
+          "q02",
+          0.06392,
+          "ok"
+        ],
+        [
+          "q06",
+          0.048923,
+          "ok"
+        ],
+        [
+          "q07",
+          0.115847,
+          "ok"
+        ],
+        [
+          "q22",
+          0.105131,
+          "ok"
+        ],
+        [
+          "q12",
+          0.125921,
+          "ok"
+        ],
+        [
+          "q20",
+          0.135333,
+          "ok"
+        ],
+        [
+          "q04",
+          0.202957,
+          "ok"
+        ],
+        [
+          "q08",
+          0.173483,
+          "ok"
+        ],
+        [
+          "q05",
+          0.159412,
+          "ok"
+        ],
+        [
+          "q03",
+          0.145677,
+          "ok"
+        ],
+        [
+          "q16",
+          0.392298,
+          "ok"
+        ],
+        [
+          "q01",
+          0.311063,
+          "ok"
+        ],
+        [
+          "q18",
+          0.349923,
+          "ok"
+        ],
+        [
+          "q13",
+          0.933259,
+          "ok"
+        ],
+        [
+          "q19",
+          0.204303,
+          "ok"
+        ],
+        [
+          "q10",
+          0.309708,
+          "ok"
+        ],
+        [
+          "q17",
+          0.115428,
+          "ok"
+        ],
+        [
+          "q15",
+          0.071584,
+          "ok"
+        ],
+        [
+          "q09",
+          0.521269,
+          "ok"
+        ],
+        [
+          "q11",
+          0.019877,
+          "ok"
+        ],
+        [
+          "q14",
+          0.095952,
+          "ok"
+        ]
+      ]
+    ],
+    "pushdown_counter_scope": "session",
+    "pushed_counts": [
+      {
+        "not_measured": 22
+      }
+    ],
+    "streams": 1,
+    "total_queries": 22
+  },
+  "host": {
+    "cpus": 80,
+    "docker_version": "29.1.3",
+    "kernel": "6.8.0-60-generic",
+    "mem_gb": 187
+  },
+  "item": "streams=1",
+  "measure": "M4",
+  "reason": null,
+  "run_id": "gate-sf10",
+  "sf": 10,
+  "started_at": "2026-10-28T16:12:36.630451+00:00",
+  "status": "ok",
+  "system": "alisql",
+  "track": "A",
+  "unit": "qph",
+  "value": 15221.767588738707,
+  "versions": {
+    "duckdb": "1.5.2-dev736",
+    "duckdb_source": "AliSQL 8.0.44-3 release notes (bundled snapshot v1.5.2-dev736, also the only such string in the mysqld binary); no DuckDB version is exposed at runtime",
+    "engine": "AliSQL 8.0.44-3",
+    "image": "dbench/alisql:8.0.44-3",
+    "image_digest": "sha256:750530032aec307932da7cc5cc9757b49764cbf803a007069fb8b34a40b4d904",
+    "mysql": "8.0.44-3-alisql-dev"
+  }
+}

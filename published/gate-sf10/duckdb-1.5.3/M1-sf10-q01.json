@@ -1,0 +1,37 @@
+{
+  "config_ref": "systems/duckdb/",
+  "error": null,
+  "extra": {
+    "checksum": "6d8f8dd10601b3306c42a610909a907c449837236a02b5b0dcb6a7735958c84a",
+    "cold_s": 0.18544108793139458,
+    "compared": true,
+    "pushed": "duckdb",
+    "warm_s": [
+      0.1752091646194458,
+      0.16697608679533005,
+      0.16662505082786083
+    ]
+  },
+  "host": {
+    "cpus": 80,
+    "docker_version": "29.1.3",
+    "kernel": "6.8.0-60-generic",
+    "mem_gb": 187
+  },
+  "item": "q01",
+  "measure": "M1",
+  "reason": null,
+  "run_id": "gate-sf10",
+  "sf": 10,
+  "started_at": "2026-10-29T06:06:41.505007+00:00",
+  "status": "ok",
+  "system": "duckdb-1.5.3",
+  "track": "baseline",
+  "unit": "s",
+  "value": 0.16697608679533005,
+  "versions": {
+    "duckdb": "v1.5.3",
+    "image": "dbench/duckdb:1.5.3",
+    "requested": "1.5.3"
+  }
+}

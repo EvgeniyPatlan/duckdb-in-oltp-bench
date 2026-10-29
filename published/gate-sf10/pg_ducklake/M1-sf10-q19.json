@@ -1,0 +1,40 @@
+{
+  "config_ref": "systems/pgducklake/",
+  "error": null,
+  "extra": {
+    "checksum": "9f58bd0331b4048c0c8830ae415e993916c8097e662b4eb3adde5680fdc82c62",
+    "cold_s": 0.781610619276762,
+    "compared": true,
+    "pushed": "duckdb",
+    "warm_s": [
+      0.5866505727171898,
+      0.5882197916507721,
+      0.5837215278297663
+    ]
+  },
+  "host": {
+    "cpus": 80,
+    "docker_version": "29.1.3",
+    "kernel": "6.8.0-60-generic",
+    "mem_gb": 187
+  },
+  "item": "q19",
+  "measure": "M1",
+  "reason": null,
+  "run_id": "gate-sf10",
+  "sf": 10,
+  "started_at": "2026-10-28T19:45:24.781142+00:00",
+  "status": "ok",
+  "system": "pg_ducklake",
+  "track": "A",
+  "unit": "s",
+  "value": 0.5866505727171898,
+  "versions": {
+    "duckdb": "1.5.3",
+    "duckdb_source": "SELECT * FROM ducklake.query('SELECT version() AS v')",
+    "extension": "pg_ducklake 1.0.3",
+    "image": "dbench/pgducklake:18-v1.0.3",
+    "image_digest": "sha256:d60940feb73e59319ab15891f979c869e84e7bb3791b27952feed52fdb8751aa",
+    "postgres": "18.6 (Debian 18.6-1.pgdg12+2)"
+  }
+}

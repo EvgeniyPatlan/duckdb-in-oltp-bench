@@ -1,0 +1,41 @@
+{
+  "config_ref": "systems/mariadb/",
+  "error": null,
+  "extra": {
+    "category": "functions",
+    "class": "duckdb",
+    "compared": true,
+    "error": null,
+    "note": "PostgreSQL uses JSONB, the type applications normally choose there (plain JSON keeps text and is rarely used); MySQL has one JSON type. The JSON text is compared canonically (sorted keys, no whitespace).",
+    "outcome": "ok",
+    "pushed": "duckdb",
+    "reference": "ok",
+    "reference_key": "b125744d42a245d8",
+    "title": "Build a JSON object and read it as text"
+  },
+  "host": {
+    "cpus": 80,
+    "docker_version": "29.1.3",
+    "kernel": "6.8.0-60-generic",
+    "mem_gb": 187
+  },
+  "item": "fn_json_build",
+  "measure": "M5",
+  "reason": null,
+  "run_id": "gate-sf10",
+  "sf": 10,
+  "started_at": "2026-10-28T16:51:10.875388+00:00",
+  "status": "ok",
+  "system": "mariadb",
+  "track": "A",
+  "unit": "class",
+  "value": null,
+  "versions": {
+    "duckdb": "1.5.5",
+    "duckdb_source": "status variable Duckdb_version",
+    "engine": "MariaDB-duckdb-engine 13.0.2-1.el9 (gamma)",
+    "image": "dbench/mariadb-duckdb:13.0.2",
+    "image_digest": "sha256:f7efdb9bd7041b96291c5b80be97bed3d327a489e3061a97a44944ee2be13eb7",
+    "mariadb": "13.0.2-MariaDB"
+  }
+}

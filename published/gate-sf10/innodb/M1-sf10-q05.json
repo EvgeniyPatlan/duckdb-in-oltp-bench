@@ -1,0 +1,37 @@
+{
+  "config_ref": "systems/innodb/",
+  "error": null,
+  "extra": {
+    "checksum": "7c72f9e3c91a3afdb0535af350b8baac5b56eca1cdf05389005b2ce9facc8b33",
+    "cold_s": 22.112834947183728,
+    "compared": true,
+    "pushed": "n/a",
+    "warm_s": [
+      22.24203365109861,
+      21.498058956116438,
+      22.02417947910726
+    ]
+  },
+  "host": {
+    "cpus": 80,
+    "docker_version": "29.1.3",
+    "kernel": "6.8.0-60-generic",
+    "mem_gb": 187
+  },
+  "item": "q05",
+  "measure": "M1",
+  "reason": null,
+  "run_id": "gate-sf10",
+  "sf": 10,
+  "started_at": "2026-10-28T13:28:29.365918+00:00",
+  "status": "ok",
+  "system": "innodb",
+  "track": "baseline",
+  "unit": "s",
+  "value": 22.02417947910726,
+  "versions": {
+    "image": "mysql:9.7",
+    "image_digest": "mysql@sha256:8fb11c38b3551e22d50adbb688f027f8ff4ea2d2445aa277c1cc97b4af85ec54",
+    "mysql": "9.7.4"
+  }
+}

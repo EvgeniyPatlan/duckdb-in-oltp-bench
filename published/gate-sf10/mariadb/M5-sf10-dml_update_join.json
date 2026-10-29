@@ -1,0 +1,38 @@
+{
+  "config_ref": "systems/mariadb/",
+  "error": "OperationalError: (1031, \"Storage engine DUCKDB of the table `tpch`.`pc_dml_update_join_u` doesn't have this option\")",
+  "extra": {
+    "category": "dml",
+    "class": "error",
+    "error": "OperationalError: (1031, \"Storage engine DUCKDB of the table `tpch`.`pc_dml_update_join_u` doesn't have this option\")",
+    "outcome": "error",
+    "server_control": "ok",
+    "stage": "statement",
+    "title": "UPDATE from a second table"
+  },
+  "host": {
+    "cpus": 80,
+    "docker_version": "29.1.3",
+    "kernel": "6.8.0-60-generic",
+    "mem_gb": 187
+  },
+  "item": "dml_update_join",
+  "measure": "M5",
+  "reason": null,
+  "run_id": "gate-sf10",
+  "sf": 10,
+  "started_at": "2026-10-29T06:34:34.128845+00:00",
+  "status": "error",
+  "system": "mariadb",
+  "track": "A",
+  "unit": "class",
+  "value": null,
+  "versions": {
+    "duckdb": "1.5.5",
+    "duckdb_source": "status variable Duckdb_version",
+    "engine": "MariaDB-duckdb-engine 13.0.2-1.el9 (gamma)",
+    "image": "dbench/mariadb-duckdb:13.0.2",
+    "image_digest": "sha256:f7efdb9bd7041b96291c5b80be97bed3d327a489e3061a97a44944ee2be13eb7",
+    "mariadb": "13.0.2-MariaDB"
+  }
+}

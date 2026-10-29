@@ -1,0 +1,23 @@
+{
+  "config_ref": "systems/pgduckdb/",
+  "error": null,
+  "extra": {},
+  "host": {
+    "cpus": 80,
+    "docker_version": "29.1.3",
+    "kernel": "6.8.0-60-generic",
+    "mem_gb": 187
+  },
+  "item": "join_innodb",
+  "measure": "M1",
+  "reason": "pg_duckdb's Track B path reads Parquet only; joining Postgres tables is Track A pg_duckdb, and the JSON_TABLE join is VillageSQL's pattern",
+  "run_id": "gate-sf10-trackb",
+  "sf": 10,
+  "started_at": "2026-10-28T20:06:06.102773+00:00",
+  "status": "n/a",
+  "system": "pg_duckdb-trackb",
+  "track": "B",
+  "unit": "s",
+  "value": null,
+  "versions": {}
+}

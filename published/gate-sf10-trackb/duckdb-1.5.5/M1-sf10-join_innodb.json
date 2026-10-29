@@ -1,0 +1,23 @@
+{
+  "config_ref": "systems/duckdb/",
+  "error": null,
+  "extra": {},
+  "host": {
+    "cpus": 80,
+    "docker_version": "29.1.3",
+    "kernel": "6.8.0-60-generic",
+    "mem_gb": 187
+  },
+  "item": "join_innodb",
+  "measure": "M1",
+  "reason": "plain DuckDB has no MySQL table to join; the join is VillageSQL's documented JSON_TABLE pattern",
+  "run_id": "gate-sf10-trackb",
+  "sf": 10,
+  "started_at": "2026-10-28T20:03:55.397105+00:00",
+  "status": "n/a",
+  "system": "duckdb-1.5.5",
+  "track": "B",
+  "unit": "s",
+  "value": null,
+  "versions": {}
+}

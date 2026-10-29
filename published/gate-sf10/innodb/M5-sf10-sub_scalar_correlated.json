@@ -1,0 +1,33 @@
+{
+  "config_ref": "systems/innodb/",
+  "error": null,
+  "extra": {
+    "category": "subqueries",
+    "class": "n/a",
+    "outcome": "ok",
+    "reference_key": "4194a6a9bacaf2b5",
+    "title": "Correlated scalar subquery in the select list"
+  },
+  "host": {
+    "cpus": 80,
+    "docker_version": "29.1.3",
+    "kernel": "6.8.0-60-generic",
+    "mem_gb": 187
+  },
+  "item": "sub_scalar_correlated",
+  "measure": "M5",
+  "reason": "row-store baseline; reference for the probe suite",
+  "run_id": "gate-sf10",
+  "sf": 10,
+  "started_at": "2026-10-28T15:13:56.075620+00:00",
+  "status": "n/a",
+  "system": "innodb",
+  "track": "baseline",
+  "unit": "class",
+  "value": null,
+  "versions": {
+    "image": "mysql:9.7",
+    "image_digest": "mysql@sha256:8fb11c38b3551e22d50adbb688f027f8ff4ea2d2445aa277c1cc97b4af85ec54",
+    "mysql": "9.7.4"
+  }
+}
