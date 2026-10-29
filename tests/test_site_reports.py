@@ -36,7 +36,8 @@ def build(tmp_path: Path, records: list[ResultRecord], notes: dict[str, str] | N
 
 def two_campaigns() -> list[ResultRecord]:
     gate = [rec(item=q, value=1.0) for q in ("q01", "q02")]
-    gate += [rec(system="alisql", item=q, value=2.0, version="1.5.2-dev736") for q in ("q01", "q02")]
+    gate += [rec(system="alisql", item=q, value=2.0, version="1.5.2-dev736")
+             for q in ("q01", "q02")]
     gate.append(rec(system="villagesql", track="B", item="q01", run="gate-trackb", value=3.0))
     talk = [rec(item=q, value=10.0, sf=100, run="talk", started=LATER) for q in ("q01", "q02")]
     return gate + talk
@@ -115,7 +116,8 @@ def test_findings_never_rank():
           "sfs": [10], "power": {"10": {
               "queries": ["q01"], "common_queries": ["q01"],
               "cells": {"a": {"q01": {"s": "ok", "v": 2.0}}, "b": {"q01": {"s": "ok", "v": 1.0}}},
-              "totals": {"a": {"common": {"s": "ok", "v": 2.0}}, "b": {"common": {"s": "ok", "v": 1.0}}}}}}
+              "totals": {"a": {"common": {"s": "ok", "v": 2.0}},
+                         "b": {"common": {"s": "ok", "v": 1.0}}}}}}
     text = json.dumps(findings.for_report(ta, {"power": {}}, "10"))
     for word in ("best", "winner", "fastest", "worst", "rank", "beats"):
         assert word not in text.lower(), word
@@ -137,7 +139,8 @@ def test_range_counts_systems_without_a_value():
 
 def test_fallback_finding_does_not_claim_more_than_was_seen():
     ta = {"systems": [{"name": "a", "label": "A", "kind": "integration"}], "sfs": [10],
-          "fallback": {"10": {"a": {"fallback_share_tpch": {"s": "ok", "v": 0.0, "unobserved": 0.5}}}}}
+          "fallback": {"10": {"a": {"fallback_share_tpch": {"s": "ok", "v": 0.0,
+                                                             "unobserved": 0.5}}}}}
     f = findings.fallback(ta, "10")
     assert "none on 0 of the 1 integrations" in f["text"]
     assert f["items"] == ["A: TPC-H 0% (50% unobserved), probes not reported"]
@@ -153,7 +156,7 @@ def test_unsafe_run_ids_get_no_report_pages(tmp_path):
 def test_track_b_only_report_shows_its_findings(tmp_path):
     out = build(tmp_path, [rec(system="villagesql", track="B", run="tb-trackb")])
     html = (out / "reports/tb/index.html").read_text(encoding="utf-8")
-    assert "Track B (Parquet)" in html
+    assert "Parquet entry points" in html
     section = html[html.index('class="findings"'):][:200]
     assert "hidden" not in section
 
@@ -194,3 +197,46 @@ def test_empty_site_has_no_reports(tmp_path):
     assert not (out / "reports").exists()
     assert "No results are published yet" in (out / "reports.html").read_text(encoding="utf-8")
     assert 'id="report-switch"' not in (out / "index.html").read_text(encoding="utf-8")
+
+
+def test_report_dates_are_shown_and_tell_reports_apart(tmp_path):
+    from sitegen.reports import dates, label_dates
+    d = dates("2026-10-28T16:45:06+00:00", "2026-10-29T06:39:14+00:00")
+    assert d == {"date": "2026-10-29", "time": "06:39", "took": "13 h 54 min",
+                 "period": "2026-10-28 16:45 to 2026-10-29 06:39 UTC"}
+    assert dates("2026-10-29T06:00:00+02:00", "2026-10-29T06:20:00+02:00")["period"] == \
+        "2026-10-29 04:00 to 04:20 UTC"
+    assert dates(None, None)["date"] is None
+    same_day = label_dates([{**dates(None, STAMP), "id": "a"},
+                            {**dates(None, "2026-10-29T09:30:00+00:00"), "id": "b"},
+                            {**dates(None, LATER), "id": "c"}, {**dates(None, None), "id": "d"}])
+    assert [e["when"] for e in same_day] == ["2026-10-29 06:00", "2026-10-29 09:30", "2026-11-05",
+                                             "undated"]
+    out = build(tmp_path, two_campaigns())
+    html = (out / "reports/gate/track_a.html").read_text(encoding="utf-8")
+    assert re.search(r'<option value="reports/gate/" selected>2026-10-29 &middot; gate \(SF10\)',
+                     html)
+    assert "2026-11-05 &middot; talk (SF100)" in html
+    assert '<time class="date" datetime="2026-10-29">2026-10-29</time> Report <strong>gate' in html
+    listing = (out / "reports.html").read_text(encoding="utf-8")
+    assert "measured 2026-10-29 06:00 to 06:00 UTC (0 min)" in listing
+    assert "2026-10-29 to 2026-11-05" in listing
+    doc = json.loads(re.search(r'id="site-data">(.*?)</script>', listing, re.S).group(1))
+    when = {r["id"]: r["when"] for r in doc["reports"]}
+    assert when == {"gate": "2026-10-29", "talk": "2026-11-05"}
+
+
+def test_villagesql_is_listed_with_the_others_and_its_parquet_numbers_kept_apart(tmp_path):
+    out = build(tmp_path, two_campaigns())
+    html = (out / "reports/gate/index.html").read_text(encoding="utf-8")
+    assert "Track B" not in html
+    row = re.search(r'<tr><th scope="row"><a [^>]*>VillageSQL</a></th>.*?</tr>', html,
+                    re.S).group(0)
+    assert "measured on Parquet files only" in row and "&ndash;" not in row and "–" in row
+    assert 'id="parquet"' in html and 'data-chart="trackb_total"' in html
+    page = json.loads(re.search(r'id="site-data">(.*?)</script>', html, re.S).group(1))
+    assert "villagesql" not in json.dumps(page["power"])          # never on a table-based chart
+    assert [s["name"] for s in page["parquet"]["systems"]] == ["villagesql"]
+    assert "villagesql" in page["parquet"]["power"]["10"]["cells"]
+    talk = (out / "reports/talk/index.html").read_text(encoding="utf-8")
+    assert 'id="parquet"' not in talk and "VillageSQL</a></th>" not in talk

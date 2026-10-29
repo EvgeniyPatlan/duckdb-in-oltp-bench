@@ -23,7 +23,7 @@
     var cols = [];
     DATA.reports.slice().reverse().forEach(function (r) {
       Object.keys(r.summary).sort(function (a, b) { return a - b; }).forEach(function (sf) {
-        cols.push({label: r.id + " SF" + sf, per: r.summary[sf], systems: r.systems});
+        cols.push({label: r.id + " SF" + sf, when: r.when || "", per: r.summary[sf], systems: r.systems});
       });
     });
     return cols;
@@ -58,14 +58,17 @@
     }).filter(function (s) { return s.data.some(function (v) { return v != null; }); });
     chart.setOption({
       animation: false, textStyle: {color: ink()}, tooltip: {trigger: "item", confine: true, formatter: function (p) {
-        return "<b>" + esc(p.seriesName) + "</b><br>" + esc(p.name) + ": " + esc(fmt(p.value) + (p.data.cover || "")); }},
+        return "<b>" + esc(p.seriesName) + "</b><br>" + esc(p.name) +
+          (cols[p.dataIndex] && cols[p.dataIndex].when ? " (" + esc(cols[p.dataIndex].when) + ")" : "") + ": " + esc(fmt(p.value) + (p.data.cover || "")); }},
       legend: {bottom: 0, textStyle: {color: ink()}},
       grid: {left: 16, right: 24, top: 24, bottom: 80, containLabel: true},
-      xAxis: {type: "category", data: cols.map(function (c) { return c.label; }), axisLabel: {color: ink()}},
+      xAxis: {type: "category", data: cols.map(function (c) { return c.label; }), axisLabel: {color: ink(),
+        formatter: function (v, i) { return v + (cols[i] && cols[i].when ? "\n" + cols[i].when : ""); }}},
       yAxis: {type: /_total$/.test(m) ? "log" : "value", axisLabel: {color: ink()}},
       series: series
     }, true);
-    table.innerHTML = "<thead><tr><th>System</th>" + cols.map(function (c) { return "<th>" + esc(c.label) + "</th>"; }).join("") +
+    table.innerHTML = "<thead><tr><th>System</th>" + cols.map(function (c) { return "<th>" + esc(c.label) +
+      (c.when ? '<br><time class="date">' + esc(c.when) + "</time>" : "") + "</th>"; }).join("") +
       "</tr></thead><tbody>" + systems.map(function (s) {
         return "<tr><th scope=\"row\">" + esc(s.label) + "</th>" + cols.map(function (c) {
           var e = c.per[s.name]; return '<td class="num">' + esc(e && e[m] != null ? fmt(e[m]) + coverage(m, e) : "") + "</td>";

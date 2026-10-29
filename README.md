@@ -43,8 +43,9 @@ These systems are compared with each other, with plain DuckDB and with the row-s
 **Track B** holds VillageSQL. Its `vsql_duckdb` extension adds functions that hand DuckDB SQL text
 to an embedded DuckDB and return the result. There is no DuckDB table type and no routing of
 ordinary SQL, so the workload is different: DuckDB SQL over Parquet files, not MySQL SQL over
-tables. Putting it in the same charts as Track A would compare two different workloads, so it is
-reported separately. For reference, Track B also measures the raw DuckDB entry points of plain
+tables. Putting it in the same charts as Track A would compare two different workloads, so on the
+site it is listed with every other system (its table-based measures n/a, with the reason) and its
+numbers are in a "Parquet entry points" section of the same pages, never on a Track A chart. For reference, Track B also measures the raw DuckDB entry points of plain
 DuckDB, pg_duckdb (`duckdb.query`) and MariaDB (`run_in_duckdb`) on the same Parquet files.
 
 ## Measures

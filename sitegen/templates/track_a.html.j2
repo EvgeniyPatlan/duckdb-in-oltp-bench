@@ -1,10 +1,11 @@
 {% extends "base.html.j2" %}
 {% from "_macros.html.j2" import chart, key %}
-{% block title %}Track A{% endblock %}
+{% block title %}Charts{% endblock %}
 {% block content %}
-<h1>Track A: analytics on tables stored in the database</h1>
-<p class="lead">Five integrations plus plain DuckDB and row-store baselines. Same data, same container limits, same query text
-  apart from published mechanical dialect translation.</p>
+<h1>Charts</h1>
+<p class="lead">Every measure for every system. Same data, same container limits, same query text apart from published
+  mechanical dialect translation. The sections down to integration overhead use tables stored in the database;
+  <a href="#parquet">Parquet entry points</a>, at the end, is a separate workload over Parquet files, never drawn on the same chart.</p>
 {% if empty %}
 {% include "_preview.html.j2" %}
 {% else %}
@@ -33,6 +34,26 @@
 <h2>Integration overhead</h2>
 {{ chart("overhead_query", "Per-query ratio to plain DuckDB at the same version (log scale)", "1x means as fast as plain DuckDB of the same version. n/a where no plain run exists at that version.", 420, true) }}
 <div class="tablewrap" id="overhead_table"></div>
+{% if parquet %}
+<h2 id="parquet">Parquet entry points</h2>
+<section class="card prose">
+  <p>VillageSQL's <code>vsql_duckdb</code> is not a storage engine. It adds functions, <code>duckdb_query(sql)</code> and
+    <code>duckdb_scalar(sql)</code>, that run DuckDB SQL verbatim over external files (Parquet, CSV, JSON) and return the
+    result as a JSON string. Ordinary SQL on MySQL tables is never routed to DuckDB, and DuckDB cannot read InnoDB tables.
+    Results are capped by <code>max_result_bytes</code> and <code>KILL QUERY</code> does not reach the embedded DuckDB.
+    So the table-based measures above are n/a for it.</p>
+  <p>That is a different design, not a lesser one, so it is measured on its own workload: TPC-H as local Parquet files, the
+    22 queries sent through each system's raw DuckDB entry point, plus the JSON_TABLE join with an InnoDB table that
+    VillageSQL documents. On the same files: plain DuckDB, pg_duckdb <code>duckdb.query()</code> and MariaDB
+    <code>run_in_duckdb()</code>. These results are not compared with the table-based ones.</p>
+</section>
+{% if parquet_left_out %}
+<p class="note">Left out of the common Parquet query set:
+  {% for e in parquet_left_out %}{{ e.label }} ({{ e.reason }}){{ "; " if not loop.last }}{% endfor %}. Their own totals are still shown.</p>
+{% endif %}
+{{ chart("trackb_total", "Total query time over Parquet, common queries (s)", "Sum of warm medians over the queries every entry point ran correctly.", 320) }}
+{{ chart("trackb_query", "Per-query time over Parquet (s, log scale)", "Same layout as above. The join item exists only for VillageSQL (its documented pattern).", 460, true) }}
+{% endif %}
 {% endif %}
 {% endblock %}
 {% block scripts %}{% if not empty %}{% include "_data.html.j2" %}{% endif %}{% endblock %}

@@ -11,8 +11,7 @@
   <a class="brand" href="{{ root }}index.html">DuckDB inside OLTP databases</a>
   <nav aria-label="Pages">
     <a href="{{ here }}index.html">Overview</a>
-    <a href="{{ here }}track_a.html">Track A</a>
-    <a href="{{ here }}track_b.html">Track B</a>
+    <a href="{{ here }}track_a.html">Charts</a>
     <a href="{{ here }}explore.html">Explore</a>
     <a href="{{ root }}reports.html">Reports</a>
     <a href="{{ root }}methodology.html">Methodology</a>
@@ -22,14 +21,15 @@
   </nav>
   {% if reports %}
   <label class="switch">Report
-    <select id="report-switch" data-root="{{ root }}" data-page="{{ page if page in ('index', 'track_a', 'track_b', 'explore') else 'index' }}">
+    <select id="report-switch" data-root="{{ root }}" data-page="{{ page if page in ('index', 'track_a', 'explore') else 'index' }}">
       <option value=""{{ " selected" if not report.id }}>All results (latest run per system)</option>
-      {% for r in reports %}<option value="{{ r.url }}"{{ " selected" if r.id == report.id }}>{{ r.id }} (SF{{ r.sfs | join(", SF") }}{{ ", " ~ r.finished if r.finished }})</option>{% endfor %}
+      {% for r in reports %}<option value="{{ r.url }}"{{ " selected" if r.id == report.id }}>{{ r.when }} &middot; {{ r.id }} (SF{{ r.sfs | join(", SF") }})</option>{% endfor %}
     </select></label>
   {% endif %}
 </header>
 {% if report.id %}
-<div class="reportbar">Report <strong>{{ report.id }}</strong>: scale factor {{ report.sfs | join(", ") }}, measured {{ report.started }}{% if report.finished != report.started %} to {{ report.finished }}{% endif %}.
+<div class="reportbar"><time class="date"{% if report.date %} datetime="{{ report.date }}"{% endif %}>{{ report.when }}</time> Report <strong>{{ report.id }}</strong>: scale factor {{ report.sfs | join(", ") }},
+  {% if report.period %}measured {{ report.period }} ({{ report.took }}){% else %}no run date recorded{% endif %}.
   Only this campaign's records are shown. <a href="{{ root }}index.html">All results</a></div>
 {% endif %}
 {% if synthetic %}

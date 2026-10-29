@@ -19,7 +19,7 @@
   <div class="grid">
   {% for x in f["items"] %}
   <article class="card finding" id="finding-{{ x.key }}-{{ f.sf }}">
-    <h3><a href="{{ 'track_b.html' if x.key == 'trackb' else 'track_a.html' }}">{{ x.title }}</a></h3>
+    <h3><a href="{{ 'track_a.html#parquet' if x.key == 'trackb' else 'track_a.html' }}">{{ x.title }}</a></h3>
     <p>{{ x.text }}</p>
     {% if x["items"] %}<ul>{% for i in x["items"] %}<li>{{ i }}</li>{% endfor %}</ul>{% endif %}
   </article>
@@ -35,15 +35,17 @@
   {{ notes | safe }}
 </section>
 {% endif %}
-<h2>Track A headlines</h2>
+<h2>Headlines: tables stored in the database</h2>
 <p class="note">Systems appear in the same order everywhere: database integrations A to Z, plain DuckDB, row-store baselines.
-  Totals use only the queries every integration completed correctly, so everyone is scored on the same work.</p>
+  Totals use only the queries every integration completed correctly, so everyone is scored on the same work.
+  {% if parquet %}VillageSQL has no DuckDB table type, so its row here is n/a; its numbers are under
+  <a href="#parquet">Parquet entry points</a> below.{% endif %}</p>
 {% if left_out %}
 <p class="note">Left out of the common query set (SF{{ default_sf }}):
   {% for e in left_out %}{{ e.label }} ({{ e.reason }}){{ "; " if not loop.last }}{% endfor %}. Their own totals are still shown.</p>
 {% endif %}
 <div class="grid">
-{{ chart("headline_power", "Total query time, common queries (s)", "Sum of warm medians over the queries that every Track A integration ran correctly. Lower is better.", 340) }}
+{{ chart("headline_power", "Total query time, common queries (s)", "Sum of warm medians over the queries that every integration ran correctly. Lower is better.", 340) }}
 {{ chart("headline_qph", "Throughput at 16 streams (queries per hour)", "Concurrent TPC-H streams, warm cache. Higher is better.", 340) }}
 {{ chart("headline_overhead", "Integration overhead vs plain DuckDB (geomean, common queries)", "Ratio to plain DuckDB at the same version; the headline uses the same queries for every system. Each system's own geomean and its coverage are in the table below.", 340) }}
 </div>
@@ -65,7 +67,14 @@
     {% endfor %}
     </tbody></table></div>
 </section>
-<p>Details: <a href="explore.html">explore the data</a>, <a href="track_a.html">Track A charts</a>, <a href="track_b.html">Track B (VillageSQL, separate)</a>,
+{% if parquet %}
+<h2 id="parquet">Parquet entry points</h2>
+<p class="note">A second workload on the same TPC-H data: DuckDB SQL over Parquet files, sent through each system's raw DuckDB
+  entry point (VillageSQL <code>duckdb_query()</code>, pg_duckdb <code>duckdb.query()</code>, MariaDB <code>run_in_duckdb()</code>)
+  and plain DuckDB. These numbers are not comparable with the table-based ones above and are never drawn on the same chart.</p>
+{{ chart("trackb_total", "Total query time over Parquet, common queries (s)", "Sum of warm medians over the queries every entry point ran correctly. Lower is better.", 300) }}
+{% endif %}
+<p>Details: <a href="explore.html">explore the data</a>, <a href="track_a.html">all charts</a>,
   <a href="methodology.html">methodology and every setting</a>.</p>
 {% endif %}
 {% endblock %}

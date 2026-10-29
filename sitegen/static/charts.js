@@ -15,6 +15,8 @@
   var instances = [];
   var beforeDraw = [], afterDraw = [];
   var defaultSf = null;
+  /* The data set the builders read: the page's own, or its Parquet section (DATA.parquet). */
+  var CUR = DATA;
 
   function esc(s) {
     return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
@@ -34,9 +36,22 @@
   function narrow() { return window.innerWidth < 640; }
   function bg() { return getComputedStyle(document.body).getPropertyValue("--card").trim() || "#fff"; }
   function ink() { return getComputedStyle(document.body).color; }
-  function systems() { return DATA.systems.filter(function (s) { return !state.hidden[s.name]; }); }
-  function bySf(section) { return (DATA[section] || {})[state.sf] || null; }
-  function sysOf(name) { return DATA.systems.filter(function (s) { return s.name === name; })[0]; }
+  function systems() { return CUR.systems.filter(function (s) { return !state.hidden[s.name]; }); }
+  function bySf(section) { return (CUR[section] || {})[state.sf] || null; }
+  /* Every system the page shows: its own, then those only in the Parquet section. */
+  function allSystems() {
+    var names = {};
+    DATA.systems.forEach(function (s) { names[s.name] = 1; });
+    return DATA.systems.concat(((DATA.parquet || {}).systems || []).filter(function (s) { return !names[s.name]; }));
+  }
+  function sysOf(name) { return allSystems().filter(function (s) { return s.name === name; })[0]; }
+  function inParquet(build) {
+    return function () {
+      if (!DATA.parquet) return null;
+      CUR = DATA.parquet;
+      try { return build(); } finally { CUR = DATA; }
+    };
+  }
 
   /* ---- option scaffolding ---- */
   function wrap(title, opt) {
@@ -166,7 +181,7 @@
   /* ---- builders ---- */
   var B = {};
   function totalFor(section, name) {
-    var t = ((DATA[section] || {})[state.sf] || {}).totals;
+    var t = ((CUR[section] || {})[state.sf] || {}).totals;
     t = t && t[name];
     if (!t) return null;
     var own = t.own_s == null ? "none" : fmt(t.own_s) + " s (" + t.used + "/" + t.total + " queries)";
@@ -178,7 +193,7 @@
     return perSystem("Total query time, common queries", function (n) { return totalFor("power", n); },
       {unit: "s", catLabel: "Common queries (" + p.common_queries.length + ")", shownFmt: function (v) { return fmt(v) + " s"; }});
   };
-  B.trackb_total = B.headline_power;
+  B.trackb_total = inParquet(function () { return B.headline_power(); });
   B.headline_qph = function () {
     var t = bySf("throughput");
     if (!t) return null;
@@ -215,7 +230,7 @@
     var p = bySf("power");
     return p && queryChart("Per-query time", "power", p.cells, p.queries);
   };
-  B.trackb_query = B.power_query;
+  B.trackb_query = inParquet(function () { return B.power_query(); });
   var LOAD_CATS = [{id: "load_bulk", label: "Bulk path"}, {id: "load_convert", label: "Convert path"}];
   B.load = function () {
     var l = bySf("load");
@@ -409,7 +424,7 @@
     var host = document.getElementById("controls");
     if (!host) return;
     var wants = host.getAttribute("data-controls").split(",");
-    var sfs = Object.keys(DATA.power).sort(function (a, b) { return a - b; });
+    var sfs = allSfs();
     if (wants.indexOf("sf") >= 0) {
       var d = control(host, '<label>Scale factor <select id="sf">' + sfs.map(function (s) {
         return '<option value="' + s + '"' + (s === state.sf ? " selected" : "") + ">SF" + s + "</option>"; }).join("") + "</select></label>");
@@ -421,7 +436,7 @@
       m.querySelector("select").onchange = function (e) { state.metric = e.target.value; drawAll(); };
     }
     if (wants.indexOf("systems") >= 0) {
-      DATA.systems.forEach(function (s) {
+      allSystems().forEach(function (s) {
         var off = !!state.hidden[s.name];
         var c = control(host, '<button type="button" class="chip' + (off ? " off" : "") + '" aria-pressed="' + String(!off) +
           '"><i style="background:' + s.color + '"></i>' + esc(s.label) + "</button>");
@@ -435,8 +450,13 @@
       });
     }
   }
+  function allSfs() {
+    var seen = {};
+    Object.keys(DATA.power || {}).concat(Object.keys((DATA.parquet || {}).power || {})).forEach(function (s) { seen[s] = 1; });
+    return Object.keys(seen).sort(function (a, b) { return a - b; });
+  }
   function init() {
-    var sfs = Object.keys(DATA.power || {}).map(Number).sort(function (a, b) { return a - b; });
+    var sfs = allSfs().map(Number);
     var h = readHash();
     defaultSf = sfs.length ? String(sfs[sfs.length - 1]) : null;
     state.sf = sfs.length ? String(sfs.indexOf(Number(h.sf)) >= 0 ? Number(h.sf) : sfs[sfs.length - 1]) : null;

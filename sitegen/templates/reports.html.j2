@@ -7,19 +7,22 @@
 {% if empty %}
 {% include "_preview.html.j2" %}
 {% else %}
+<p class="note">Newest first. Dates are UTC, from the records' start times; a time is added to the date when two reports end on the same day.</p>
 <div class="grid">
   <article class="card">
     <h3><a href="{{ root }}index.html">All results</a></h3>
-    <p class="note">Every published record, the newest run per system, track and scale factor.</p>
-    <p><a href="{{ root }}index.html#findings">Findings</a> &middot; <a href="{{ root }}track_a.html">Track A</a> &middot;
-      <a href="{{ root }}track_b.html">Track B</a> &middot; <a href="{{ root }}explore.html">Explore</a></p>
+    {% if all_dates.period %}<p class="dateline"><time class="date">{{ all_dates.date_span }}</time></p>{% endif %}
+    <p class="note">Every published record, the newest run per system, track and scale factor{% if all_dates.period %}; records from {{ all_dates.period }}{% endif %}.</p>
+    <p><a href="{{ root }}index.html#findings">Findings</a> &middot; <a href="{{ root }}track_a.html">Charts</a> &middot;
+      <a href="{{ root }}track_a.html#parquet">Parquet</a> &middot; <a href="{{ root }}explore.html">Explore</a></p>
   </article>
   {% for r in reports %}
   <article class="card">
+    <p class="dateline"><time class="date"{% if r.date %} datetime="{{ r.date }}"{% endif %}>{{ r.when }}</time></p>
     <h3><a href="{{ root }}{{ r.url }}index.html">{{ r.id }}</a></h3>
-    <p class="note">Scale factor {{ r.sfs | join(", ") }}; last record {{ r.finished }}.</p>
-    <p><a href="{{ root }}{{ r.url }}index.html#findings">Findings</a> &middot; <a href="{{ root }}{{ r.url }}track_a.html">Track A</a> &middot;
-      <a href="{{ root }}{{ r.url }}track_b.html">Track B</a> &middot; <a href="{{ root }}{{ r.url }}explore.html">Explore</a></p>
+    <p class="note">Scale factor {{ r.sfs | join(", ") }}; {% if r.period %}measured {{ r.period }} ({{ r.took }}){% else %}no run date recorded{% endif %}.</p>
+    <p><a href="{{ root }}{{ r.url }}index.html#findings">Findings</a> &middot; <a href="{{ root }}{{ r.url }}track_a.html">Charts</a> &middot;
+      <a href="{{ root }}{{ r.url }}track_a.html#parquet">Parquet</a> &middot; <a href="{{ root }}{{ r.url }}explore.html">Explore</a></p>
   </article>
   {% endfor %}
 </div>

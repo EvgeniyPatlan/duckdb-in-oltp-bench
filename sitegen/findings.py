@@ -211,7 +211,8 @@ def trackb(data: dict, sf: str) -> dict | None:
         return None
     sp = speed(data, sf, noun="entry point")
     text = found["text"] + (" " + sp["text"] if sp else "")
-    return _finding("trackb", "Track B (Parquet)", text, found["items"] + (sp["items"] if sp else []))
+    items = found["items"] + (sp["items"] if sp else [])
+    return _finding("trackb", "Parquet entry points", text, items)
 
 
 SECTIONS = (correctness, speed, overhead, throughput, compat, fallback, load)

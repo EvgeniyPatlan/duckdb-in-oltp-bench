@@ -11,7 +11,7 @@
     <li>Every result is checked against a reference; a wrong answer is a failure whatever its speed and is never drawn as a bar.</li>
     <li>Timeouts, errors, crashes and n/a cells are shown with their reasons. Nothing is dropped.</li>
     <li>Overhead against plain DuckDB compares only equal DuckDB versions. The headline <code>geomean_common</code> uses the queries every integration completed; each system's own <code>geomean</code> and how many queries went into it are shown beside it, because a system that times out on slow queries would otherwise score better.</li>
-    <li>VillageSQL runs in its own track because it is a different design (see Track B).</li>
+    <li>VillageSQL has no DuckDB table type: it runs DuckDB SQL over Parquet files. It is listed with every other system, its table-based measures are n/a with that reason, and its numbers are in the Parquet entry points section, next to the same entry point of plain DuckDB, pg_duckdb and MariaDB on the same files. The two workloads are never drawn on one chart.</li>
   </ul>
 </section>
 <section class="card"><h2>Limits and run parameters</h2>
@@ -51,7 +51,7 @@
   {% endfor %}
 </section>
 <section class="card"><h2>Dialect translation diffs</h2>
-  <p class="note">Plain DuckDB, pg_duckdb and the Track B entry points use the canonical text. MySQL-family systems (including VillageSQL) and PostgreSQL get only these mechanical rewrites.</p>
+  <p class="note">Plain DuckDB, pg_duckdb and the Parquet entry points use the canonical text. MySQL-family systems (including VillageSQL) and PostgreSQL get only these mechanical rewrites.</p>
   {% for d in m.dialects %}
   <details><summary>{{ d.dialect }}: {{ d.diffs | length }} of 22 queries change, {{ d.unchanged }} identical</summary>
     {% for n, text in d.diffs %}<pre><code>{{ text }}</code></pre>{% endfor %}
