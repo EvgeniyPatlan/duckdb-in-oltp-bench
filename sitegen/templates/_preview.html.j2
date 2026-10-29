@@ -4,9 +4,15 @@
 {%- endmacro %}
 <section class="card preview">
   <h2>Measurements in progress</h2>
+  {% if only_tests %}
+  <p>Only test runs are published so far: they are on the <a href="{{ root }}reports.html">reports page</a> and are not
+    counted here. The campaigns are running on the reference host; the overview fills in once their result files are
+    reviewed and added to the repository.</p>
+  {% else %}
   <p>No results are published yet. The campaigns are running on the reference host; every chart on this site appears
     once the result files are reviewed and added to the repository. Until then this site shows what is compared, how
     each system is configured and how it is measured.</p>
+  {% endif %}
 </section>
 <section class="card">
   <h2>What is compared</h2>

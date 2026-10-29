@@ -261,7 +261,7 @@ campaign's records alone (Track B's `<run_id>-trackb` belongs to it); `reports.h
 reports and compares a measure across them. A report is dated by its records' start times (UTC):
 the switcher, report banner, report cards and comparison columns show the day its last record
 started, with the time added when two reports end on the same day. Every overview opens with findings computed from its
-records. To add your own reading of a report, put it in `<results>/notes/<run_id>.md`; it is shown
+records. To publish a run for reference only, list it under `test_runs` in `<results>/runs.yaml` with a reason: it keeps its own report, labelled as a test run, and is left out of the root pages and the comparison across reports. To add your own reading of a report, put it in `<results>/notes/<run_id>.md`; it is shown
 on that report's overview under "Author's notes", separate from the findings. The Explore page
 compares two systems query by query, shows one query across all systems and filters every probe
 result; its choices are kept in the page address, and its tables download as CSV. Publishing is deliberate: the Pages workflow

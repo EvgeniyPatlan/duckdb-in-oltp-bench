@@ -7,13 +7,18 @@ versions, other scale factors, other hosts) are never mixed on one chart.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sitegen.model import TRACKB_SUFFIX, Loaded, pick_runs
+import yaml
+
+from dbench.results import ResultRecord
+from sitegen.model import TRACKB_SUFFIX, Loaded, loaded_from
 
 NOTES_DIR = "notes"
+RUNS_FILE = "runs.yaml"
 # A run id becomes a directory and a URL; anything else is skipped rather than written.
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._=-]*$")
 
@@ -30,6 +35,7 @@ class Report:
     finished: str | None
     sfs: list[int]
     notes_md: str | None
+    test: str | None = None  # why this is a test run; it is then left out of the site root
 
     @property
     def slug(self) -> str:
@@ -77,20 +83,44 @@ def notes_for(results_root: Path, rid: str) -> str | None:
     return path.read_text(encoding="utf-8") if path.is_file() else None
 
 
-def split(loaded: Loaded, results_root: Path) -> list[Report]:
+class RunsFileError(ValueError):
+    pass
+
+
+def test_runs(results_root: Path) -> dict[str, str]:
+    """Reports marked as test runs in ``<results>/runs.yaml``, with the reason shown on them::
+
+        test_runs:
+          gate-sf10: "Gate run before the talk campaign."
+
+    A test run is published as its own report but left out of the site root and of the
+    comparison across reports."""
+    path = Path(results_root) / RUNS_FILE
+    if not path.is_file():
+        return {}
+    doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    runs = doc.get("test_runs", {}) if isinstance(doc, Mapping) else None
+    if not isinstance(runs, Mapping) or not all(
+            isinstance(k, str) and isinstance(v, str) and v.strip() for k, v in runs.items()):
+        raise RunsFileError(f"{path}: test_runs must map each run id to a reason")
+    return {report_id(k): v.strip() for k, v in runs.items()}
+
+
+def split(records: list[ResultRecord], synthetic: bool, results_root: Path,
+          tests: Mapping[str, str] | None = None) -> list[Report]:
     """One report per campaign, newest first (by its last record)."""
     by_id: dict[str, list] = {}
-    for r in loaded.records:
+    for r in records:
         by_id.setdefault(report_id(r.run_id), []).append(r)
     reports = []
     for rid, recs in by_id.items():
         if not SAFE_ID.match(rid) or ".." in rid:
             continue
-        kept, excluded = pick_runs(recs)
-        stamps = sorted(r.started_at for r in kept if r.started_at)
+        loaded = loaded_from(recs, synthetic)
+        stamps = sorted(r.started_at for r in loaded.records if r.started_at)
         reports.append(Report(
-            id=rid,
-            loaded=Loaded(kept, loaded.synthetic, sorted({r.run_id for r in kept}), excluded),
+            id=rid, loaded=loaded,
             started=stamps[0] if stamps else None, finished=stamps[-1] if stamps else None,
-            sfs=sorted({r.sf for r in kept}), notes_md=notes_for(results_root, rid)))
+            sfs=sorted({r.sf for r in loaded.records}), notes_md=notes_for(results_root, rid),
+            test=(tests or {}).get(rid)))
     return sorted(reports, key=lambda r: (r.finished or "", r.id), reverse=True)

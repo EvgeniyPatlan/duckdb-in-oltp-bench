@@ -5,10 +5,12 @@ import json
 import re
 from pathlib import Path
 
+import pytest
+
 from dbench.results import ResultRecord, write
 from sitegen import findings
 from sitegen.build import build_site
-from sitegen.reports import report_id
+from sitegen.reports import RunsFileError, report_id
 
 STAMP = "2026-10-29T06:00:00+00:00"
 LATER = "2026-11-05T06:00:00+00:00"
@@ -240,3 +242,51 @@ def test_villagesql_is_listed_with_the_others_and_its_parquet_numbers_kept_apart
     assert "villagesql" in page["parquet"]["power"]["10"]["cells"]
     talk = (out / "reports/talk/index.html").read_text(encoding="utf-8")
     assert 'id="parquet"' not in talk and "VillageSQL</a></th>" not in talk
+
+
+def build_with_runs(tmp_path: Path, records: list[ResultRecord], runs_yaml: str):
+    (tmp_path / "res").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "res" / "runs.yaml").write_text(runs_yaml, encoding="utf-8")
+    return build(tmp_path, records)
+
+
+def test_a_test_run_has_its_own_report_but_is_left_out_of_the_root_and_comparison(tmp_path):
+    out = build_with_runs(tmp_path, two_campaigns(),
+                          'test_runs:\n  gate: "Gate run before the talk campaign."\n')
+    root = json.loads((out / "data/track_a.json").read_text(encoding="utf-8"))
+    assert root["run_ids"] == ["talk"] and set(root["power"]) == {"100"}
+    assert "villagesql" not in (out / "data/track_b.json").read_text(encoding="utf-8")
+    page = (out / "reports/gate/index.html").read_text(encoding="utf-8")
+    assert "<strong>Test run.</strong> Gate run before the talk campaign." in page
+    assert 'id="findings"' in page  # the report itself is complete
+    assert "gate (SF10), test run</option>" in page
+    listing = (out / "reports.html").read_text(encoding="utf-8")
+    assert '<span class="tag">Test run</span>' in listing
+    doc = json.loads(re.search(r'id="site-data">(.*?)</script>', listing, re.S).group(1))
+    assert [r["id"] for r in doc["reports"]] == ["talk"]
+
+
+def test_only_test_runs_published(tmp_path):
+    out = build_with_runs(tmp_path, [rec(run="gate"), rec(system="villagesql", track="B",
+                                                          run="gate-trackb")],
+                          "test_runs:\n  gate-trackb: Gate run.\n")  # either run id marks it
+    index = (out / "index.html").read_text(encoding="utf-8")
+    assert "Only test runs are published so far" in index and 'id="findings"' not in index
+    assert 'id="findings"' in (out / "reports/gate/index.html").read_text(encoding="utf-8")
+    listing = (out / "reports.html").read_text(encoding="utf-8")
+    assert "every published report is a test run" in listing
+    assert "No results besides test runs yet." in listing and "site-data" not in listing
+
+
+def test_a_report_keeps_its_records_when_another_campaign_has_the_same_scale_factor(tmp_path):
+    first = [rec(item=q, run="first") for q in ("q01", "q02", "q03")]
+    again = [rec(item="q01", run="again", started=LATER, value=5.0)]
+    out = build(tmp_path, first + again)
+    gate = json.loads((out / "reports/first/data/track_a.json").read_text(encoding="utf-8"))
+    assert gate["power"]["10"]["queries"] == ["q01", "q02", "q03"]
+    assert (out / "reports/again/index.html").is_file()
+
+
+def test_runs_file_is_validated(tmp_path):
+    with pytest.raises(RunsFileError):
+        build_with_runs(tmp_path, [rec()], "test_runs:\n  gate:\n")

@@ -14,7 +14,7 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from sitegen import findings, md, methodology, pages, reports
-from sitegen.model import Loaded, load
+from sitegen.model import Loaded, loaded_from, read
 
 HERE = Path(__file__).resolve().parent
 PAGES = {"index.html": "index.html.j2", "track_a.html": "track_a.html.j2",
@@ -61,7 +61,7 @@ def _report_entry(r: reports.Report | None, ta: dict, listing: list[dict]) -> di
     return {"id": r.id if r else None, "url": r.slug if r else "",
             "sfs": [str(s) for s in ta["sfs"]],
             **reports.dates(r.started if r else None, r.finished if r else None),
-            "when": known.get("when")}
+            "when": known.get("when"), "test": r.test if r else None}
 
 
 def _summary(ta: dict) -> dict:
@@ -100,6 +100,7 @@ class Site:
         self.loaded, self.out, self.env = loaded, out, _env()
         self.listing = all_reports
         self.base = {"synthetic": loaded.synthetic, "empty": not loaded.records,
+                     "only_tests": not loaded.records and bool(all_reports),
                      "nav_systems": nav_systems, "reports": all_reports}
 
     def render(self, name: str, target: str, depth: int, report: dict, excluded: list,
@@ -108,7 +109,7 @@ class Site:
         html = self.env.get_template(name).render(
             root=root, here=root if name in ("methodology.html.j2", "system.html.j2",
                                              "reports.html.j2") else "",
-            report=report, excluded_runs=excluded, run_ids=run_ids, **self.base, **ctx)
+            report=report, excluded_runs=excluded, run_ids=run_ids, **{**self.base, **ctx})
         _write(self.out / target, html)
 
     def report_pages(self, loaded: Loaded, prefix: str, depth: int,
@@ -119,7 +120,7 @@ class Site:
             _write(self.out / prefix / "data" / f"{name}.json", json.dumps(payload, sort_keys=True))
         sf, page = _default_sf(ta), pages.with_parquet(ta, tb)
         common = {"depth": depth, "report": entry, "excluded": loaded.excluded,
-                  "run_ids": loaded.run_ids}
+                  "run_ids": loaded.run_ids, "empty": not loaded.records}
         notes = md.render(r.notes_md, base_level=3) if r and r.notes_md else None
         self.render(PAGES["index.html"], prefix + "index.html", data_json=pages.dumps(page),
                     page="index", rows=pages.headline_rows(ta, sf) + pages.parquet_rows(ta, tb),
@@ -136,23 +137,30 @@ class Site:
 
 
 def build_site(results_root: Path, out: Path) -> None:
-    loaded = load(Path(results_root))
+    records, synthetic = read(Path(results_root))
+    tests = reports.test_runs(Path(results_root))
+    # Test runs get their own report pages but never reach the root pages or system pages.
+    loaded = loaded_from([r for r in records if reports.report_id(r.run_id) not in tests],
+                         synthetic)
     out = Path(out)
     sys_pages = pages.system_pages(loaded)
     nav = [{"slug": p["slug"], "label": p["label"]} for p in sys_pages]
-    split = reports.split(loaded, Path(results_root)) if loaded.records else []
+    split = reports.split(records, synthetic, Path(results_root), tests)
     listing = reports.label_dates([{"id": r.id, "url": r.slug, "sfs": [str(s) for s in r.sfs],
-                                    **reports.dates(r.started, r.finished)} for r in split])
+                                    "test": r.test, **reports.dates(r.started, r.finished)}
+                                   for r in split])
     site = Site(loaded, out, nav, listing)
     combined = site.report_pages(loaded, "", 0, None)
     built = [site.report_pages(r.loaded, r.slug, 2, r) for r in split]
+    compared = [b for b in built if not b["test"]]
     none = {"depth": 0, "report": _report_entry(None, {"sfs": []}, listing),
             "excluded": loaded.excluded, "run_ids": loaded.run_ids}
     site.render(PAGES["methodology.html"], "methodology.html", page="methodology",
                 m=methodology.context(loaded.records), **none)
     site.render(PAGES["reports.html"], "reports.html", page="reports",
                 data_json=pages.dumps({"synthetic": loaded.synthetic, "combined": combined,
-                                       "reports": built}), all_dates=_span(loaded), **none)
+                                       "reports": compared}), all_dates=_span(loaded),
+                **{**none, "empty": not split, "compared": bool(compared)})
     for p in sys_pages:
         site.render("system.html.j2", f"systems/{p['slug']}", page="system", p=p,
                     **{**none, "depth": 1})
