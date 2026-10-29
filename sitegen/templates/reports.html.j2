@@ -1,0 +1,44 @@
+{% extends "base.html.j2" %}
+{% block title %}Reports{% endblock %}
+{% block content %}
+<h1>Reports</h1>
+<p class="lead">Each campaign is a report of its own: one set of versions, one host, one scale factor plan. The overview at the
+  site root shows every result together, the newest run per system.</p>
+{% if empty %}
+{% include "_preview.html.j2" %}
+{% else %}
+<div class="grid">
+  <article class="card">
+    <h3><a href="{{ root }}index.html">All results</a></h3>
+    <p class="note">Every published record, the newest run per system, track and scale factor.</p>
+    <p><a href="{{ root }}index.html#findings">Findings</a> &middot; <a href="{{ root }}track_a.html">Track A</a> &middot;
+      <a href="{{ root }}track_b.html">Track B</a> &middot; <a href="{{ root }}explore.html">Explore</a></p>
+  </article>
+  {% for r in reports %}
+  <article class="card">
+    <h3><a href="{{ root }}{{ r.url }}index.html">{{ r.id }}</a></h3>
+    <p class="note">Scale factor {{ r.sfs | join(", ") }}; last record {{ r.finished }}.</p>
+    <p><a href="{{ root }}{{ r.url }}index.html#findings">Findings</a> &middot; <a href="{{ root }}{{ r.url }}track_a.html">Track A</a> &middot;
+      <a href="{{ root }}{{ r.url }}track_b.html">Track B</a> &middot; <a href="{{ root }}{{ r.url }}explore.html">Explore</a></p>
+  </article>
+  {% endfor %}
+</div>
+<h2>Across reports</h2>
+<p class="note">One measure for every system in every report and scale factor. Reports differ in versions and scale, so read a
+  change between them together with each report's versions (see the system pages).</p>
+<div class="controls"><label>Measure <select id="cmp-measure">
+  <option value="common_total">Total query time, queries every integration answered (s)</option>
+  <option value="own_total">Total query time, each system's own correct queries (s)</option>
+  <option value="overhead">Overhead vs plain DuckDB, common queries (x)</option>
+  <option value="qph16">Throughput at 16 streams (qph)</option>
+  <option value="probe_errors">SQL probes with an error</option>
+  <option value="probe_wrong">SQL probes with a wrong result</option>
+</select></label></div>
+<section class="card"><div class="scrollx"><div class="chart" id="cmp-chart" style="height: 420px" role="img" aria-label="Measure across reports"></div></div></section>
+<p class="note" id="cmp-note"></p>
+<div class="tablewrap card"><table id="cmp-table"></table></div>
+{% endif %}
+{% endblock %}
+{% block scripts %}{% if not empty %}<script type="application/json" id="site-data">{{ data_json | safe }}</script>
+<script src="{{ root }}static/echarts.min.js"></script>
+<script src="{{ root }}static/reports.js"></script>{% endif %}{% endblock %}

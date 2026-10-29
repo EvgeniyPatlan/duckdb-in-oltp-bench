@@ -1,0 +1,53 @@
+{% extends "base.html.j2" %}
+{% from "_macros.html.j2" import chart, key %}
+{% block title %}Explore{% endblock %}
+{% block content %}
+<h1>Explore the data</h1>
+<p class="lead">Pick your own comparisons. Every choice is kept in the page address, so a view can be bookmarked or
+  shared as a link. Tables download as CSV, with the values as shown.</p>
+{% if empty %}
+{% include "_preview.html.j2" %}
+{% else %}
+{{ key() }}
+<div class="controls" id="controls" data-controls="sf,systems,metric"></div>
+
+<h2 id="pair">Two systems, query by query</h2>
+<p class="note">How many times longer system B took than system A on each query (B / A, log scale). Above 1x, B was slower.
+  Only queries both answered correctly are compared; the others are listed with their status.</p>
+<div class="pickers">
+  <label>A <select id="pair-a" data-key="a"></select></label>
+  <label>B <select id="pair-b" data-key="b"></select></label>
+  <button type="button" id="pair-swap">Swap</button>
+</div>
+<p class="summary" id="pair-summary"></p>
+{{ chart("pair_ratio", "Time of B relative to A, per query", "", 380, true) }}
+<section class="card">
+  <div class="tablebar"><h3>Per-query times</h3><button type="button" data-csv="pair-table">Download CSV</button></div>
+  <div class="tablewrap"><table id="pair-table" class="sortable"></table></div>
+</section>
+
+<h2 id="query">One query, every system</h2>
+<div class="pickers"><label>Query <select id="query-pick" data-key="q"></select></label></div>
+{{ chart("query_detail", "Warm median and cold first run (s, log scale)", "Cold is the first run after the page cache is dropped. Hover a bar for whether DuckDB ran the query.", 380) }}
+
+<h2 id="probes">SQL probes</h2>
+<p class="note">Every probe outcome for the integrations. Filter by system, category or outcome, or search the statement name and
+  the server's message.</p>
+<div class="pickers">
+  <label>System <select id="probe-sys" data-key="ps" data-all></select></label>
+  <label>Category <select id="probe-cat" data-key="pc" data-all></select></label>
+  <label>Outcome <select id="probe-cls" data-key="po" data-all></select></label>
+  <label>Search <input id="probe-q" data-key="pq" type="search" placeholder="probe or message"></label>
+</div>
+<section class="card">
+  <div class="tablebar"><h3 id="probe-count">Probes</h3><button type="button" data-csv="probe-table">Download CSV</button></div>
+  <div class="tablewrap"><table id="probe-table" class="sortable"></table></div>
+</section>
+
+<h2 id="downloads">Raw data</h2>
+<p>The data behind this report's charts: <a href="data/track_a.json">Track A (JSON)</a>,
+  <a href="data/track_b.json">Track B (JSON)</a>. Every value comes from one result record; the record files themselves
+  are in the repository under <code>published/</code>.</p>
+{% endif %}
+{% endblock %}
+{% block scripts %}{% if not empty %}{% include "_data.html.j2" %}<script src="{{ root }}static/explore.js"></script>{% endif %}{% endblock %}

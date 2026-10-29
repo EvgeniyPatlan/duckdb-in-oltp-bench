@@ -11,8 +11,10 @@
   var CLASS_GLYPH = {duckdb: "D", fallback: "F", error: "E", wrong_result: "✗", unknown: "?",
     ok_unobserved: "✓", "n/a": "–"};
   var CLASSES = Object.keys(CLASS_COLORS);
-  var state = {sf: null, hidden: {}, metric: "warm"};
+  var state = {sf: null, hidden: {}, metric: "warm", extra: {}};
   var instances = [];
+  var beforeDraw = [], afterDraw = [];
+  var defaultSf = null;
 
   function esc(s) {
     return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
@@ -366,8 +368,41 @@
     chart.setOption(opt, true);
   }
   function drawAll() {
+    beforeDraw.forEach(function (fn) { fn(); });
     Array.prototype.forEach.call(document.querySelectorAll(".chart[data-chart]"), draw);
     overheadTable();
+    Array.prototype.forEach.call(document.querySelectorAll("[data-sf]"), function (el) {
+      el.hidden = el.getAttribute("data-sf") !== state.sf;
+    });
+    afterDraw.forEach(function (fn) { fn(); });
+    saveHash();
+  }
+  /* ---- the view in the URL: #sf=10&hide=a,b&metric=cold&<page keys> ---- */
+  function saveHash() {
+    var parts = [];
+    if (state.sf && state.sf !== defaultSf) parts.push("sf=" + encodeURIComponent(state.sf));
+    var hide = Object.keys(state.hidden).filter(function (k) { return state.hidden[k]; });
+    if (hide.length) parts.push("hide=" + hide.map(encodeURIComponent).join(","));
+    if (state.metric !== "warm") parts.push("metric=" + state.metric);
+    Object.keys(state.extra).sort().forEach(function (k) {
+      if (state.extra[k]) parts.push(encodeURIComponent(k) + "=" + encodeURIComponent(state.extra[k]));
+    });
+    var h = parts.length ? "#" + parts.join("&") : "";
+    // keep a plain anchor (index.html#findings) while the view is the default one
+    if (!h && window.location.hash.indexOf("=") < 0) return;
+    if (h !== window.location.hash && window.history.replaceState) {
+      window.history.replaceState(null, "", window.location.pathname + window.location.search + h);
+    }
+  }
+  function decode(s) { try { return decodeURIComponent(s); } catch (e) { return ""; } }
+  function readHash() {
+    var out = {};
+    window.location.hash.replace(/^#/, "").split("&").forEach(function (kv) {
+      if (kv.indexOf("=") < 0) return;
+      var i = kv.indexOf("="), k = decode(kv.slice(0, i));
+      if (k) out[k] = decode(kv.slice(i + 1));
+    });
+    return out;
   }
   function control(host, html) { var d = document.createElement("span"); d.innerHTML = html; host.appendChild(d); return d; }
   function buildControls() {
@@ -381,12 +416,15 @@
       d.querySelector("select").onchange = function (e) { state.sf = e.target.value; drawAll(); };
     }
     if (wants.indexOf("metric") >= 0) {
-      var m = control(host, '<label>Per-query time <select><option value="warm">warm median</option><option value="cold">cold first run</option></select></label>');
+      var m = control(host, '<label>Per-query time <select><option value="warm">warm median</option><option value="cold"' +
+        (state.metric === "cold" ? " selected" : "") + '>cold first run</option></select></label>');
       m.querySelector("select").onchange = function (e) { state.metric = e.target.value; drawAll(); };
     }
     if (wants.indexOf("systems") >= 0) {
       DATA.systems.forEach(function (s) {
-        var c = control(host, '<button type="button" class="chip" aria-pressed="true"><i style="background:' + s.color + '"></i>' + esc(s.label) + "</button>");
+        var off = !!state.hidden[s.name];
+        var c = control(host, '<button type="button" class="chip' + (off ? " off" : "") + '" aria-pressed="' + String(!off) +
+          '"><i style="background:' + s.color + '"></i>' + esc(s.label) + "</button>");
         var b = c.firstChild;
         b.onclick = function () {
           state.hidden[s.name] = !state.hidden[s.name];
@@ -398,8 +436,14 @@
     }
   }
   function init() {
-    var sfs = Object.keys(DATA.power).map(Number).sort(function (a, b) { return a - b; });
-    state.sf = sfs.length ? String(sfs[sfs.length - 1]) : null;
+    var sfs = Object.keys(DATA.power || {}).map(Number).sort(function (a, b) { return a - b; });
+    var h = readHash();
+    defaultSf = sfs.length ? String(sfs[sfs.length - 1]) : null;
+    state.sf = sfs.length ? String(sfs.indexOf(Number(h.sf)) >= 0 ? Number(h.sf) : sfs[sfs.length - 1]) : null;
+    (h.hide || "").split(",").forEach(function (n) { if (n && sysOf(n)) state.hidden[n] = true; });
+    if (h.metric === "cold") state.metric = "cold";
+    ["sf", "hide", "metric"].forEach(function (k) { delete h[k]; });
+    state.extra = h;
     buildControls();
     drawAll();
     window.addEventListener("resize", function () {
@@ -407,5 +451,10 @@
       drawAll();
     });
   }
-  init();
+  /* Page scripts loaded after this one (explore.js) add builders and hooks before init runs. */
+  window.DBENCH = {DATA: DATA, state: state, B: B, esc: esc, fmt: fmt, wrap: wrap, grouped: grouped,
+    perSystem: perSystem, lines: lines, systems: systems, sysOf: sysOf, bySf: bySf, drawAll: drawAll,
+    saveHash: saveHash, beforeDraw: beforeDraw, afterDraw: afterDraw, CLASS_COLORS: CLASS_COLORS};
+  if (document.readyState === "complete") init();
+  else window.addEventListener("load", init);
 })();
