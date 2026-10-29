@@ -140,8 +140,10 @@ covers campaign files, resuming, the version lock and committing results.
 
 ## Results site
 
-The site is a static page built from result records: interactive charts, the raw data as
-`data/*.json`, and a methodology page listing every non-default setting, the limits, the
+The site is a static page built from result records: one report per campaign plus an overview of
+all results, findings computed from the records, interactive charts, an Explore page for your own
+comparisons (two systems query by query, one query across systems, every probe result; links keep
+the view, tables download as CSV), the raw data as `data/*.json`, and a methodology page listing every non-default setting, the limits, the
 comparison tolerances, the translated query diffs and the host. It is built from the tracked
 `published/` directory by `.github/workflows/pages.yml`, which runs the test suite first and
 refuses to deploy a site marked synthetic. Until records are published the site is a preview: what
