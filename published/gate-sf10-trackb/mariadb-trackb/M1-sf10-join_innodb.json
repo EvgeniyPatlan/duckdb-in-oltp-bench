@@ -1,0 +1,23 @@
+{
+  "config_ref": "systems/mariadb/",
+  "error": null,
+  "extra": {},
+  "host": {
+    "cpus": 80,
+    "docker_version": "29.1.3",
+    "kernel": "6.8.0-60-generic",
+    "mem_gb": 187
+  },
+  "item": "join_innodb",
+  "measure": "M1",
+  "reason": "run_in_duckdb returns text with no way to join it to an InnoDB table in SQL; the JSON_TABLE join is VillageSQL's pattern",
+  "run_id": "gate-sf10-trackb",
+  "sf": 10,
+  "started_at": "2026-10-28T20:07:07.998669+00:00",
+  "status": "n/a",
+  "system": "mariadb-trackb",
+  "track": "B",
+  "unit": "s",
+  "value": null,
+  "versions": {}
+}

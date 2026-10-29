@@ -1,0 +1,6 @@
+# Runs published as their own report but left out of the site overview and of the comparison
+# across reports (see published/README.md).
+test_runs:
+  gate-sf10: >-
+    Gate run at scale factor 10 before the talk campaign, to check the harness, the versions and
+    the correctness checks on every system.

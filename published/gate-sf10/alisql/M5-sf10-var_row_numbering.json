@@ -1,0 +1,38 @@
+{
+  "config_ref": "systems/alisql/",
+  "error": "OperationalError: (7501, '[DuckDB] Parser Error: syntax error at or near \":=\"\\n\\nLINE 1: SELECT id, (@rn := @rn + 1) AS rn FROM (SELECT id FROM pc_var_row_numbering...\\n                        ^.')",
+  "extra": {
+    "category": "variables",
+    "class": "error",
+    "error": "OperationalError: (7501, '[DuckDB] Parser Error: syntax error at or near \":=\"\\n\\nLINE 1: SELECT id, (@rn := @rn + 1) AS rn FROM (SELECT id FROM pc_var_row_numbering...\\n                        ^.')",
+    "outcome": "error",
+    "server_control": "ok",
+    "stage": "statement",
+    "title": "Row numbering with a user variable (window function on PostgreSQL)"
+  },
+  "host": {
+    "cpus": 80,
+    "docker_version": "29.1.3",
+    "kernel": "6.8.0-60-generic",
+    "mem_gb": 187
+  },
+  "item": "var_row_numbering",
+  "measure": "M5",
+  "reason": null,
+  "run_id": "gate-sf10",
+  "sf": 10,
+  "started_at": "2026-10-29T06:21:28.111075+00:00",
+  "status": "error",
+  "system": "alisql",
+  "track": "A",
+  "unit": "class",
+  "value": null,
+  "versions": {
+    "duckdb": "1.5.2-dev736",
+    "duckdb_source": "AliSQL 8.0.44-3 release notes (bundled snapshot v1.5.2-dev736, also the only such string in the mysqld binary); no DuckDB version is exposed at runtime",
+    "engine": "AliSQL 8.0.44-3",
+    "image": "dbench/alisql:8.0.44-3",
+    "image_digest": "sha256:750530032aec307932da7cc5cc9757b49764cbf803a007069fb8b34a40b4d904",
+    "mysql": "8.0.44-3-alisql-dev"
+  }
+}

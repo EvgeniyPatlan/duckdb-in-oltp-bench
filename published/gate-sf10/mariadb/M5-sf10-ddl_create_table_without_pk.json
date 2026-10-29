@@ -1,0 +1,39 @@
+{
+  "config_ref": "systems/mariadb/",
+  "error": "OperationalError: (1173, 'This table type requires a primary key')",
+  "extra": {
+    "category": "ddl",
+    "class": "error",
+    "error": "OperationalError: (1173, 'This table type requires a primary key')",
+    "note": "The only probe table without a primary key: records that requirement once, on its own.",
+    "outcome": "error",
+    "server_control": "ok",
+    "stage": "statement",
+    "title": "CREATE TABLE without a primary key, then insert a row"
+  },
+  "host": {
+    "cpus": 80,
+    "docker_version": "29.1.3",
+    "kernel": "6.8.0-60-generic",
+    "mem_gb": 187
+  },
+  "item": "ddl_create_table_without_pk",
+  "measure": "M5",
+  "reason": null,
+  "run_id": "gate-sf10",
+  "sf": 10,
+  "started_at": "2026-10-29T06:34:36.076983+00:00",
+  "status": "error",
+  "system": "mariadb",
+  "track": "A",
+  "unit": "class",
+  "value": null,
+  "versions": {
+    "duckdb": "1.5.5",
+    "duckdb_source": "status variable Duckdb_version",
+    "engine": "MariaDB-duckdb-engine 13.0.2-1.el9 (gamma)",
+    "image": "dbench/mariadb-duckdb:13.0.2",
+    "image_digest": "sha256:f7efdb9bd7041b96291c5b80be97bed3d327a489e3061a97a44944ee2be13eb7",
+    "mariadb": "13.0.2-MariaDB"
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "config_ref": "systems/postgres/",
+  "error": null,
+  "extra": {
+    "checksum": "41fb34811224d07ea6d2335ba878d76976d6de0ea5e2ba5bdc5e8514aa41786f",
+    "cold_s": 12.695528140291572,
+    "compared": true,
+    "pushed": "n/a",
+    "warm_s": [
+      12.64085172303021,
+      12.627240037545562,
+      12.647626161575317
+    ]
+  },
+  "host": {
+    "cpus": 80,
+    "docker_version": "29.1.3",
+    "kernel": "6.8.0-60-generic",
+    "mem_gb": 187
+  },
+  "item": "q09",
+  "measure": "M1",
+  "reason": null,
+  "run_id": "gate-sf10",
+  "sf": 10,
+  "started_at": "2026-10-28T15:34:51.858516+00:00",
+  "status": "ok",
+  "system": "postgres",
+  "track": "baseline",
+  "unit": "s",
+  "value": 12.64085172303021,
+  "versions": {
+    "image": "postgres:18",
+    "image_digest": "postgres@sha256:edb0c08dc33befd0262ab3b5cf1c4f3f8cfd8b09e88c05b45adee29d6761ddb6",
+    "postgres": "18.6 (Debian 18.6-1.pgdg13+2)"
+  }
+}

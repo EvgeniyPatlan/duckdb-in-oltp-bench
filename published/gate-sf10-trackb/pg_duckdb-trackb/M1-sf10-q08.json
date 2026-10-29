@@ -1,0 +1,41 @@
+{
+  "config_ref": "systems/pgduckdb/",
+  "error": null,
+  "extra": {
+    "checksum": "d5900db474603c396f80d4bb64891f7af810f9386677053a0af2fd7a3bed2eaf",
+    "cold_s": 0.8370981924235821,
+    "compared": true,
+    "pushed": "duckdb",
+    "warm_s": [
+      0.5524821151047945,
+      0.5519227590411901,
+      0.546394519507885
+    ]
+  },
+  "host": {
+    "cpus": 80,
+    "docker_version": "29.1.3",
+    "kernel": "6.8.0-60-generic",
+    "mem_gb": 187
+  },
+  "item": "q08",
+  "measure": "M1",
+  "reason": null,
+  "run_id": "gate-sf10-trackb",
+  "sf": 10,
+  "started_at": "2026-10-28T20:05:25.743303+00:00",
+  "status": "ok",
+  "system": "pg_duckdb-trackb",
+  "track": "B",
+  "unit": "s",
+  "value": 0.5519227590411901,
+  "versions": {
+    "duckdb": "1.4.3",
+    "duckdb_source": "SELECT * FROM duckdb.query('SELECT version()')",
+    "entry_point": "duckdb.query()",
+    "extension": "pg_duckdb 1.1.0",
+    "image": "pgduckdb/pgduckdb:18-v1.1.1",
+    "image_digest": "pgduckdb/pgduckdb@sha256:44c88eb9207971af1d7f9804a37429b1bb36f413cd8d7118c81e1288ddde85d1",
+    "postgres": "18.1 (Debian 18.1-1.pgdg12+2)"
+  }
+}

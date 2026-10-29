@@ -1,0 +1,38 @@
+{
+  "config_ref": "systems/mariadb/",
+  "error": "OperationalError: (1296, \"Got error 122 'Invalid Input Error: Values were not provided for the following prepared statement parameters: 1' from DuckDB\")",
+  "extra": {
+    "category": "variables",
+    "class": "error",
+    "error": "OperationalError: (1296, \"Got error 122 'Invalid Input Error: Values were not provided for the following prepared statement parameters: 1' from DuckDB\")",
+    "outcome": "error",
+    "server_control": "ok",
+    "stage": "statement",
+    "title": "A prepared statement with a parameter"
+  },
+  "host": {
+    "cpus": 80,
+    "docker_version": "29.1.3",
+    "kernel": "6.8.0-60-generic",
+    "mem_gb": 187
+  },
+  "item": "var_prepared_statement",
+  "measure": "M5",
+  "reason": null,
+  "run_id": "gate-sf10",
+  "sf": 10,
+  "started_at": "2026-10-29T06:34:36.302141+00:00",
+  "status": "error",
+  "system": "mariadb",
+  "track": "A",
+  "unit": "class",
+  "value": null,
+  "versions": {
+    "duckdb": "1.5.5",
+    "duckdb_source": "status variable Duckdb_version",
+    "engine": "MariaDB-duckdb-engine 13.0.2-1.el9 (gamma)",
+    "image": "dbench/mariadb-duckdb:13.0.2",
+    "image_digest": "sha256:f7efdb9bd7041b96291c5b80be97bed3d327a489e3061a97a44944ee2be13eb7",
+    "mariadb": "13.0.2-MariaDB"
+  }
+}

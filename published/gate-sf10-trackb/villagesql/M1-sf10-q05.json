@@ -1,0 +1,42 @@
+{
+  "config_ref": "systems/villagesql/",
+  "error": null,
+  "extra": {
+    "checksum": "7c72f9e3c91a3afdb0535af350b8baac5b56eca1cdf05389005b2ce9facc8b33",
+    "cold_s": 0.6007502507418394,
+    "compared": true,
+    "pushed": "duckdb",
+    "warm_s": [
+      0.35793910548090935,
+      0.3600615821778774,
+      0.3576318621635437
+    ]
+  },
+  "host": {
+    "cpus": 80,
+    "docker_version": "29.1.3",
+    "kernel": "6.8.0-60-generic",
+    "mem_gb": 187
+  },
+  "item": "q05",
+  "measure": "M1",
+  "reason": null,
+  "run_id": "gate-sf10-trackb",
+  "sf": 10,
+  "started_at": "2026-10-28T20:04:16.684878+00:00",
+  "status": "ok",
+  "system": "villagesql",
+  "track": "B",
+  "unit": "s",
+  "value": 0.35793910548090935,
+  "versions": {
+    "abi": "development",
+    "duckdb": "1.5.5",
+    "duckdb_source": "SELECT duckdb_status()",
+    "entry_point": "duckdb_query()",
+    "extension": "vsql_duckdb 0.0.3",
+    "image": "dbench/villagesql:0.0.7-duckdb-0.0.3",
+    "image_digest": "sha256:19d420e5d207afaca0b6bd355a9aa5dcd5327d3feef209ec696b0eaced99e68c",
+    "villagesql": "8.4.11-villagesql-0.0.7"
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "config_ref": "systems/postgres/",
+  "error": null,
+  "extra": {
+    "baseline_disagreement": false,
+    "category": "ddl",
+    "class": "n/a",
+    "note": "MySQL declares the primary key in the CTAS; PostgreSQL has no such syntax, so its target table has none.",
+    "outcome": "ok",
+    "reference_key": "e1bfa964a6ea1f9f",
+    "title": "CREATE TABLE ... AS SELECT in the system's engine"
+  },
+  "host": {
+    "cpus": 80,
+    "docker_version": "29.1.3",
+    "kernel": "6.8.0-60-generic",
+    "mem_gb": 187
+  },
+  "item": "ddl_create_table_as_select",
+  "measure": "M5",
+  "reason": "row-store baseline; reference for the probe suite",
+  "run_id": "gate-sf10",
+  "sf": 10,
+  "started_at": "2026-10-28T15:45:55.433660+00:00",
+  "status": "n/a",
+  "system": "postgres",
+  "track": "baseline",
+  "unit": "class",
+  "value": null,
+  "versions": {
+    "image": "postgres:18",
+    "image_digest": "postgres@sha256:edb0c08dc33befd0262ab3b5cf1c4f3f8cfd8b09e88c05b45adee29d6761ddb6",
+    "postgres": "18.6 (Debian 18.6-1.pgdg13+2)"
+  }
+}
