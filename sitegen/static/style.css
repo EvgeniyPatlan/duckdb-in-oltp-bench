@@ -66,3 +66,20 @@ footer { padding-top: 24px; padding-bottom: 32px; }
   .menu div { right: auto; left: 0; }
 }
 p code, li code, td code, th code { overflow-wrap: anywhere; }
+.switch { font-size: .9rem; margin-left: auto; }
+.switch select { max-width: 280px; }
+.reportbar { max-width: 1180px; margin: 8px auto 0; padding: 6px 16px; font-size: .9rem; color: var(--muted);
+  border-left: 3px solid var(--accent); }
+.findings .grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); }
+.finding h3 a { text-decoration: none; }
+.finding p { margin: .3rem 0; }
+.finding ul { margin: .3rem 0 0; padding-left: 1.2rem; font-size: .9rem; }
+.notes { border-left: 3px solid var(--muted); }
+.pickers { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin: 8px 0; }
+.pickers input, .pickers button, .tablebar button { font: inherit; padding: 2px 8px; background: var(--card); color: var(--fg);
+  border: 1px solid var(--line); border-radius: 4px; }
+.pickers button, .tablebar button { cursor: pointer; }
+.summary { max-width: 80ch; }
+.tablebar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
+.sortable th button { all: unset; cursor: pointer; font-weight: 700; }
+.sortable th button:focus-visible { outline: 2px solid var(--accent); }
