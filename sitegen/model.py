@@ -99,13 +99,24 @@ def pick_runs(records: list[ResultRecord]) -> tuple[list[ResultRecord], list[dic
     return kept, excluded
 
 
-def load(results_root: Path) -> Loaded:
-    """The records the site shows; fixture records are dropped as soon as one real record exists."""
+def read(results_root: Path) -> tuple[list[ResultRecord], bool]:
+    """Every record under ``results_root`` and whether they are fixtures; fixture records are
+    dropped as soon as one real record exists."""
     records = list(iter_records(Path(results_root)))
     real = [r for r in records if not is_synthetic(r)]
-    kept, excluded = pick_runs(real or records)
+    return real or records, bool(records) and not real
+
+
+def loaded_from(records: list[ResultRecord], synthetic: bool) -> Loaded:
+    """The records a page shows: one run per (track, system, sf), in a stable order."""
+    kept, excluded = pick_runs(records)
     out = sorted(kept, key=lambda r: (r.system, r.measure, r.sf, r.item))
-    return Loaded(out, bool(records) and not real, sorted({r.run_id for r in out}), excluded)
+    return Loaded(out, synthetic, sorted({r.run_id for r in out}), excluded)
+
+
+def load(results_root: Path) -> Loaded:
+    """The records the site shows; fixture records are dropped as soon as one real record exists."""
+    return loaded_from(*read(results_root))
 
 
 def system_entries(records: Iterable[ResultRecord]) -> list[dict]:

@@ -23,7 +23,7 @@
   <label class="switch">Report
     <select id="report-switch" data-root="{{ root }}" data-page="{{ page if page in ('index', 'track_a', 'explore') else 'index' }}">
       <option value=""{{ " selected" if not report.id }}>All results (latest run per system)</option>
-      {% for r in reports %}<option value="{{ r.url }}"{{ " selected" if r.id == report.id }}>{{ r.when }} &middot; {{ r.id }} (SF{{ r.sfs | join(", SF") }})</option>{% endfor %}
+      {% for r in reports %}<option value="{{ r.url }}"{{ " selected" if r.id == report.id }}>{{ r.when }} &middot; {{ r.id }} (SF{{ r.sfs | join(", SF") }}){{ ", test run" if r.test }}</option>{% endfor %}
     </select></label>
   {% endif %}
 </header>
@@ -31,6 +31,10 @@
 <div class="reportbar"><time class="date"{% if report.date %} datetime="{{ report.date }}"{% endif %}>{{ report.when }}</time> Report <strong>{{ report.id }}</strong>: scale factor {{ report.sfs | join(", ") }},
   {% if report.period %}measured {{ report.period }} ({{ report.took }}){% else %}no run date recorded{% endif %}.
   Only this campaign's records are shown. <a href="{{ root }}index.html">All results</a></div>
+{% if report.test %}
+<div class="banner testrun" role="note"><strong>Test run.</strong> {{ report.test }} It is published for reference only:
+  its results are not part of the site overview or of the comparison across reports.</div>
+{% endif %}
 {% endif %}
 {% if synthetic %}
 <div class="banner" role="alert"><strong>SYNTHETIC DATA.</strong> Every number on this site comes from a test fixture
