@@ -165,7 +165,7 @@ def test_echarts_is_vendored_and_pages_load_no_cdn(tmp_path):
     static = out / "static"
     assert (static / "echarts.min.js").stat().st_size > 500_000
     assert "Apache License" in (static / "LICENSE-echarts.txt").read_text(encoding="utf-8")
-    for page in ("index.html", "track_a.html", "track_b.html"):
+    for page in ("index.html", "track_a.html", "explore.html"):
         html = (out / page).read_text(encoding="utf-8")
         assert 'src="static/echarts.min.js"' in html
         assert not re.search(r'<script[^>]+src="https?:', html)

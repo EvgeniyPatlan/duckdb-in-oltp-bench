@@ -22,8 +22,9 @@ point on the same Parquet files? Track B asks that of every system that has one:
 | `pg_duckdb-trackb` | `SELECT * FROM duckdb.query($dbq$<sql>$dbq$)` | the same |
 | `mariadb-trackb` | `SELECT run_in_duckdb('<sql>')`, text parsed into rows | the same |
 
-Track B results never appear on a Track A chart, and VillageSQL is not compared with the
-storage-engine systems in Track A.
+On the site, VillageSQL is listed with the other systems and Track B is the "Parquet entry
+points" section of the overview and charts pages. Track B results never appear on a Track A chart,
+and VillageSQL is not compared with the storage-engine systems in Track A.
 
 ## The Track B query text
 

@@ -7,7 +7,7 @@ from pathlib import Path
 from dbench.results import ResultRecord
 from sitegen import aggregate, md, settings
 from sitegen.methodology import DIR_LABELS, REPO
-from sitegen.model import Loaded, config_dir, label_of, system_entries
+from sitegen.model import Loaded, base_engine, config_dir, label_of, system_entries
 
 GLYPHS = {"ok": "", "wrong_result": "✗", "timeout": "T/O", "error": "E", "crashed": "C",
           "failed": "!", "n/a": "–", "incomplete": "–"}
@@ -39,6 +39,27 @@ def track_b(loaded: Loaded) -> dict:
     systems = system_entries(records)
     return {**_meta(loaded, systems, records),
             "power": aggregate.power(records, {s["name"] for s in systems})}
+
+
+def with_parquet(ta: dict, tb: dict) -> dict:
+    """The data a page draws from: Track A, with Track B as its own ``parquet`` section. The two
+    are never mixed in one chart; they share the page, the controls and the system list."""
+    if not tb["systems"]:
+        return ta
+    return {**ta, "parquet": {k: tb[k] for k in ("systems", "sfs", "power")}}
+
+
+PARQUET_ONLY = "measured on Parquet files only; see Parquet entry points"
+
+
+def parquet_rows(ta: dict, tb: dict) -> list[dict]:
+    """Headline rows for systems that only have Parquet results (VillageSQL): every table-based
+    measure is n/a with the reason, so the system is listed with the others."""
+    have = {base_engine(s["name"]) for s in ta["systems"]}
+    na = {"text": GLYPHS["n/a"], "title": f"n/a: {PARQUET_ONLY}", "mark": "na"}
+    return [{"system": s, "total": na, "own": "", "qph": na, "over": na, "over_own": "",
+             "plain": PARQUET_ONLY} for s in tb["systems"]
+            if s["kind"] == "integration" and base_engine(s["name"]) not in have]
 
 
 def dumps(data: dict) -> str:

@@ -83,3 +83,8 @@ p code, li code, td code, th code { overflow-wrap: anywhere; }
 .tablebar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
 .sortable th button { all: unset; cursor: pointer; font-weight: 700; }
 .sortable th button:focus-visible { outline: 2px solid var(--accent); }
+.date { display: inline-block; font-variant-numeric: tabular-nums; font-size: .85rem; padding: 0 6px; border-radius: 4px;
+  background: var(--line); color: var(--fg); white-space: nowrap; }
+.reportbar .date { margin-right: 6px; }
+.dateline { margin: 0 0 4px; }
+th .date { margin-top: 2px; font-weight: normal; }

@@ -156,10 +156,12 @@ def test_charts_js_has_exports_and_local_echarts(built):
     assert 'src="static/echarts.min.js"' in html
 
 
-def test_track_b_page_explains_separate_track(built):
+def test_parquet_section_explains_villagesql_on_the_charts_page(built):
     _, out = built
-    html = text(out, "track_b.html")
-    assert "separate track" in html.lower() and "duckdb_query" in html
+    html = text(out, "track_a.html")
+    assert 'id="parquet"' in html and "duckdb_query" in html
+    assert 'data-chart="trackb_query"' in html
+    assert "url=track_a.html#parquet" in text(out, "track_b.html")
 
 
 def test_system_pages_use_readme_and_measured_facts(built):
