@@ -72,7 +72,9 @@ page. Scale factors 1, 10, 100 and 300 are supported; the conference campaign us
   date (2026-10-29); a system that changes version moves the cutoff for all of them, and every
   system is checked again for a newer release. Plain DuckDB runs its newest release and also the
   exact versions bundled by the integrations, so each integration's overhead (M7) is measured
-  against the DuckDB it actually contains.
+  against the DuckDB it actually contains. One exception: MariaDB runs its newest long-term
+  support release, 12.3.3, which MariaDB's developers asked to be tested, not the newest release
+  (13.0.2, measured in the gate-sf10 test run). Both bundle DuckDB 1.5.5.
 - **Pinned versions and digests.** Every image is pinned in the lock file: registry images by
   digest, locally built images by pinned base-image digests, package versions, checksums and git
   commits. A campaign refuses to start when an image or its build inputs differ from the lock.

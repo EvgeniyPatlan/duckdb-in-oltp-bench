@@ -335,7 +335,7 @@ def test_lock_missing_system_refused(tmp_path):
 
 def test_build_inputs_cover_locally_built_images():
     assert lock.build_inputs("innodb") == {}
-    assert lock.build_inputs("mariadb")["args"]["MARIADB_VERSION"] == "13.0.2-1.el9"
+    assert lock.build_inputs("mariadb")["args"]["MARIADB_VERSION"] == "12.3.3-1.el9"
     assert lock.build_inputs("villagesql")["args"]["EXT_COMMIT"]
     duck = lock.build_inputs("duckdb-1.5.5")
     assert duck["args"]["DUCKDB_VERSION"] == "1.5.5" and "@sha256:" in duck["from"][0]

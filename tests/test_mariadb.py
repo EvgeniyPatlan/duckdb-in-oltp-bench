@@ -10,6 +10,7 @@ from dbench.systems.mariadb import (
     MariaDBDuckDB,
     duckdb_version_from_status,
     render_config,
+    run_in_duckdb,
 )
 from dbench.systems.registry import get_adapter
 
@@ -89,6 +90,61 @@ def test_query_hooks_run_outside_the_query(monkeypatch):
     assert all("Rows_read" in s for s in cur.executed)
 
 
+class DuckCursor:
+    """Answers every ``SELECT run_in_duckdb(...)`` with one scripted text result."""
+
+    def __init__(self, answer="Count\t\nBIGINT\t\n[ Rows: 1]\n5\n\n"):
+        self.answer = answer
+        self.executed = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, sql):
+        self.executed.append(sql)
+
+    def fetchone(self):
+        return (self.answer.encode(),)
+
+
+def test_run_in_duckdb_returns_rows_and_raises_on_an_error_text():
+    assert run_in_duckdb(DuckCursor(), "SELECT 1") == [("5",)]
+    with pytest.raises(RuntimeError, match="Catalog Error"):
+        run_in_duckdb(DuckCursor("Catalog Error: Table with name nope does not exist!"), "x")
+
+
+def test_load_bulk_inserts_each_table_from_its_parquet_parts(tmp_path):
+    from dbench.datagen import DatasetPaths
+    from dbench.schema import TABLES
+
+    parts = {t: [tmp_path / "parquet" / t / f"{t}.{k}.parquet" for k in (1, 2)] for t in TABLES}
+    data = DatasetPaths(sf=1, root=tmp_path, csv_dir=tmp_path / "csv",
+                        parquet_dir=tmp_path / "parquet", manifest=tmp_path / "manifest.json",
+                        parquet_tables=parts)
+    cur = DuckCursor()
+    MariaDBDuckDB(tmp_path)._bulk_parts(cur, data)
+    assert len(cur.executed) == len(TABLES)
+    assert cur.executed[0] == (
+        "SELECT run_in_duckdb('INSERT INTO tpch.region SELECT * FROM read_parquet(["
+        "''/data/parquet/region/region.1.parquet'', "
+        "''/data/parquet/region/region.2.parquet''])')")
+
+
+def test_load_convert_still_stages_with_load_data():
+    assert MariaDBDuckDB._load_parts is get_adapter("percona", None).__class__._load_parts
+
+
+def test_checkpoint_runs_duckdb_checkpoint(monkeypatch):
+    cur = DuckCursor("Success\t\nBOOLEAN\t\n[ Rows: 0]\n\n")
+    a = MariaDBDuckDB(None)
+    monkeypatch.setattr(a, "_connect", lambda **kw: FakeConn(cur))
+    assert a.checkpoint() is None
+    assert cur.executed == ["SELECT run_in_duckdb('CHECKPOINT')"]
+
+
 def test_duckdb_version_parsing():
     assert duckdb_version_from_status("v1.5.5") == "1.5.5"
     assert duckdb_version_from_status("1.5.5") == "1.5.5"
@@ -101,7 +157,7 @@ def test_registry_and_contract():
         "mariadb", "A", "mysql", "mysql", "mariadb")
     assert a.engine_clause == "ENGINE=DuckDB"
     assert a.supports("M11") == (True, None)
-    assert IMAGE == "dbench/mariadb-duckdb:13.0.2"
+    assert IMAGE == "dbench/mariadb-duckdb:12.3.3"
 
 
 def settings(text: str) -> dict[str, str]:
@@ -120,7 +176,7 @@ def test_config_at_plan_limits():
         "plugin-load-add": "ha_duckdb.so", "plugin-maturity": "gamma",
         "duckdb_memory_limit": "48G", "duckdb_max_threads": "16",
         "duckdb_temp_directory": "/var/lib/mysql/duckdb_tmp",
-        "duckdb_use_double_for_decimal": "OFF",
+        "duckdb_use_double_for_decimal": "OFF", "duckdb_allow_run_in_duckdb": "ON",
         "innodb_buffer_pool_size": "4G", "innodb_log_file_size": "8G",
         "join_buffer_size": "256M", "sort_buffer_size": "256M",
         "tmp_table_size": "4G", "max_heap_table_size": "4G",
@@ -172,7 +228,7 @@ def test_engine_starts_and_live_variables_match_config():
         finally:
             conn.close()
         v = a.versions()
-        assert v["duckdb"] == "1.5.5" and v["mariadb"].startswith("13.0.2")
+        assert v["duckdb"] == "1.5.5" and v["mariadb"].startswith("12.3.3")
         code, _ = dockerctl._client().containers.get(a.container_name).exec_run(
             ["test", "-d", "/var/lib/mysql/duckdb_tmp"])
         assert code == 0
@@ -211,7 +267,7 @@ def test_versions_survive_missing_duckdb_version(monkeypatch):
     class Cur(FakeCursor):
         def execute(self, sql):
             self.executed.append(sql)
-            self._row = ("13.0.2-MariaDB",) if "VERSION()" in sql else None
+            self._row = ("12.3.3-MariaDB",) if "VERSION()" in sql else None
 
     cur = Cur([])
     a = MariaDBDuckDB(None)

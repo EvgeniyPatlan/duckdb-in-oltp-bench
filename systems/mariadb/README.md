@@ -1,12 +1,20 @@
-# MariaDB 13.0.2 + DuckDB engine (`ENGINE=DuckDB`)
+# MariaDB 12.3.3 (LTS) + DuckDB engine (`ENGINE=DuckDB`)
 
 Track A. MariaDB's DuckDB storage engine (`MariaDB-duckdb-engine`, plugin maturity **gamma**).
 The official MariaDB Docker image does not include it, so `systems/mariadb/Dockerfile` builds
-`dbench/mariadb-duckdb:13.0.2` from `rockylinux:9` (pinned by digest) and the official repo
-`https://rpm.mariadb.org/13.0/rhel/9/x86_64/`, installing exactly
-`MariaDB-server-13.0.2-1.el9`, `MariaDB-client-13.0.2-1.el9` and
-`MariaDB-duckdb-engine-13.0.2-1.el9`. Build it with
-`docker build -t dbench/mariadb-duckdb:13.0.2 systems/mariadb`. The resolved image digest is
+`dbench/mariadb-duckdb:12.3.3` from `rockylinux:9` (pinned by digest) and the official repo
+`https://rpm.mariadb.org/12.3/rhel/9/x86_64/`, installing exactly
+`MariaDB-server-12.3.3-1.el9`, `MariaDB-client-12.3.3-1.el9` and
+`MariaDB-duckdb-engine-12.3.3-1.el9`. Build it with
+`docker build -t dbench/mariadb-duckdb:12.3.3 systems/mariadb`.
+
+## Version choice
+
+12.3 is MariaDB's newest long-term support series with the DuckDB engine (11.8 also ships it).
+The other systems run their newest release; MariaDB runs its newest LTS release because
+MariaDB's developers asked for it to be tested rather than 13.0.2, the newest release. 13.0.2 was
+measured in the `gate-sf10` test run. Both bundle DuckDB 1.5.5 and the same engine (plugin
+version 1.0, gamma). The resolved image digest is
 recorded in every result as `versions.image_digest`. The dataset is mounted read-only at `/data`.
 
 ## Image and entrypoint
@@ -31,8 +39,9 @@ At 64 GB and 16 cores (mem_gb = container memory):
 | `duckdb_memory_limit` | 0.75 x mem_gb = `48G` | Caps DuckDB (the query engine) at 75% of the container, the share the InnoDB baseline gives its buffer pool. The engine default is 1 GiB. |
 | `duckdb_max_threads` | cores in the DB cpuset = `16` | One DuckDB thread per pinned core. |
 | `duckdb_temp_directory` | `/var/lib/mysql/duckdb_tmp` | Explicit spill location on the datadir volume (created by the entrypoint); same spill rule for all engines. |
+| `duckdb_allow_run_in_duckdb` | `ON` | `run_in_duckdb()` is MariaDB's documented bulk load, the engine's only way to run DuckDB's `CHECKPOINT`, and the Track B entry point. Refused by default. |
 | `duckdb_use_double_for_decimal` | `OFF` | Exact TPC-H DECIMAL results. The default (ON) maps DECIMAL to DOUBLE. AliSQL gets the same setting. |
-| `innodb_buffer_pool_size` | mem_gb/16 = `4G` | InnoDB only holds the catalog and `load_convert` staging; the data lives in DuckDB. |
+| `innodb_buffer_pool_size` | mem_gb/16 = `4G` | InnoDB only holds the catalog and the `load_convert` staging (the whole dataset in InnoDB before `ALTER TABLE ... ENGINE=DuckDB`); the data lives in DuckDB. The InnoDB baseline gets 0.75 x mem_gb = `48G`. |
 | `innodb_log_file_size` | mem_gb/8 = `8G` | MariaDB's name for the redo log size; equals the InnoDB baseline's `innodb_redo_log_capacity`. |
 | `join_buffer_size`, `sort_buffer_size` | `256M` | Same as the InnoDB baseline. |
 | `tmp_table_size`, `max_heap_table_size` | mem_gb/16 = `4G` | Same as the InnoDB baseline. |
@@ -45,16 +54,15 @@ At 64 GB and 16 cores (mem_gb = container memory):
 Left at the default on purpose: `duckdb_require_primary_key=ON` (the schema declares primary keys),
 `duckdb_checkpoint_threshold` (256 MiB), `duckdb_max_temp_directory_size=0` (per the engine source,
 `ha_duckdb.cc`, 0 means "90% of the available disk", i.e. DuckDB's own default, so spilling to the
-datadir volume is allowed and no cap is set),
-`duckdb_allow_run_in_duckdb=OFF`, and (set explicitly, `skip-log-bin`) the binary log: off on every MySQL-family server because replication is not under test and the default differs between families (MariaDB's is already off). There is
+datadir volume is allowed and no cap is set), and (set explicitly, `skip-log-bin`) the binary log: off on every MySQL-family server because replication is not under test and the default differs between families (MariaDB's is already off). There is
 no `innodb_parallel_read_threads` equivalent in MariaDB, so none is set. `temptable_max_ram` does
 not exist in MariaDB either.
 
-## Verified facts (MariaDB 13.0.2-1.el9 RPMs, observed on the running server)
+## Verified facts (MariaDB 12.3.3-1.el9 RPMs, observed on the running server)
 
 - `SHOW ENGINES` lists `DUCKDB`; one DuckDB file per server, `/var/lib/mysql/duckdb.db`.
 - DuckDB version: `SHOW GLOBAL STATUS LIKE 'Duckdb_version'` returns `v1.5.5`; `versions()`
-  records `duckdb: 1.5.5` from it, plus the server version `13.0.2-MariaDB`, the engine package
+  records `duckdb: 1.5.5` from it, plus the server version `12.3.3-MariaDB`, the engine package
   and the image digest.
 - The engine reports `SHOW CREATE TABLE ... ENGINE=DUCKDB` and keeps declared `PRIMARY KEY`s. The
   shared TPC-H DDL needed no override.
@@ -92,11 +100,19 @@ record carries `extra.restarted_after_timeout = true` and `extra.lingering = n`.
 
 ## Loading
 
-- `load_bulk`: engine schema with `ENGINE=DuckDB`, `LOAD DATA INFILE` per CSV part, row-count check
-  against the manifest, then `ANALYZE TABLE` on all tables. Same procedure as every MySQL-family
-  adapter. The benchmark creates the "engine" schema (primary keys only, no foreign-key indexes) for
-  this adapter (`bench_schema_kind = "engine"`). MariaDB's `run_in_duckdb('COPY ...')` would load faster but bypasses SQL and needs
-  `duckdb_allow_run_in_duckdb`; it is **not** used.
+- `load_bulk`: engine schema with `ENGINE=DuckDB`, then MariaDB's documented load, as in its own
+  TPC-H kit (`storage/duckdb/tpch/04_load.sh`): one
+  `SELECT run_in_duckdb('INSERT INTO tpch.<table> SELECT * FROM read_parquet([<parts>])')` per
+  table. The engine tables are `tpch.<table>` inside DuckDB, and DuckDB reads the Parquet copy of
+  the dataset (the other MySQL-family engines load the CSV files with `LOAD DATA INFILE`). Then the
+  row-count check against the manifest, read through MariaDB, and `ANALYZE TABLE` on all tables.
+  The benchmark creates the "engine" schema (primary keys only, no foreign-key indexes) for this
+  adapter (`bench_schema_kind = "engine"`).
+- `run_in_duckdb()` reports a DuckDB error as its text result, not as a server error; the adapter
+  parses every result and fails the load on any text that is not a result table.
+- The declared primary key is not enforced on rows written through `run_in_duckdb()`: inserting
+  existing keys again succeeds and stores duplicates (observed on 12.3.3). The load fills empty
+  tables from a dataset with unique keys, and the row-count check would catch extra rows.
 - `load_convert`: InnoDB staging with the engine schema (primary keys only), timed as
   `extra.rowstore_load_s`; then `ALTER TABLE t ENGINE=DuckDB` per table and `ANALYZE TABLE`, all
   inside `elapsed_s`. Shared code with Percona (`ConvertToDuckDBMixin`).
@@ -105,6 +121,7 @@ record carries `extra.restarted_after_timeout = true` and `extra.lingering = n`.
 
 The per-query timeout is `SET SESSION max_statement_time` (MariaDB's name for
 `max_execution_time`, in seconds; MariaDB applies it to `SELECT`); `cancel()` is `KILL QUERY`.
+The M3 checkpoint is `SELECT run_in_duckdb('CHECKPOINT')` (MariaDB has no `CHECKPOINT` statement).
 `storage_bytes()` is `du -sb` of the datadir excluding binlog files (none are written: `skip-log-bin`; replication logs are excluded and the redo log is counted);
 it counts `duckdb.db` and its WAL plus the InnoDB catalog and redo log (`innodb_log_file_size`).
 
@@ -114,6 +131,5 @@ Track B runs the canonical DuckDB text over Parquet (`dbench/queries/trackb.py`)
 `SELECT run_in_duckdb('<sql>')`. The function does return the query's rows, as text: a line of
 column names, a line of DuckDB type names, `[ Rows: N]`, then the tab-separated rows (NULL is the
 word `NULL`); the adapter parses it and takes numeric columns from the type line. It is refused
-unless the server runs with `duckdb_allow_run_in_duckdb = ON`; `trackb.cnf` appends that one
-setting to the rendered config for Track B only (Track A never sets it). Everything else is the
-Track A image and settings. See `systems/villagesql/README.md` for why Track B exists.
+unless the server runs with `duckdb_allow_run_in_duckdb = ON`, which the shared config sets for
+both tracks. Image and settings are the Track A ones. See `systems/villagesql/README.md` for why Track B exists.

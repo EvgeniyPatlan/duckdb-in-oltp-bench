@@ -1,4 +1,4 @@
-# MariaDB 13.0.2 + DuckDB engine. Rendered by dbench/systems/mariadb.py (jinja2) from the container
+# MariaDB 12.3.3 (LTS) + DuckDB engine. Rendered by dbench/systems/mariadb.py (jinja2) from the container
 # limits and mounted read-only at /etc/my.cnf.d/dbench.cnf. Lines starting with '#' are the reason
 # for the setting below them.
 # Sizing formulas (mem_gb = container memory, cores = CPUs in the DB cpuset), the same ones the
@@ -25,10 +25,16 @@ duckdb_max_threads = {{ cores }}
 # Explicit spill location on the datadir volume (created by the image entrypoint), the same
 # spill-location rule as every engine.
 duckdb_temp_directory = {{ spill_dir }}
+# run_in_duckdb() runs DuckDB SQL inside the server and is refused by default. It is MariaDB's
+# documented bulk load (INSERT ... SELECT FROM read_parquet(), storage/duckdb/tpch/04_load.sh), the
+# engine's only way to run DuckDB's CHECKPOINT, and the Track B entry point.
+duckdb_allow_run_in_duckdb = ON
 # Exact TPC-H DECIMAL results: the default (ON) maps DECIMAL to DOUBLE. AliSQL gets the same setting.
 duckdb_use_double_for_decimal = OFF
-# The InnoDB side only holds the catalog and row-store staging (the load_convert path); the data
-# lives in DuckDB, so a large pool would only take memory from DuckDB.
+# The InnoDB side only holds the catalog and the row-store staging of the conversion load
+# (load_convert, which stages the whole dataset in InnoDB before ALTER TABLE ... ENGINE=DuckDB);
+# the data lives in DuckDB, so a larger pool would only take memory from DuckDB. The InnoDB
+# baseline gets 0.75 * mem_gb.
 innodb_buffer_pool_size = {{ buffer_pool }}
 # A redo log of mem_gb/8 keeps checkpoints from throttling the row-store staging load; same
 # capacity as the InnoDB baseline (MariaDB calls it innodb_log_file_size).

@@ -112,17 +112,17 @@
   "mariadb": {
     "build_inputs": {
       "args": {
-        "MARIADB_VERSION": "13.0.2-1.el9"
+        "MARIADB_VERSION": "12.3.3-1.el9"
       },
       "from": [
         "rockylinux:9@sha256:d7be1c094cc5845ee815d4632fe377514ee6ebcf8efaed6892889657e5ddaaa6"
       ]
     },
-    "digest": "sha256:66f76535fc56ed22dfe07a38362cc52ab199adee955a11d8c1251d87b03a6772",
+    "digest": "sha256:d15e355a65a81a6c321ccbd117edd2b0772200f47e67dfb5f63efc7280a7e27b",
     "digest_kind": "local",
     "duckdb_version": "bundled; see versions in records",
-    "image": "dbench/mariadb-duckdb:13.0.2",
-    "server_version": "MariaDB 13.0.2 + MariaDB-duckdb-engine"
+    "image": "dbench/mariadb-duckdb:12.3.3",
+    "server_version": "MariaDB 12.3.3 + MariaDB-duckdb-engine"
   },
   "percona": {
     "build_inputs": {},

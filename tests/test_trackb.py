@@ -147,13 +147,13 @@ def test_pg_duckdb_statement_wraps_in_duckdb_query():
         duckdb_query_statement("SELECT '$dbq$'")
 
 
-# Real output of run_in_duckdb() on MariaDB 13.0.2 (tabs shown as \t).
+# Real output of run_in_duckdb() on MariaDB 13.0.2, the same on 12.3.3 (tabs shown as \t).
 RUN_IN_DUCKDB = ("a\tb\tc\td\te\t\nINTEGER\tVARCHAR\tDECIMAL(15,2)\tDATE\tDOUBLE\t\n"
                  "[ Rows: 2]\nNULL\t\t1.50\t1998-01-01\t1.5\n7\tx y\t2.00\t1998-01-02\t2.5\n\n")
 
 
 def test_run_in_duckdb_text_is_parsed_with_its_types():
-    from dbench.systems.trackb import parse_run_in_duckdb
+    from dbench.systems.mariadb import parse_run_in_duckdb
 
     columns, rows, numeric = parse_run_in_duckdb(RUN_IN_DUCKDB)
     assert columns == ["a", "b", "c", "d", "e"]
@@ -163,7 +163,7 @@ def test_run_in_duckdb_text_is_parsed_with_its_types():
 
 
 def test_run_in_duckdb_empty_result_and_bad_framing():
-    from dbench.systems.trackb import parse_run_in_duckdb
+    from dbench.systems.mariadb import parse_run_in_duckdb
 
     assert parse_run_in_duckdb("range\t\nBIGINT\t\n[ Rows: 0]\n\n") == (["range"], [], {0})
     assert parse_run_in_duckdb("a\t\nVARCHAR\t\n[ Rows: 1]\n\n\n")[1] == [("",)]
@@ -178,7 +178,7 @@ def test_run_in_duckdb_rows_compare_equal_to_typed_reference():
     from decimal import Decimal
 
     from dbench.correctness import compare
-    from dbench.systems.trackb import parse_run_in_duckdb
+    from dbench.systems.mariadb import parse_run_in_duckdb
 
     _, rows, numeric = parse_run_in_duckdb(RUN_IN_DUCKDB)
     reference = [(None, "", Decimal("1.50"), date(1998, 1, 1), 1.5),
@@ -187,22 +187,14 @@ def test_run_in_duckdb_rows_compare_equal_to_typed_reference():
     assert not compare(reference, [rows[0], rows[1][:2] + ("2.01",) + rows[1][3:]], numeric).match
 
 
-def test_mariadb_trackb_config_adds_only_run_in_duckdb_and_keeps_reasons():
+def test_mariadb_trackb_uses_the_track_a_config():
     from dbench.config import Limits
-    from dbench.systems import baseline_conf
-    from dbench.systems.mariadb import render_config
+    from dbench.systems.mariadb import MariaDBDuckDB, render_config
     from dbench.systems.trackb import MariaDBTrackB
 
     plan = Limits("0-15", "16-23", 64)
-    extra = (baseline_conf.SYSTEMS_DIR / "mariadb" / "trackb.cnf").read_text()
-    text = render_config(plan) + "\n" + extra
-    lines = text.splitlines()
-    assert [ln for ln in lines if ln.startswith("duckdb_allow_run_in_duckdb")] == [
-        "duckdb_allow_run_in_duckdb = ON"]
-    for i, line in enumerate(lines):
-        if line.strip() and not line.startswith(("#", "[")):
-            assert lines[i - 1].startswith("#"), line
-    assert "duckdb_allow_run_in_duckdb" not in render_config(plan)  # Track A never sets it
+    assert "duckdb_allow_run_in_duckdb = ON" in render_config(plan).splitlines()
+    assert MariaDBTrackB.config_mounts is MariaDBDuckDB.config_mounts
     a = MariaDBTrackB(None)
     assert (a.name, a.track, a.dialect, a.config_dir) == ("mariadb-trackb", "B", "duckdb",
                                                           "mariadb")

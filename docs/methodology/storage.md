@@ -27,7 +27,7 @@ Checkpoint statements:
 | AliSQL | `CALL dbms_duckdb.query('CHECKPOINT')` (the server rejects a bare `CHECKPOINT`) |
 | MySQL InnoDB | none: `n/a`, InnoDB flushes pages continuously |
 | Percona | none: `n/a`, no statement or function exists |
-| MariaDB | none: `n/a`, `run_in_duckdb()` is refused unless the server runs with `--duckdb-allow-run-in-duckdb`, which is off by default and not changed here |
+| MariaDB | `SELECT run_in_duckdb('CHECKPOINT')` (no `CHECKPOINT` statement; the server runs with `duckdb_allow_run_in_duckdb = ON`, see the bulk load below) |
 
 ## Breakdown
 
@@ -80,6 +80,13 @@ constant whatever the data size; compare `data_bytes` when comparing engines.
 |---|---|
 | `load_bulk` | wall time of `create_schema` plus the system's bulk load, including the row-count check against the dataset manifest and the statistics step (ANALYZE, or VACUUM FREEZE for Postgres) |
 | `load_convert` | only the conversion of row-store tables to the DuckDB engine, plus the analyze step; the row-store staging load is in `extra.rowstore_load_s` |
+
+The bulk path is each system's fastest documented loader. Most systems load the CSV files with
+`LOAD DATA INFILE` or `COPY`. pg_ducklake reads the same CSV files with DuckDB's `read_csv`.
+MariaDB follows its own TPC-H kit (`storage/duckdb/tpch/04_load.sh` in the MariaDB server
+repository): `run_in_duckdb('INSERT INTO tpch.<table> SELECT * FROM read_parquet([...])')` per
+table, so it reads the Parquet copy of the same dataset, not the CSV files. Its conversion path
+(`load_convert`) still stages the CSV files in InnoDB with `LOAD DATA INFILE`.
 
 `load_bulk` is the same load that sets up the other measures of the system. It is timed once. A
 resumed campaign that has to load the data again to run missing cells does not record it again.
