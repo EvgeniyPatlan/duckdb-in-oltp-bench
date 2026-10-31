@@ -50,7 +50,7 @@ build_duckdb 1.5.2-dev736 \
     --build-arg DUCKDB_GIT_DESCRIBE=v1.5.1-736-g8a6622311
 
 docker build -t dbench/alisql:8.0.44-3 "$ROOT/systems/alisql"
-docker build -t dbench/mariadb-duckdb:13.0.2 "$ROOT/systems/mariadb"
+docker build -t dbench/mariadb-duckdb:12.3.3 "$ROOT/systems/mariadb"
 docker build -t dbench/villagesql:0.0.7-duckdb-0.0.3 "$ROOT/systems/villagesql"
 bash "$ROOT/systems/pgducklake/build.sh"   # clones pg_ducklake at a pinned commit; ~20 minutes
 

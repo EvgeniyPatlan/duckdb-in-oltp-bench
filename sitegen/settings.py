@@ -14,7 +14,7 @@ from dbench.systems.alisql import SPILL_DIR as MYSQL_SPILL_DIR
 
 SYSTEMS_DIR = bc.SYSTEMS_DIR
 CONFIG_FILES = {
-    "alisql": ["my.cnf"], "mariadb": ["duckdb.cnf", "trackb.cnf"], "percona": ["mysqld-args.j2"],
+    "alisql": ["my.cnf"], "mariadb": ["duckdb.cnf"], "percona": ["mysqld-args.j2"],
     "innodb": ["my.cnf"], "postgres": ["postgresql.conf"], "pgduckdb": ["postgresql.conf"],
     "pgducklake": ["postgresql.conf"], "villagesql": ["my.cnf", "settings.sql"],
 }

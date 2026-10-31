@@ -149,8 +149,8 @@ other Track B systems record `n/a` with a reason for this item.
 - `versions` in every record holds the server version, `vsql_duckdb 0.0.3`, the DuckDB version
   reported by `duckdb_status()` and the image digest.
 - Track B pg_duckdb bundles DuckDB 1.4.3 (the image `pgduckdb/pgduckdb:18-v1.1.1`), not 1.5.5.
-  MariaDB reports 1.5.5; `mariadb-trackb` additionally sets `duckdb_allow_run_in_duckdb = ON`
-  (`systems/mariadb/trackb.cnf`), which Track A never does.
+  MariaDB reports 1.5.5; its server runs with `duckdb_allow_run_in_duckdb = ON` in both tracks
+  (Track A loads and checkpoints through `run_in_duckdb()`).
 - Track B pg_duckdb and MariaDB use the Track A images and settings otherwise.
 - M11 (conversion) and M12 (pushdown) are n/a: VillageSQL has no engine to convert tables into
   and no routing decision to detect.

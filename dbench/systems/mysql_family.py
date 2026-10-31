@@ -170,8 +170,13 @@ class MySQLFamilyAdapter(ContainerServerAdapter):
             actual[table] = cur.fetchone()[0]
         return actual
 
-    def _load(self, cur, data: DatasetPaths, started: float) -> LoadOutcome:
+    def _bulk_parts(self, cur, data: DatasetPaths) -> None:
+        """The ``load_bulk`` path; ``load_convert`` keeps ``_load_parts`` for its row-store
+        staging."""
         self._load_parts(cur, data)
+
+    def _load(self, cur, data: DatasetPaths, started: float) -> LoadOutcome:
+        self._bulk_parts(cur, data)
         loaded_s = time.perf_counter() - started
         expected = expected_rows(data)
         actual = self._count_rows(cur)
