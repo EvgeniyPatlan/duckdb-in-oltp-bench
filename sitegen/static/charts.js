@@ -284,6 +284,7 @@
       legend: {type: "plain", bottom: 0, textStyle: {color: ink()}, data: list.map(function (s) { return s.label; })}});
   }
   B.curve = function () { return curve("Throughput vs streams", function (c) { return c.v; }, "qph"); };
+  B.trackb_curve = inParquet(function () { return B.curve(); });
   B.latency = function () { return curve("p95 latency vs streams", function (c) { return c.p95; }, "s"); };
   function compatSystems(sc) { return systems().filter(function (s) { return sc.cells[s.name]; }); }
   B.compat_summary = function () {

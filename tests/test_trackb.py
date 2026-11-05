@@ -5,6 +5,7 @@ import pytest
 
 from dbench.measures.power import run_power
 from dbench.queries.dialect import load_query
+from dbench.queries.hybrid import HYBRID_ITEMS
 from dbench.queries.trackb import (
     default_globs,
     substitute_parquet,
@@ -256,32 +257,80 @@ def test_run_track_b_records_a_failed_start_for_every_item(tmp_path):
                        clock=lambda: datetime(2026, 1, 1, tzinfo=UTC), host=lambda: HOST,
                        adapter_factory=factory)
     assert [(r.item, r.status, r.track) for r in recs] == [
-        ("q01", "failed", "B"), ("q02", "failed", "B"), ("join_innodb", "failed", "B")]
+        ("q01", "failed", "B"), ("q02", "failed", "B"),
+        *[(item, "failed", "B") for item in HYBRID_ITEMS]]
     assert "extension would not load" in recs[0].reason and recs[0].error
-    assert len(list(iter_records(tmp_path))) == 3
+    assert len(list(iter_records(tmp_path))) == 2 + len(HYBRID_ITEMS)
 
 
-def test_run_track_b_marks_the_join_n_a_for_other_systems(tmp_path):
+def test_run_track_b_marks_the_joins_n_a_for_mariadb(tmp_path):
     from dbench.config import Limits
     from dbench.measures.villagesql import run_track_b
 
     class Other(Reference):
-        name = "pg_duckdb-trackb"
-        config_dir = "pgduckdb"
+        name = "mariadb-trackb"
+        config_dir = "mariadb"
 
     def factory(name, data_dir):
-        return Other([ok(1.0, [(1,)])] * 40) if name == "pg_duckdb-trackb" \
+        return Other([ok(1.0, [(1,)])] * 40) if name == "mariadb-trackb" \
             else Reference([ok(1.0, [(1,)])] * 40)
 
     class Data:
         root = tmp_path
 
-    recs = run_track_b(1, "r", tmp_path, ["pg_duckdb-trackb"], data=Data,
+    recs = run_track_b(1, "r", tmp_path, ["mariadb-trackb"], data=Data,
                        limits=Limits("0-7", "8-11", 16), queries=[1], warm_runs=0,
                        drop_caches=lambda: None, clock=lambda: datetime(2026, 1, 1, tzinfo=UTC),
                        host=lambda: HOST, adapter_factory=factory)
-    assert [(r.item, r.status) for r in recs] == [("q01", "ok"), ("join_innodb", "n/a")]
-    assert recs[0].extra["compared"] is True and recs[1].reason
+    assert [(r.item, r.status) for r in recs] == [
+        ("q01", "ok"), *[(item, "n/a") for item in HYBRID_ITEMS]]
+    assert recs[0].extra["compared"] is True and all(r.reason for r in recs[1:])
+
+
+def test_run_track_b_hybrid_systems_load_their_tables_and_run_their_own_join_text(tmp_path):
+    from dbench.config import Limits
+    from dbench.measures.villagesql import run_track_b
+    from dbench.queries.hybrid import HYBRID_JOINS
+    from dbench.systems.base import LoadOutcome
+
+    sent: dict[str, list[str]] = {}
+
+    class Hybrid(Reference):
+        config_dir = "x"
+
+        def __init__(self, name):
+            super().__init__([])
+            self.name = name
+            self.schema = None
+
+        def create_schema(self, sf, kind):
+            self.schema = kind
+
+        def load_bulk(self, data):
+            sent.setdefault(self.name, []).append(f"load {self.schema}")
+            return LoadOutcome("ok", 0.1, None, {})
+
+        def execute(self, sql, timeout_s):
+            sent.setdefault(self.name, []).append(sql)
+            return ok(1.0, [(1,)])
+
+    def factory(name, data_dir):
+        return Hybrid(name) if name in ("villagesql", "pg_duckdb-trackb") \
+            else Reference([ok(1.0, [(1,)])] * 40)
+
+    class Data:
+        root = tmp_path
+
+    recs = run_track_b(1, "r", tmp_path, ["villagesql", "pg_duckdb-trackb"], data=Data,
+                       limits=Limits("0-7", "8-11", 16), queries=[1], warm_runs=0,
+                       drop_caches=lambda: None, clock=lambda: datetime(2026, 1, 1, tzinfo=UTC),
+                       host=lambda: HOST, adapter_factory=factory)
+    assert {r.status for r in recs if r.item in HYBRID_ITEMS} == {"ok"}
+    for name, text in (("villagesql", lambda j: j.villagesql), ("pg_duckdb-trackb",
+                                                                lambda j: j.pg_duckdb)):
+        assert sent[name][0] == "load rowstore"
+        for j in HYBRID_JOINS:
+            assert text(j) in sent[name], (name, j.item)
 
 
 def test_run_track_b_auto_fails_a_system_that_raises_and_goes_on(tmp_path):
@@ -336,8 +385,8 @@ def test_run_track_b_failed_start_is_auto(tmp_path):
 
 
 class _Counting(Reference):
-    name = "pg_duckdb-trackb"
-    config_dir = "pgduckdb"
+    name = "mariadb-trackb"
+    config_dir = "mariadb"
 
     def __init__(self, log):
         super().__init__([])
@@ -354,12 +403,12 @@ def _trackb(tmp_path, log, clock, monkeypatch):
     monkeypatch.setattr("dbench.hostinfo.suspended_s", clock)
 
     def factory(name, data_dir):
-        return _Counting(log) if name == "pg_duckdb-trackb" else Reference([ok(1.0, [(1,)])] * 40)
+        return _Counting(log) if name == "mariadb-trackb" else Reference([ok(1.0, [(1,)])] * 40)
 
     class Data:
         root = tmp_path
 
-    return run_track_b(1, "r", tmp_path, ["pg_duckdb-trackb"], data=Data,
+    return run_track_b(1, "r", tmp_path, ["mariadb-trackb"], data=Data,
                        limits=Limits("0-7", "8-11", 16), queries=[1, 2, 3], warm_runs=0,
                        drop_caches=lambda: None, clock=lambda: datetime(2026, 1, 1, tzinfo=UTC),
                        host=lambda: HOST, adapter_factory=factory)
@@ -372,11 +421,11 @@ def test_track_b_host_suspend_keeps_measured_cells_and_resume_retries_the_rest(t
     log: list[str] = []
     # from the 2nd query on, the host "sleeps" 60 s during every run: q02 and q03 abort
     _trackb(tmp_path, log, lambda: 60.0 * max(0, len(log) - 1), monkeypatch)
-    q01 = tmp_path / "r" / "pg_duckdb-trackb" / "M1-sf1-q01.json"
+    q01 = tmp_path / "r" / "mariadb-trackb" / "M1-sf1-q01.json"
     kept = q01.read_bytes()
-    by = {r.item: r for r in iter_records(tmp_path) if r.system == "pg_duckdb-trackb"}
+    by = {r.item: r for r in iter_records(tmp_path) if r.system == "mariadb-trackb"}
     assert by["q01"].status == "ok" and "auto" not in by["q01"].extra
-    for item in ("q02", "q03", "join_innodb"):
+    for item in ("q02", "q03", *HYBRID_ITEMS):
         assert by[item].status == "failed" and by[item].extra["auto"] is True
         assert by[item].reason.startswith(SUSPEND_REASON)
 
@@ -384,6 +433,125 @@ def test_track_b_host_suspend_keeps_measured_cells_and_resume_retries_the_rest(t
     _trackb(tmp_path, log, lambda: 0.0, monkeypatch)
     assert len(log) == 2  # q02 and q03 only
     assert q01.read_bytes() == kept
-    by = {r.item: r for r in iter_records(tmp_path) if r.system == "pg_duckdb-trackb"}
-    assert [by[i].status for i in ("q01", "q02", "q03", "join_innodb")] == [
-        "ok", "ok", "ok", "n/a"]
+    by = {r.item: r for r in iter_records(tmp_path) if r.system == "mariadb-trackb"}
+    assert [by[i].status for i in ("q01", "q02", "q03", *HYBRID_ITEMS)] == [
+        "ok", "ok", "ok", *["n/a"] * len(HYBRID_ITEMS)]
+
+
+def _mariadb_streams(tmp_path, monkeypatch, throughput, streams=(1, 4)):
+    from dbench.config import Limits
+    from dbench.measures import villagesql
+
+    class Other(Reference):
+        name = "mariadb-trackb"
+        config_dir = "mariadb"
+
+    monkeypatch.setattr(villagesql, "run_throughput", throughput)
+
+    class Data:
+        root = tmp_path
+
+    return villagesql.run_track_b(
+        1, "r", tmp_path, ["mariadb-trackb"], data=Data, limits=Limits("0-7", "8-11", 16),
+        queries=[1], warm_runs=0, drop_caches=lambda: None,
+        clock=lambda: datetime(2026, 1, 1, tzinfo=UTC), host=lambda: HOST,
+        adapter_factory=lambda name, d: Other([ok(1.0, [(1,)])] * 40) if name == "mariadb-trackb"
+        else Reference([ok(1.0, [(1,)])] * 40), streams=streams)
+
+
+def test_track_b_streams_run_m4_with_the_parquet_query_text(tmp_path, monkeypatch):
+    from dbench.results import ResultRecord, write
+
+    calls = []
+
+    def throughput(adapter, sf, streams, run_id, root, *, query_text, timeout_s, **kw):
+        calls.append((adapter.name, streams, run_id, query_text(1)))
+        rec = ResultRecord(system=adapter.name, track="B", measure="M4", sf=sf,
+                           item=f"streams={streams}", status="ok", value=100.0, unit="qph",
+                           config_ref="systems/mariadb/", run_id=run_id,
+                           started_at="2026-01-01T00:00:00+00:00")
+        write(rec, root)
+        return rec
+
+    recs = _mariadb_streams(tmp_path, monkeypatch, throughput)
+    assert [(c[0], c[1], c[2]) for c in calls] == [("mariadb-trackb", 1, "r"),
+                                                     ("mariadb-trackb", 4, "r")]
+    assert calls[0][3] == trackb_query(1, GLOBS)  # Parquet text, not table text
+    assert [(r.measure, r.item) for r in recs if r.measure == "M4"] == [
+        ("M4", "streams=1"), ("M4", "streams=4")]
+    # resume: everything recorded, nothing runs again
+    calls.clear()
+    assert _mariadb_streams(tmp_path, monkeypatch, throughput) == [] and calls == []
+
+
+def test_track_b_stream_failure_keeps_m1_and_fails_the_remaining_streams(tmp_path, monkeypatch):
+    def throughput(adapter, sf, streams, run_id, root, **kw):
+        raise RuntimeError("server went away")
+
+    recs = _mariadb_streams(tmp_path, monkeypatch, throughput)
+    by = {(r.measure, r.item): r for r in recs}
+    assert by[("M1", "q01")].status == "ok"
+    for item in ("streams=1", "streams=4"):
+        rec = by[("M4", item)]
+        assert rec.status == "failed" and rec.extra["auto"] is True and rec.unit == "qph"
+        assert "server went away" in rec.reason
+
+
+def test_track_b_without_streams_runs_no_m4(tmp_path, monkeypatch):
+    def throughput(*a, **kw):
+        raise AssertionError("M4 must not run")
+
+    recs = _mariadb_streams(tmp_path, monkeypatch, throughput, streams=())
+    assert {r.measure for r in recs} == {"M1"}
+
+
+def test_resume_measures_a_stale_join_n_a_and_skips_the_load_when_only_m4_is_left(
+        tmp_path, monkeypatch):
+    from dbench.config import Limits
+    from dbench.measures import villagesql
+    from dbench.results import ResultRecord, cell_record, write
+    from dbench.systems.base import LoadOutcome
+
+    loads = []
+
+    class Pg(Reference):
+        name = "pg_duckdb-trackb"
+        config_dir = "pgduckdb"
+
+        def create_schema(self, sf, kind):
+            pass
+
+        def load_bulk(self, data):
+            loads.append(1)
+            return LoadOutcome("ok", 0.1, None, {})
+
+    def m4(adapter, sf, streams, run_id, root, **kw):
+        rec = ResultRecord(system=adapter.name, track="B", measure="M4", sf=sf,
+                           item=f"streams={streams}", status="ok", value=1.0, unit="qph",
+                           config_ref="x", run_id=run_id, started_at="2026-01-01T00:00:00+00:00")
+        write(rec, root)
+        return rec
+
+    monkeypatch.setattr(villagesql, "run_throughput", m4)
+    # an older run: pg_duckdb's join_innodb recorded as n/a
+    write(ResultRecord(system="pg_duckdb-trackb", track="B", measure="M1", sf=1,
+                       item="join_innodb", status="n/a", value=None, unit="s", config_ref="x",
+                       run_id="r", started_at="2026-01-01T00:00:00+00:00",
+                       reason="Track B path reads Parquet only"), tmp_path)
+
+    class Data:
+        root = tmp_path
+
+    def run():
+        return villagesql.run_track_b(
+            1, "r", tmp_path, ["pg_duckdb-trackb"], data=Data, limits=Limits("0-7", "8-11", 16),
+            queries=[1], warm_runs=0, drop_caches=lambda: None,
+            clock=lambda: datetime(2026, 1, 1, tzinfo=UTC), host=lambda: HOST,
+            adapter_factory=lambda n, d: Pg([ok(1.0, [(1,)])] * 40), streams=(1,))
+
+    run()
+    assert cell_record(tmp_path, "pg_duckdb-trackb", "M1", 1, "join_innodb", "r").status == "ok"
+    assert loads == [1]
+    # only M4 left: no table load
+    (tmp_path / "r" / "pg_duckdb-trackb" / "M4-sf1-streams=1.json").unlink()
+    assert [r.measure for r in run()] == ["M4"] and loads == [1]

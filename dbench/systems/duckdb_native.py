@@ -185,7 +185,12 @@ class DuckDBNative(SystemAdapter):
             resp = conn.execute("SELECT version()", PROBE_TIMEOUT_S)
         finally:
             conn.close()
-        return {"duckdb": resp["rows"][0][0], "image": self.image, "requested": self.version}
+        try:
+            digest = dockerctl.image_digest(self.image)
+        except Exception as exc:  # noqa: BLE001 - versions() must not fail on a missing image
+            digest = f"unknown ({type(exc).__name__})"
+        return {"duckdb": resp["rows"][0][0], "image": self.image, "image_digest": digest,
+                "requested": self.version}
 
     def _run(self, sql: str, timeout_s: int = 600) -> dict:
         conn = self.connect()

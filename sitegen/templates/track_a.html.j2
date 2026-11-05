@@ -43,16 +43,19 @@
     Results are capped by <code>max_result_bytes</code> and <code>KILL QUERY</code> does not reach the embedded DuckDB.
     So the table-based measures above are n/a for it.</p>
   <p>That is a different design, not a lesser one, so it is measured on its own workload: TPC-H as local Parquet files, the
-    22 queries sent through each system's raw DuckDB entry point, plus the JSON_TABLE join with an InnoDB table that
-    VillageSQL documents. On the same files: plain DuckDB, pg_duckdb <code>duckdb.query()</code> and MariaDB
-    <code>run_in_duckdb()</code>. These results are not compared with the table-based ones.</p>
+    22 queries sent through each system's raw DuckDB entry point, plus four hybrid joins of DuckDB results over Parquet
+    with tables in the server's row store: VillageSQL's documented <code>JSON_TABLE</code> pattern over InnoDB, and
+    pg_duckdb's <code>read_parquet()</code> joined to heap tables. On the same files: plain DuckDB, pg_duckdb
+    <code>duckdb.query()</code> and MariaDB <code>run_in_duckdb()</code>. These results are not compared with the
+    table-based ones.</p>
 </section>
 {% if parquet_left_out %}
 <p class="note">Left out of the common Parquet query set:
   {% for e in parquet_left_out %}{{ e.label }} ({{ e.reason }}){{ "; " if not loop.last }}{% endfor %}. Their own totals are still shown.</p>
 {% endif %}
 {{ chart("trackb_total", "Total query time over Parquet, common queries (s)", "Sum of warm medians over the queries every entry point ran correctly.", 320) }}
-{{ chart("trackb_query", "Per-query time over Parquet (s, log scale)", "Same layout as above. The join item exists only for VillageSQL (its documented pattern).", 460, true) }}
+{{ chart("trackb_query", "Per-query time over Parquet (s, log scale)", "Same layout as above. The join_innodb items run only on VillageSQL and pg_duckdb, each in its own documented pattern.", 460, true) }}
+{{ chart("trackb_curve", "Throughput over Parquet vs concurrent streams (qph)", "The 22 queries over Parquet; each stream runs them once in its own order. The joins are not part of it.", 340) }}
 {% endif %}
 {% endif %}
 {% endblock %}

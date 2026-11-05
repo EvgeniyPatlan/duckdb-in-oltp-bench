@@ -214,7 +214,7 @@ def test_mark_failed_track_b_system(tmp_path):
     path = write_yaml(tmp_path, track_b={"enabled": True, "systems": ["villagesql"]})
     n = mark_failed(path, tmp_path / "res", system="villagesql", error="e", repro="r",
                     host=lambda: HOST, clock=lambda: NOW)
-    assert n == 23  # q01..q22 plus the join item
+    assert n == 26  # q01..q22 plus the four hybrid joins
     assert exists(tmp_path / "res", "villagesql", "M1", 1, "join_innodb", "r1-trackb")
 
 
@@ -405,6 +405,31 @@ def test_trackb_section_invokes_run_track_b(tmp_path):
     assert kw["limits"] == Limits("0-7", "8-11", 16) and kw["timeout_s"] == 900
     # the lock covers the Track B systems too
     assert "villagesql" in env.lock_calls[0]
+
+
+def test_trackb_m4_plans_stream_cells_and_passes_the_stream_counts(tmp_path):
+    env = Env(tmp_path)
+    path = write_yaml(tmp_path, streams=[1, 4], track_b={
+        "enabled": True, "systems": ["villagesql"], "measures": ["M1", "M4"]})
+    c = load_campaign(path)
+    assert c.track_b_measures == ("M1", "M4")
+    m4 = [cell for cell in c.planned("villagesql") if cell[1] == "M4"]
+    assert m4 == [("r1-trackb", "M4", "streams=1", "B"), ("r1-trackb", "M4", "streams=4", "B")]
+    run_campaign(path, tmp_path / "res", env.deps())
+    assert env.trackb_calls[0][3]["streams"] == (1, 4)
+
+
+def test_trackb_defaults_to_m1_and_rejects_other_measures(tmp_path):
+    env = Env(tmp_path)
+    path = write_yaml(tmp_path, track_b={"enabled": True, "systems": ["villagesql"]})
+    assert load_campaign(path).track_b_measures == ("M1",)
+    run_campaign(path, tmp_path / "res", env.deps())
+    assert env.trackb_calls[0][3]["streams"] == ()
+    assert {cell[1] for cell in load_campaign(path).planned("villagesql")} == {"M1"}
+    for bad in (["M4"], ["M1", "M2"], ["M1", "M1"], "M1"):
+        with pytest.raises(CampaignError, match="track_b.measures"):
+            load_campaign(write_yaml(tmp_path, track_b={"systems": ["villagesql"],
+                                                        "measures": bad}))
 
 
 def test_trackb_disabled_not_invoked(tmp_path):

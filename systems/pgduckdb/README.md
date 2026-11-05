@@ -89,3 +89,11 @@ entry point: `SELECT * FROM duckdb.query($dbq$<sql>$dbq$)`. Same image and `post
 above; no tables are loaded and nothing about Track A changes. The DuckDB behind it is the bundled
 1.4.3, not the 1.5.5 of the other Track B systems. See `systems/villagesql/README.md` for why
 Track B exists.
+
+The hybrid joins (`join_innodb*`, `dbench/queries/hybrid.py`) use pg_duckdb's own documented
+pattern instead of `duckdb.query()`: one PostgreSQL statement in which `read_parquet()` (columns
+read as `r['col']` with explicit casts) is joined to heap tables. `region`, `nation`, `supplier`
+and `customer` are loaded as heap tables with the row-store schema before the queries run;
+`lineitem` and `orders` stay Parquet-only. DuckDB plans the whole statement and reads the heap
+tables itself (`PGDUCKDB_POSTGRES_SCAN` in `EXPLAIN`), unlike VillageSQL, where only the DuckDB
+part's result crosses into MySQL. The item names keep the `join_innodb` prefix shared with VillageSQL.

@@ -147,6 +147,23 @@ inputs; `--force` moves those pins on purpose. The campaign refuses to start whe
 or its build inputs differ from the lock. This rewrites `systems/versions.lock.json` in your
 checkout.
 
+Every record names the lock it ran against in `versions.lock`: the lock file's SHA-256, the git
+commit of the harness, whether the lock equals the committed one (`lock_is_committed`, false on a
+host that re-ran `dbench lock`), whether the harness had other uncommitted changes
+(`harness_dirty`) and the system's locked image digest or local id. The run keeps a
+copy of that lock file at `<results>/<run_id>/_lock/versions.lock.<sha12>.json`, so the local ids
+of a bench host are published with its results even though they are not committed. Records
+written before `versions.lock` existed carry none; for those runs, check the records' image
+digests against the lock on the bench host and archive it with the run:
+
+```bash
+scripts/dev.sh dbench lock-manifest <run_id>
+```
+
+It writes `_lock/manifest.<sha12>.json` (per system: records whose digest matches the lock,
+records with a different digest, records without one), never edits a record, and exits 1 when
+any digest differs.
+
 ## 6. Run a campaign
 
 Start with the smoke campaign on a development machine, or the SF10 gate on the bench host:

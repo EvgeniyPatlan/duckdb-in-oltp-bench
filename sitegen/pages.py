@@ -38,7 +38,8 @@ def track_b(loaded: Loaded) -> dict:
     records = [r for r in loaded.records if r.track == "B"]
     systems = system_entries(records)
     return {**_meta(loaded, systems, records),
-            "power": aggregate.power(records, {s["name"] for s in systems})}
+            "power": aggregate.power(records, {s["name"] for s in systems}),
+            "throughput": aggregate.throughput(records)}
 
 
 def with_parquet(ta: dict, tb: dict) -> dict:
@@ -46,7 +47,7 @@ def with_parquet(ta: dict, tb: dict) -> dict:
     are never mixed in one chart; they share the page, the controls and the system list."""
     if not tb["systems"]:
         return ta
-    return {**ta, "parquet": {k: tb[k] for k in ("systems", "sfs", "power")}}
+    return {**ta, "parquet": {k: tb[k] for k in ("systems", "sfs", "power", "throughput")}}
 
 
 PARQUET_ONLY = "measured on Parquet files only; see Parquet entry points"

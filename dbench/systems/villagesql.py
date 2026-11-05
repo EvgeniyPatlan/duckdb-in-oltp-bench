@@ -17,7 +17,7 @@ from decimal import Decimal
 from dbench import dockerctl
 from dbench.config import QUERY_TIMEOUT_S, Limits
 from dbench.datagen import DatasetPaths, expected_rows
-from dbench.schema import render_schema, split_statements
+from dbench.schema import HYBRID_TABLES, render_schema, split_statements, table_statements
 from dbench.systems import baseline_conf
 from dbench.systems._common import LOAD_TIMEOUT_S, PROBE_TIMEOUT_S, container_data_path
 from dbench.systems.base import LoadOutcome, Pushed, QueryOutcome
@@ -184,34 +184,40 @@ class VillageSQL(MySQLFamilyAdapter):
     def pushdown(self, sql: str) -> Pushed:
         return "duckdb"
 
-    # the one table that lives in MySQL: nation, for the JSON_TABLE join example
+    # the tables the hybrid joins read from InnoDB (dbench.queries.hybrid); the rest stay Parquet
     def create_schema(self, sf, kind) -> None:
-        self._run_statements(["DROP TABLE IF EXISTS nation"])
-        ddl = render_schema("mysql", "ENGINE=InnoDB", "engine")
-        self._run_statements([s for s in split_statements(ddl) if "TABLE nation" in s])
+        self._run_statements([f"DROP TABLE IF EXISTS {t}" for t in reversed(HYBRID_TABLES)])
+        ddl = render_schema("mysql", "ENGINE=InnoDB", kind)
+        self._run_statements(table_statements(split_statements(ddl), HYBRID_TABLES))
 
     def load_bulk(self, data: DatasetPaths) -> LoadOutcome:
-        """Load ``nation`` (InnoDB) from its CSV; the other tables stay Parquet-only."""
+        """Load the hybrid-join tables (InnoDB) from their CSV parts, checked against the
+        manifest; the other tables stay Parquet-only."""
         started = time.perf_counter()
         try:
             conn = self._connect(read_timeout=LOAD_TIMEOUT_S)
             try:
                 with conn.cursor() as cur:
-                    for part in data.tables["nation"]:
-                        path = container_data_path(self.data_dir, part)
-                        cur.execute(LOAD_SQL.format(path=path, table="nation"))
-                    cur.execute("SELECT COUNT(*) FROM nation")
-                    actual = cur.fetchone()[0]
+                    actual = {}
+                    for table in HYBRID_TABLES:
+                        for part in data.tables[table]:
+                            path = container_data_path(self.data_dir, part)
+                            cur.execute(LOAD_SQL.format(path=path, table=table))
+                        cur.execute(f"SELECT COUNT(*) FROM {table}")
+                        actual[table] = cur.fetchone()[0]
+                    for table in HYBRID_TABLES:
+                        cur.execute(f"ANALYZE TABLE {table}")
+                        cur.fetchall()
             finally:
                 conn.close()
         except Exception as exc:  # noqa: BLE001
             return self._load_failure(exc, started)
         elapsed = time.perf_counter() - started
-        expected = expected_rows(data)["nation"]
+        expected = {t: expected_rows(data)[t] for t in HYBRID_TABLES}
         if actual != expected:
-            return LoadOutcome("error", elapsed, "nation row count does not match the manifest",
+            return LoadOutcome("error", elapsed, "row count does not match the manifest",
                                {"kind": "row_count", "expected": expected, "actual": actual})
-        return LoadOutcome("ok", elapsed, None, {"rows": {"nation": actual}})
+        return LoadOutcome("ok", elapsed, None, {"rows": actual})
 
     def cancel(self) -> bool:
         """``KILL QUERY`` does not reach a running ``duckdb_query()``; nothing can be cancelled

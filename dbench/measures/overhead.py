@@ -61,8 +61,9 @@ def _derived(base: ResultRecord, item: str, status: str, value: float | None, re
     return ResultRecord(
         system=base.system, track=base.track, measure=MEASURE, sf=base.sf, item=item,
         status=status, value=value, unit=UNIT, config_ref=base.config_ref, run_id=base.run_id,
-        started_at=base.started_at, extra=extra, reason=reason, versions=base.versions,
-        host=base.host)
+        started_at=base.started_at, extra=extra, reason=reason,
+        # the M1 record's lock, None when it predates versions.lock (never the current one)
+        versions={**base.versions, "lock": base.versions.get("lock")}, host=base.host)
 
 
 def _side_reason(rec: ResultRecord | None, label: str, item: str) -> str | None:

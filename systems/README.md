@@ -14,7 +14,9 @@ it) and notes on how it was set up; follow the link in the first column.
 - **Pin**: `registry digest` images are pulled by the digest in the lock file. `local build`
   images are built from the recipe in the system's folder with every input pinned (base image
   digests, package versions, checksums, commits); the lock records the local image id, which is
-  specific to the host that built the image and is refreshed there with `dbench lock`.
+  specific to the host that built the image and is refreshed there with `dbench lock`. Each
+  run keeps a copy of the lock it ran against with its results (`_lock/`), and each record names
+  it in `versions.lock` (see [docs/reproduce.md](../docs/reproduce.md)).
 - Track B also runs the raw DuckDB entry points of three of these images: plain DuckDB 1.5.5,
   pg_duckdb (`duckdb.query`) and MariaDB (`run_in_duckdb`). They use the same images, so they have
   no row of their own.

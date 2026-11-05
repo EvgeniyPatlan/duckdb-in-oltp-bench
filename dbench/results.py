@@ -9,7 +9,7 @@ import os
 import re
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass, field, fields
+from dataclasses import asdict, dataclass, field, fields, replace
 from pathlib import Path
 from typing import Literal
 
@@ -87,7 +87,36 @@ def _notify(rec: ResultRecord) -> None:
             pass
 
 
+_stampers: list[Callable[[str], dict]] = []
+
+
+@contextmanager
+def stamp_lock(provenance: Callable[[str], dict]) -> Iterator[None]:
+    """Inside the block every written record that has no ``versions["lock"]`` gets
+    ``provenance(system)`` there: the version lock it ran against (``dbench.lock.provenance``).
+    Records that already carry the key keep it: a rewrite and M7 copying its M1 record set it
+    explicitly (``None`` for a record older than the field), so only new measurements are
+    stamped. The stamper is process-wide; records are written from the main thread (the M4
+    stream threads only measure)."""
+    _stampers.append(provenance)
+    try:
+        yield
+    finally:
+        _stampers.remove(provenance)
+
+
+def _stamped(rec: ResultRecord) -> ResultRecord:
+    if not _stampers or "lock" in rec.versions:
+        return rec
+    try:
+        lock = _stampers[-1](rec.system)
+    except Exception as exc:  # noqa: BLE001 - a measurement must never be lost to provenance
+        lock = {"error": f"{type(exc).__name__}: {exc}"}
+    return replace(rec, versions={**rec.versions, "lock": lock})
+
+
 def write(rec: ResultRecord, root: Path) -> Path:
+    rec = _stamped(rec)
     path = _path(root, rec.system, rec.measure, rec.sf, rec.item, rec.run_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")

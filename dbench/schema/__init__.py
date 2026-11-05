@@ -1,12 +1,15 @@
 """TPC-H DDL rendered per SQL dialect."""
 from __future__ import annotations
 
+import re
 from importlib import resources
 from typing import Literal
 
 from jinja2 import Environment, StrictUndefined
 
 TABLES = ("region", "nation", "part", "supplier", "partsupp", "customer", "orders", "lineitem")
+# The dimension tables the Track B hybrid joins read from the server (dbench.queries.hybrid).
+HYBRID_TABLES = ("region", "nation", "supplier", "customer")
 DIALECTS = ("mysql", "postgres")
 TEMPLATE = "tpch.sql.j2"
 
@@ -40,3 +43,10 @@ def render_schema(
 def split_statements(sql: str) -> list[str]:
     """Split rendered DDL on ';' (no literal contains one)."""
     return [s.strip() for s in sql.split(";") if s.strip()]
+
+
+def table_statements(statements: list[str], tables: tuple[str, ...]) -> list[str]:
+    """The ``CREATE TABLE`` and ``CREATE INDEX`` statements of ``tables`` only."""
+    names = "|".join(tables)
+    own = re.compile(rf"^CREATE (?:TABLE ({names}) \(|INDEX \w+ ON ({names}) \()", re.IGNORECASE)
+    return [s for s in statements if own.match(" ".join(s.split()))]
