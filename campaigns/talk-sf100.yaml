@@ -37,3 +37,4 @@ reference:
 track_b:
   enabled: true
   systems: [duckdb-1.5.5, villagesql, pg_duckdb-trackb, mariadb-trackb]
+  measures: [M1, M4]   # M4: the 22 queries over Parquet at 1-32 streams

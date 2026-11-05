@@ -13,8 +13,11 @@ values and git tag/commit, all read from the Dockerfiles and build scripts.
 """
 from __future__ import annotations
 
+import functools
+import hashlib
 import json
 import re
+import subprocess
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
@@ -199,6 +202,127 @@ def _problems(system: str, locked: dict, identity: Callable[[str], Identity],
             f"{system}: {what} drift: running image {image} is {', '.join(values)}, "
             f"the lock has {locked['digest']} ({locked['digest_kind']})")
     return problems
+
+
+# ---- provenance: which lock a record ran against ------------------------------------------
+
+LOCK_ARCHIVE_DIR = "_lock"  # under <results>/<run_id>/; skipped by iter_records
+
+
+def lock_sha256(path: Path = LOCK_PATH) -> str:
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def archived_name(sha256: str) -> str:
+    return f"versions.lock.{sha256[:12]}.json"
+
+
+def _git(*args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", "-c", "safe.directory=*", "-C", str(ROOT), *args],
+                          capture_output=True, text=True, timeout=30, check=False)
+
+
+@functools.cache
+def _git_state(path: Path) -> tuple[str, bool | None, bool | None]:
+    """(HEAD commit, whether the lock file is tracked and equals its committed version, whether
+    the harness has uncommitted changes besides the lock); "unknown"/None when git cannot tell
+    (no checkout, a worktree whose git dir is not mounted)."""
+    path = Path(path).resolve()
+    others = [".", f":(exclude){path.relative_to(ROOT)}"] if path.is_relative_to(ROOT) else ["."]
+    try:
+        head = _git("rev-parse", "HEAD")
+        if head.returncode != 0:
+            return "unknown", None, None
+        tracked = _git("ls-files", "--error-unmatch", "--", str(path)).returncode == 0
+        diff = _git("diff", "--quiet", "HEAD", "--", str(path)).returncode
+        status = _git("status", "--porcelain", "--untracked-files=no", "--", *others)
+    except (OSError, subprocess.SubprocessError):
+        return "unknown", None, None
+    committed = {0: True, 1: False}.get(diff) if tracked else False
+    dirty = bool(status.stdout.strip()) if status.returncode == 0 else None
+    return head.stdout.strip(), committed, dirty
+
+
+@functools.cache
+def _lock_bytes(path: Path) -> bytes:
+    """The lock file as this process first read it: archive() and provenance() share it, so a
+    record's ``sha256`` always names the archived copy. ``check_lock`` refuses a campaign whose
+    images differ from the lock, and a later rewrite of the file is not seen by the process."""
+    return Path(path).read_bytes()
+
+
+def _lock_state(path: Path) -> tuple[str, dict]:
+    data = _lock_bytes(path)
+    return hashlib.sha256(data).hexdigest(), json.loads(data)
+
+
+def provenance(system: str, path: Path = LOCK_PATH) -> dict:
+    """``versions["lock"]`` of a record: the lock file it ran against (its SHA-256 names the copy
+    archived with the run, see ``archive``), the git commit of the harness, whether the lock is
+    the committed one (False on a bench host that re-ran ``dbench lock``: locally built images
+    have per-host ids) and the system's locked image identity."""
+    path = Path(path)
+    sha, doc = _lock_state(path)
+    commit, committed, dirty = _git_state(path)
+    out = {"file": "systems/versions.lock.json", "sha256": sha,
+           "archived_as": f"{LOCK_ARCHIVE_DIR}/{archived_name(sha)}", "git_commit": commit,
+           "lock_is_committed": committed, "harness_dirty": dirty}
+    entry = doc.get(lock_name(system))
+    if entry:
+        out.update(digest=entry["digest"], digest_kind=entry["digest_kind"])
+    return out
+
+
+def archive(run_dir: Path, path: Path = LOCK_PATH) -> Path:
+    """Keep a copy of the lock file a run uses next to its records:
+    ``<run_dir>/_lock/versions.lock.<sha12>.json``. Idempotent; a run resumed under another lock
+    keeps both copies."""
+    data = _lock_bytes(Path(path))
+    target = Path(run_dir) / LOCK_ARCHIVE_DIR / archived_name(hashlib.sha256(data).hexdigest())
+    if not target.is_file():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_name(target.name + ".tmp")
+        tmp.write_bytes(data)
+        tmp.replace(target)
+    return target
+
+
+def _digest_matches(recorded: str, entry: dict) -> bool:
+    """``versions.image_digest`` is ``repo@sha256:..`` for a pulled image and the image id for a
+    local one; the lock keeps the bare digest or id."""
+    return recorded.rsplit("@", 1)[-1] == entry["digest"]
+
+
+def manifest(run_dir: Path, path: Path = LOCK_PATH) -> dict:
+    """Check every record of a run against a lock file and archive that lock with the run.
+
+    For runs whose records predate ``versions.lock``: the manifest
+    (``<run_dir>/_lock/manifest.<sha12>.json``) states, per system, how many records name an image
+    digest equal to the lock's, which differ, and which name none (the record cannot be
+    checked). It never edits a record."""
+    from dbench.results import iter_records
+
+    run_dir = Path(run_dir)
+    sha, doc = _lock_state(Path(path))
+    systems: dict[str, dict] = {}
+    for rec in iter_records(run_dir):
+        row = systems.setdefault(rec.system, {"match": 0, "differ": [], "no_digest": 0})
+        recorded = rec.versions.get("image_digest")
+        entry = doc.get(lock_name(rec.system))
+        if not recorded or not entry or str(recorded).startswith("unknown"):
+            row["no_digest"] += 1
+        elif _digest_matches(str(recorded), entry):
+            row["match"] += 1
+        elif recorded not in row["differ"]:
+            row["differ"].append(recorded)
+    commit, committed, dirty = _git_state(Path(path))
+    out = {"lock_sha256": sha, "archived_as": f"{LOCK_ARCHIVE_DIR}/{archived_name(sha)}",
+           "git_commit": commit, "lock_is_committed": committed, "harness_dirty": dirty,
+           "systems": systems}
+    archive(run_dir, path)
+    target = run_dir / LOCK_ARCHIVE_DIR / f"manifest.{sha[:12]}.json"
+    target.write_text(json.dumps(out, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return out
 
 
 def check_lock(

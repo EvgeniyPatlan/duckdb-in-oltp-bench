@@ -78,7 +78,7 @@ comment in the file. At 64 GB and 16 cores:
 | `vsql_duckdb.temp_directory` | `/var/lib/mysql/duckdb_tmp` | Explicit spill directory on the data volume. |
 | `vsql_duckdb.timeout_ms` | `900000` (the 900 s query timeout) | The extension's own deadline; its default is 30000 and its maximum 3600000. |
 | `vsql_duckdb.max_result_bytes` | `16777216` (its maximum) | Default is 1048576; effective only on the development-ABI build, see below. |
-| `innodb_buffer_pool_size` | mem_gb/16 = `4G` | The InnoDB side only holds `nation` for the join example. |
+| `innodb_buffer_pool_size` | mem_gb/16 = `4G` | The InnoDB side only holds the four dimension tables of the hybrid joins (`customer` is the largest: 15M rows at SF100). |
 | `innodb_parallel_read_threads`, `innodb_redo_log_capacity`, `join_buffer_size`, `sort_buffer_size`, `tmp_table_size`, `max_heap_table_size`, `temptable_max_ram` | as the other MySQL-family engines | Shared formulas from `baseline_conf.duckdb_engine_settings`. |
 | `skip-log-bin`, `secure_file_priv=/data`, `local_infile=OFF`, `max_connections=200`, `character-set-server=utf8mb4` | as the other MySQL-family servers | Same on every MySQL-family system. |
 
@@ -133,19 +133,38 @@ the extension's `timeout_ms`, which interrupts the DuckDB connection; the query 
 timeout the power run restarts the container (a `cancel()` that cannot cancel forces it), and the
 record carries `extra.restarted_after_timeout = true` and `extra.cancel_unavailable = true`.
 
-## The JSON_TABLE join (`join_innodb`)
+## The hybrid joins (`join_innodb*`)
 
-The extension documents joining a DuckDB aggregate to a MySQL table with `JSON_TABLE`, since DuckDB
-cannot see MySQL tables. Item `join_innodb` is that pattern: `duckdb_query()` aggregates the
-`customer` Parquet files per nation (count and balance), `JSON_TABLE` turns the JSON into rows,
-and they join the InnoDB `nation` table loaded in VillageSQL, ordered by nation name. The reference
-is plain DuckDB 1.5.5 computing the same result from the `customer` and `nation` Parquet files. The
-other Track B systems record `n/a` with a reason for this item.
+The extension documents joining a DuckDB result to MySQL tables with `JSON_TABLE`, since DuckDB
+cannot see MySQL tables. Track B measures that pattern with four items
+(`dbench/queries/hybrid.py`). In each, `duckdb_query()` runs DuckDB SQL over Parquet,
+`JSON_TABLE` turns its JSON into rows, and MySQL joins them to InnoDB tables. The InnoDB side
+holds `region`, `nation`, `supplier` and `customer`, loaded with the row-store schema (primary
+keys and foreign-key indexes) before the queries run. `lineitem` and `orders` stay Parquet-only.
+
+| Item | DuckDB part (over Parquet) | InnoDB part |
+|---|---|---|
+| `join_innodb` | customers and balance per nation (25 rows) | joined to `nation`, ordered by name |
+| `join_innodb_top_customers` | the 20 customers with the most revenue from returned items in Q4 1993 (TPC-H Q10 shape) | looked up in `customer` and `nation` |
+| `join_innodb_supplier_region` | the 100 suppliers with the most 1994 revenue (Q5 shape) | joined to `supplier`, `nation`, `region`; ASIA only, summed per nation |
+| `join_innodb_segment_filter` | unshipped revenue per customer, one row per customer with an open order (Q3 shape) | joined to `customer` and `nation`; BUILDING segment only, summed per nation |
+
+Because DuckDB cannot see the InnoDB tables, a filter on an InnoDB column applies only after the
+DuckDB result has crossed. `join_innodb_segment_filter` measures exactly that: its DuckDB part
+returns one row per customer with an open order (millions at SF100). A result larger than
+`max_result_bytes` (16 MiB) is recorded as `error` with `extra.kind = "result_cap"`. The other
+items return at most 100 rows from DuckDB.
+
+The reference is plain DuckDB 1.5.5 computing the same result with every table read from Parquet.
+pg_duckdb runs the same items in its own documented form, one PostgreSQL statement joining
+`read_parquet()` to heap tables (see `systems/pgduckdb/README.md`). MariaDB records `n/a`:
+`run_in_duckdb()` returns text that SQL cannot join. `join_innodb` is unchanged from earlier runs.
 
 ## Other disclosures
 
 - One embedded DuckDB serves the whole server. Tables, macros and settings changes made through it
-  are visible to every connection; the benchmark runs one stream.
+  are visible to every connection. M1 runs one stream; Track B M4 runs up to 32 connections at
+  once, all calling `duckdb_query()` on that one instance (`docs/methodology/throughput.md`).
 - `versions` in every record holds the server version, `vsql_duckdb 0.0.3`, the DuckDB version
   reported by `duckdb_status()` and the image digest.
 - Track B pg_duckdb bundles DuckDB 1.4.3 (the image `pgduckdb/pgduckdb:18-v1.1.1`), not 1.5.5.

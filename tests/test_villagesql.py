@@ -333,16 +333,22 @@ def test_heavy_duckdb_query_is_stopped_by_timeout_ms_and_server_recovers():
         a.remove_data()
 
 
-def test_join_statement_embeds_the_aggregate_as_one_escaped_literal():
-    from dbench.measures.villagesql import _AGGREGATE, JOIN_REFERENCE, JOIN_VILLAGESQL
+def test_join_statements_embed_the_duckdb_part_as_one_escaped_literal():
+    from dbench.queries.hybrid import HYBRID_JOINS
     from dbench.systems.villagesql import NativeStatement
 
-    assert isinstance(JOIN_VILLAGESQL, NativeStatement)
-    start = JOIN_VILLAGESQL.index("duckdb_query(") + len("duckdb_query(")
-    end = JOIN_VILLAGESQL.index("), '$[*]'")
-    assert mysql_unquote(JOIN_VILLAGESQL[start:end]) == _AGGREGATE
-    assert "JOIN nation n ON n.n_nationkey = t.c_nationkey" in JOIN_VILLAGESQL
-    assert "read_parquet('/data/parquet/nation/nation.*.parquet')" in JOIN_REFERENCE
+    for j in HYBRID_JOINS:
+        assert isinstance(j.villagesql, NativeStatement) and isinstance(j.pg_duckdb,
+                                                                        NativeStatement)
+        start = j.villagesql.index("duckdb_query(") + len("duckdb_query(")
+        end = j.villagesql.index("), '$[*]'")
+        inner = mysql_unquote(j.villagesql[start:end])
+        assert inner.startswith("SELECT ") and "read_parquet('/data/parquet/" in inner
+        assert "duckdb_query" not in j.pg_duckdb and "read_parquet(" in j.pg_duckdb
+        assert "read_parquet(" in j.reference
+    first = HYBRID_JOINS[0]
+    assert "JOIN nation n ON n.n_nationkey = t.c_nationkey" in first.villagesql
+    assert "read_parquet('/data/parquet/nation/nation.*.parquet')" in first.reference
 
 
 def test_native_statement_is_not_wrapped(monkeypatch):

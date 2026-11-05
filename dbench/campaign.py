@@ -10,7 +10,8 @@ Schema (all keys but ``timeout_s``, ``reference``, ``streams`` and ``track_b`` a
     limits: {db_cpuset: "0-15", runner_cpuset: "16-23", mem_gb: 64}
     timeout_s: 900
     reference: {system: duckdb-1.5.5, cross_check: [duckdb-1.4.3]}
-    track_b: {enabled: true, systems: [duckdb-1.5.5, villagesql, ...]}   # or just ``true``
+    track_b: {enabled: true, systems: [duckdb-1.5.5, villagesql, ...], measures: [M1, M4]}
+                                        # or just ``true``; measures: M1 (default) and M4
     overrides: {innodb: {measures: [M1]}}   # optional: measures of one system replace the list
 
 ``overrides`` replaces the measure list of the named systems (each must be in ``systems``; the
@@ -36,7 +37,9 @@ is recorded in ``extra.reference_disagreement``. Engines under test that disagre
 (``wrong_result``), not blocking.
 
 Track B runs after Track A under the run id ``<run_id>-trackb``: Track B and Track A both use
-plain DuckDB 1.5.5 and would otherwise write the same result files.
+plain DuckDB 1.5.5 and would otherwise write the same result files. Its M1 is the 22 queries over
+Parquet plus the hybrid joins; with ``measures: [M1, M4]`` each Track B system also runs the 22
+queries at the campaign's stream counts.
 """
 from __future__ import annotations
 
@@ -68,7 +71,6 @@ REFERENCE_SYSTEM = "duckdb-1.5.5"
 GATE_SYSTEMS = ("innodb", "postgres")
 GATE_MAX_SF = 10  # up to here InnoDB and Postgres gate the run; above, cross-check
 QUERIES = range(1, 23)
-TRACK_B_JOIN_ITEM = "join_innodb"
 KEYS = {"run_id", "sf", "systems", "measures", "limits", "timeout_s", "reference", "track_b",
         "streams",
         "overrides"}
@@ -95,6 +97,7 @@ class Campaign:
     cross_check: tuple[str, ...] = ()
     track_b_enabled: bool = False
     track_b_systems: tuple[str, ...] = ()
+    track_b_measures: tuple[str, ...] = ("M1",)
     streams: tuple[int, ...] = STREAMS  # M4's stream counts
     overrides: dict[str, tuple[str, ...]] = dataclasses.field(default_factory=dict)
 
@@ -140,7 +143,14 @@ class Campaign:
             for m in self.measures_for(system):
                 cells += [(self.run_id, m, item, "") for item in self.items(m)]
         if self.track_b_enabled and system in self.track_b_systems:
-            cells += [(self.trackb_run_id, "M1", item, "B") for item in trackb_items()]
+            cells += [(self.trackb_run_id, m, item, "B") for m, item in self.trackb_cells()]
+        return cells
+
+    def trackb_cells(self) -> list[tuple[str, str]]:
+        """(measure, item) of every Track B system."""
+        cells = [("M1", item) for item in trackb_items()]
+        if "M4" in self.track_b_measures:
+            cells += [("M4", item) for item in measures.stream_items(self.streams)]
         return cells
 
 
@@ -154,7 +164,9 @@ class Summary:
 
 
 def trackb_items() -> list[str]:
-    return [f"q{n:02d}" for n in QUERIES] + [TRACK_B_JOIN_ITEM]
+    from dbench.queries.hybrid import HYBRID_ITEMS
+
+    return [f"q{n:02d}" for n in QUERIES] + list(HYBRID_ITEMS)
 
 
 def _utcnow() -> datetime:
@@ -186,6 +198,7 @@ class Deps:
     host_resources: Callable[[], tuple[int, int]] = dockerctl.host_resources
     affinity: Callable[[], Iterable[int]] = lambda: os.sched_getaffinity(0)
     lock_check: Callable[[Iterable[str]], None] = lock.check_lock
+    archive_lock: Callable[[Path], Path] = lock.archive
     dataset: Callable[[float], DatasetPaths] = verified_dataset
     run_track_b: Callable = _default_track_b
     drop_caches: Callable[[], None] = dockerctl.drop_caches
@@ -250,19 +263,27 @@ def _streams(value) -> tuple[int, ...]:
     return counts
 
 
-def _track_b(value) -> tuple[bool, tuple[str, ...]]:
+TRACK_B_MEASURES = ("M1", "M4")
+
+
+def _track_b(value) -> tuple[bool, tuple[str, ...], tuple[str, ...]]:
     from dbench.measures.villagesql import TRACK_B_SYSTEMS
 
     if isinstance(value, bool):
-        return value, tuple(TRACK_B_SYSTEMS)
-    if not isinstance(value, dict) or set(value) - {"enabled", "systems"}:
-        raise CampaignError("track_b must be true/false or {enabled: bool, systems: [...]}")
+        return value, tuple(TRACK_B_SYSTEMS), ("M1",)
+    if not isinstance(value, dict) or set(value) - {"enabled", "systems", "measures"}:
+        raise CampaignError("track_b must be true/false or "
+                            "{enabled: bool, systems: [...], measures: [M1, M4]}")
     enabled = value.get("enabled", True)
     if not isinstance(enabled, bool):
         raise CampaignError("track_b.enabled must be true or false")
     systems = _system_list(value["systems"], "track_b.systems") \
         if "systems" in value else tuple(TRACK_B_SYSTEMS)
-    return enabled, systems
+    chosen = value.get("measures", ["M1"])
+    if (not isinstance(chosen, list) or "M1" not in chosen
+            or set(chosen) - set(TRACK_B_MEASURES) or len(set(chosen)) != len(chosen)):
+        raise CampaignError(f"track_b.measures must list M1 and optionally M4, got {chosen!r}")
+    return enabled, systems, tuple(m for m in TRACK_B_MEASURES if m in chosen)
 
 
 def _overrides(value, systems: tuple[str, ...]) -> dict[str, tuple[str, ...]]:
@@ -319,13 +340,13 @@ def load_campaign(path: Path) -> Campaign:
     ref_system = _system_list([ref.get("system", REFERENCE_SYSTEM)], "reference.system")[0]
     cross = _system_list(ref["cross_check"], "reference.cross_check") \
         if ref.get("cross_check") else ("duckdb-1.4.3",)
-    enabled, trackb_systems = _track_b(doc.get("track_b", False))
+    enabled, trackb_systems, trackb_measures = _track_b(doc.get("track_b", False))
     campaign = Campaign(
         run_id=run_id, sf=sf, systems=systems, measures=_measures(_need(doc, "measures")),
         limits=_limits(_need(doc, "limits")),
         timeout_s=_positive_int(doc.get("timeout_s", QUERY_TIMEOUT_S), "timeout_s"),
         reference_system=ref_system, cross_check=cross, track_b_enabled=enabled,
-        track_b_systems=trackb_systems,
+        track_b_systems=trackb_systems, track_b_measures=trackb_measures,
         streams=_streams(doc["streams"]) if "streams" in doc else STREAMS,
         overrides=_overrides(doc.get("overrides", {}), systems))
     _check_probe_baselines(campaign)
@@ -361,6 +382,7 @@ def mark_failed(
     host: Callable[[], dict] = hostinfo.host_info,
     clock: Callable[[], datetime] = _utcnow,
     adapter_factory: Callable[[str, Path | None], SystemAdapter] = get_adapter,
+    archive_lock: Callable[[Path], Path] = lock.archive,
 ) -> int:
     """Write a ``failed`` record (reason = ``error``, extra.repro = ``repro``) for every cell
     ``system`` has planned in the campaign that has no record or only an automatic failure;
@@ -372,11 +394,14 @@ def mark_failed(
     deps = Deps(host=host, clock=clock)
     adapter = adapter_factory(system, None)
     host_facts = host()
-    written = 0
+    written, archived = 0, set()
     for planned_run, measure, item, track in cells:
         rid = (run_id + ("-trackb" if track == "B" else "")) if run_id else planned_run
         if is_done(root, system, measure, c.sf, item, rid):  # real data and manual failures stay
             continue
+        if rid not in archived:
+            archive_lock(Path(root) / rid)
+            archived.add(rid)
         write(_record(adapter, c, deps, host_facts, run_id=rid, measure=measure, item=item,
                       status="failed", track=track, reason=error, error=error,
                       extra={"repro": repro}), root)
@@ -619,7 +644,9 @@ class _Run:
             return
         for r in bad:
             info = {"system": name, "reference": self.c.reference_system, "query": r.item}
-            write(dataclasses.replace(r, extra={**r.extra, "reference_disagreement": info}),
+            # a rewrite keeps the record's own lock (None when it predates versions.lock)
+            write(dataclasses.replace(r, extra={**r.extra, "reference_disagreement": info},
+                                      versions={**r.versions, "lock": r.versions.get("lock")}),
                   self.root)
         items = ", ".join(r.item for r in bad)
         raise CampaignBlocked(
@@ -644,19 +671,20 @@ class _Run:
     # track B
     def run_track_b(self) -> None:
         c = self.c
-        items = trackb_items()
+        cells = c.trackb_cells()
         pending = []
         for s in c.track_b_systems:
-            done = sum(is_done(self.root, s, "M1", c.sf, i, c.trackb_run_id) for i in items)
+            done = sum(is_done(self.root, s, m, c.sf, i, c.trackb_run_id) for m, i in cells)
             self.summary.skipped += done
-            if done < len(items):
+            if done < len(cells):
                 pending.append(s)
         if not pending:
             return
         self.say(f"Track B ({c.trackb_run_id}): {', '.join(pending)}")
+        streams = c.streams if "M4" in c.track_b_measures else ()
         records = self.deps.run_track_b(
             c.sf, c.trackb_run_id, self.root, pending, data=self.data, limits=c.limits,
-            timeout_s=c.timeout_s)
+            timeout_s=c.timeout_s, streams=streams)
         self.summary.written += len(records)
 
 
@@ -695,6 +723,8 @@ def run_campaign(path: Path, root: Path, deps: Deps | None = None) -> Summary:
     dockerctl.validate_limits(c.limits, cpus, mem_gb)
     _check_affinity(c.limits, deps)
     deps.lock_check(sorted(c.lock_systems()))
+    for run_id in (c.run_id, *([c.trackb_run_id] if c.track_b_enabled else [])):
+        deps.archive_lock(Path(root) / run_id)
     run = _Run(c, Path(root), deps, deps.dataset(c.sf))
     try:
         with observe(run.progress.record):

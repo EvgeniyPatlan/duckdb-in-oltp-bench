@@ -7,11 +7,12 @@ result is read; images, settings and containers are the Track A ones.
 """
 from __future__ import annotations
 
+from dbench.schema import HYBRID_TABLES
 from dbench.systems.base import Pushed
 from dbench.systems.duckdb_native import DuckDBNative
 from dbench.systems.mariadb import MariaDBDuckDB, parse_run_in_duckdb, result_text
 from dbench.systems.pgduckdb import PgDuckDB
-from dbench.systems.villagesql import escape_sql_literal
+from dbench.systems.villagesql import NativeStatement, escape_sql_literal
 
 DOLLAR_TAG = "$dbq$"
 
@@ -24,15 +25,18 @@ def duckdb_query_statement(sql: str) -> str:
 
 
 class PgDuckDBTrackB(PgDuckDB):
-    """pg_duckdb, queried with ``duckdb.query()`` over Parquet instead of heap tables."""
+    """pg_duckdb, queried with ``duckdb.query()`` over Parquet instead of heap tables. The hybrid
+    joins (``dbench.queries.hybrid``) are PostgreSQL statements of their own (``read_parquet()``
+    joined to the heap tables in ``load_tables``), sent as they are."""
 
     name = "pg_duckdb-trackb"
     track = "B"
     pushdown_counter_scope = "none"  # raw DuckDB entry point: pushed is a constant
     dialect = "duckdb"
+    load_tables = HYBRID_TABLES
 
     def _statement(self, sql: str) -> str:
-        return duckdb_query_statement(sql)
+        return sql if isinstance(sql, NativeStatement) else duckdb_query_statement(sql)
 
     def _query_begin(self, conn, sql: str) -> Pushed:
         return "duckdb"  # raw DuckDB entry point: nothing to fall back from

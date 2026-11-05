@@ -240,6 +240,7 @@ def test_villagesql_is_listed_with_the_others_and_its_parquet_numbers_kept_apart
     assert "villagesql" not in json.dumps(page["power"])          # never on a table-based chart
     assert [s["name"] for s in page["parquet"]["systems"]] == ["villagesql"]
     assert "villagesql" in page["parquet"]["power"]["10"]["cells"]
+    assert "throughput" in page["parquet"]  # Track B M4, empty when the run has none
     talk = (out / "reports/talk/index.html").read_text(encoding="utf-8")
     assert 'id="parquet"' not in talk and "VillageSQL</a></th>" not in talk
 

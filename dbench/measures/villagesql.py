@@ -2,15 +2,16 @@
 
 Plain DuckDB 1.5.5 reads the files directly; VillageSQL calls ``duckdb_query()``, pg_duckdb
 ``duckdb.query()`` and MariaDB ``run_in_duckdb()``. Every system runs the same DuckDB-dialect text
-(``dbench.queries.trackb``) and is compared against the plain DuckDB rows. VillageSQL also runs
-its documented pattern: a ``duckdb_query()`` aggregate over Parquet joined to an InnoDB table
-through ``JSON_TABLE`` (item ``join_innodb``). A system that cannot start is recorded as
-``failed`` for every item, never dropped.
+(``dbench.queries.trackb``) and is compared against the plain DuckDB rows. VillageSQL and pg_duckdb
+also run the hybrid joins (``dbench.queries.hybrid``): DuckDB work over Parquet joined to tables
+in the server's row store (InnoDB, heap), each in its documented pattern; the other systems
+record them as ``n/a``. A system that cannot start is recorded as ``failed`` for every item,
+never dropped.
 """
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -18,50 +19,27 @@ from dbench import dockerctl, hostinfo
 from dbench.config import QUERY_TIMEOUT_S, WARM_RUNS, Limits
 from dbench.datagen import DatasetPaths
 from dbench.measures.power import QUERY_NUMBERS, SUSPEND_REASON, HostSuspended, run_power
+from dbench.measures.throughput import ITEM_FORMAT, run_throughput
+from dbench.queries.hybrid import HYBRID_ITEMS, HYBRID_JOINS
 from dbench.queries.trackb import default_globs, trackb_query
 from dbench.reference import build_reference
-from dbench.results import ResultRecord, is_done, write
+from dbench.results import ResultRecord, cell_record, is_done, write
 from dbench.systems.base import SystemAdapter
 from dbench.systems.registry import get_adapter
 from dbench.systems.trackb import DuckDBTrackB
-from dbench.systems.villagesql import NativeStatement, escape_sql_literal
 
 REFERENCE_SYSTEM = "duckdb-1.5.5"
 TRACK_B_SYSTEMS = (REFERENCE_SYSTEM, "villagesql", "pg_duckdb-trackb", "mariadb-trackb")
-JOIN_ITEM = "join_innodb"
-CUSTOMER_PARQUET = default_globs()["customer"]
-NATION_PARQUET = default_globs()["nation"]
-
-# DuckDB side of the join: customers and their balance per nation (the aggregate VillageSQL
-# computes in duckdb_query()).
-_AGGREGATE = (
-    "SELECT c_nationkey, count(*) AS customers, sum(c_acctbal) AS balance "
-    f"FROM read_parquet('{CUSTOMER_PARQUET}') AS customer GROUP BY c_nationkey"
-)
-# VillageSQL: the aggregate through duckdb_query(), its JSON turned into rows by JSON_TABLE and
-# joined to the InnoDB ``nation`` table (the pattern the extension documents).
-JOIN_VILLAGESQL = NativeStatement(
-    "SELECT n.n_name AS nation, t.customers, t.balance "
-    f"FROM JSON_TABLE(duckdb_query({escape_sql_literal(_AGGREGATE)}), '$[*]' COLUMNS ("
-    "c_nationkey INT PATH '$.c_nationkey', customers BIGINT PATH '$.customers', "
-    "balance DECIMAL(38,2) PATH '$.balance')) AS t "
-    "JOIN nation n ON n.n_nationkey = t.c_nationkey ORDER BY n.n_name"
-)
-# The same result computed entirely in plain DuckDB, the reference for ``join_innodb``.
-JOIN_REFERENCE = (
-    "SELECT n_name AS nation, count(*) AS customers, sum(c_acctbal) AS balance "
-    f"FROM read_parquet('{CUSTOMER_PARQUET}') AS customer "
-    f"JOIN read_parquet('{NATION_PARQUET}') AS nation ON n_nationkey = c_nationkey "
-    "GROUP BY n_name ORDER BY n_name"
-)
+JOINS_BY_ITEM = {j.item: j for j in HYBRID_JOINS}
+# Systems that run the hybrid joins: the statement each one sends (see dbench.queries.hybrid).
+JOIN_STATEMENT = {"villagesql": lambda j: j.villagesql, "pg_duckdb-trackb": lambda j: j.pg_duckdb}
+# The InnoDB/heap tables the joins use are loaded with the server before it is measured.
+HYBRID_SYSTEMS = tuple(JOIN_STATEMENT)
 JOIN_NA_REASONS = {
-    "villagesql": None,
-    "duckdb": "plain DuckDB has no MySQL table to join; the join is VillageSQL's documented "
-              "JSON_TABLE pattern",
-    "pg_duckdb": "pg_duckdb's Track B path reads Parquet only; joining Postgres tables is "
-                 "Track A pg_duckdb, and the JSON_TABLE join is VillageSQL's pattern",
-    "mariadb": "run_in_duckdb returns text with no way to join it to an InnoDB table in SQL; the "
-               "JSON_TABLE join is VillageSQL's pattern",
+    "duckdb": "plain DuckDB has no database table to join; the hybrid joins are measured on "
+              "VillageSQL (JSON_TABLE over duckdb_query()) and pg_duckdb (read_parquet() joined "
+              "to heap tables)",
+    "mariadb": "run_in_duckdb returns text with no way to join it to an InnoDB table in SQL",
 }
 
 
@@ -84,23 +62,42 @@ def _na_group(name: str) -> str:
 
 def _record(adapter: SystemAdapter, plan, item: str, status: str, host: dict, *,
             reason: str | None = None, error: str | None = None,
-            extra: dict | None = None) -> ResultRecord:
+            extra: dict | None = None, measure: str = "M1") -> ResultRecord:
     return ResultRecord(
-        system=adapter.name, track=adapter.track, measure="M1", sf=plan.sf, item=item,
-        status=status, value=None, unit="s", config_ref=f"systems/{adapter.config_dir}/",
+        system=adapter.name, track=adapter.track, measure=measure, sf=plan.sf, item=item,
+        status=status, value=None, unit="qph" if measure == "M4" else "s",
+        config_ref=f"systems/{adapter.config_dir}/",
         run_id=plan.run_id, started_at=plan.clock().isoformat(), error=error, reason=reason,
         host=host, extra=extra or {},
     )
 
 
 def _all_items(queries: Iterable[int]) -> list[str]:
-    return [f"q{n:02d}" for n in queries] + [JOIN_ITEM]
+    return [f"q{n:02d}" for n in queries] + list(HYBRID_ITEMS)
 
 
-def _pending(adapter: SystemAdapter, plan) -> list[str]:
-    """Items of this system with no record yet (or only an automatic failure)."""
-    return [item for item in _all_items(plan.queries)
-            if not is_done(plan.root, adapter.name, "M1", plan.sf, item, plan.run_id)]
+def _cells(plan) -> list[tuple[str, str]]:
+    """(measure, item) of every Track B system: M1 queries and joins, then M4 stream counts."""
+    return [("M1", item) for item in _all_items(plan.queries)] + \
+        [("M4", ITEM_FORMAT.format(n=n)) for n in plan.streams]
+
+
+def _pending(adapter: SystemAdapter, plan, measure: str | None = None) -> list:
+    """Cells of this system with no record yet (or only an automatic failure): items of
+    ``measure``, or (measure, item) pairs of every measure."""
+    cells = [(m, item) for m, item in _cells(plan)
+             if not is_done(plan.root, adapter.name, m, plan.sf, item, plan.run_id)
+             or _stale_join(adapter, plan, m, item)]
+    return cells if measure is None else [item for m, item in cells if m == measure]
+
+
+def _stale_join(adapter: SystemAdapter, plan, measure: str, item: str) -> bool:
+    """An ``n/a`` hybrid join of a system that now runs it (pg_duckdb's ``join_innodb`` was n/a
+    before the hybrid joins were added): measured again on resume, replacing the n/a."""
+    if measure != "M1" or item not in JOINS_BY_ITEM or adapter.name not in JOIN_STATEMENT:
+        return False
+    rec = cell_record(plan.root, adapter.name, "M1", plan.sf, item, plan.run_id)
+    return rec is not None and rec.status == "n/a"
 
 
 def _failed_records(adapter: SystemAdapter, plan, exc: Exception,
@@ -111,17 +108,20 @@ def _failed_records(adapter: SystemAdapter, plan, exc: Exception,
     if isinstance(exc, HostSuspended):
         reason = f"{SUSPEND_REASON}: {exc}"
     else:
-        reason = f"{adapter.name} did not start or load: {type(exc).__name__}: {exc}"
+        reason = f"{adapter.name} did not start, load or finish: {type(exc).__name__}: {exc}"
     return [
         _record(adapter, plan, item, "failed", host, reason=reason, error=str(exc)[:2000],
-                extra={"auto": True})
-        for item in _pending(adapter, plan)
+                extra={"auto": True}, measure=measure)
+        for measure, item in _pending(adapter, plan)
     ]
 
 
-def _na_join_record(adapter: SystemAdapter, plan, host: dict) -> ResultRecord:
-    return _record(adapter, plan, JOIN_ITEM, "n/a", host,
-                   reason=JOIN_NA_REASONS[_na_group(adapter.name)])
+def _na_join_records(adapter: SystemAdapter, plan, host: dict,
+                     items: list[str]) -> list[ResultRecord]:
+    if not items:
+        return []
+    reason = JOIN_NA_REASONS[_na_group(adapter.name)]
+    return [_record(adapter, plan, item, "n/a", host, reason=reason) for item in items]
 
 
 @dataclass
@@ -140,36 +140,39 @@ class _Plan:
     drop_caches: Callable[[], None]
     clock: Callable[[], datetime]
     host: Callable[[], dict]
+    streams: tuple[int, ...] = ()  # M4 stream counts; empty: Track B runs M1 only
     reference: dict | None = None
-    join_reference: dict | None = None
+    join_references: dict[str, dict | None] = field(default_factory=dict)
 
 
-def _start(adapter: SystemAdapter, plan: _Plan) -> None:
+def _start(adapter: SystemAdapter, plan: _Plan, joins_pending: bool) -> None:
     adapter.start(plan.limits)
-    if adapter.name == "villagesql":  # nation is the one table that lives in MySQL
-        adapter.create_schema(plan.sf, "engine")
+    if joins_pending and adapter.name in HYBRID_SYSTEMS:  # the tables the joins read
+        adapter.create_schema(plan.sf, "rowstore")
         load = adapter.load_bulk(plan.data)
         if load.status != "ok":
-            raise RuntimeError(f"nation load failed: {load.error} {load.extra}")
+            raise RuntimeError(f"hybrid-join tables failed to load: {load.error} {load.extra}")
 
 
 def _run_system(adapter: SystemAdapter, plan: _Plan) -> list[ResultRecord]:
-    """Start one system, measure the 22 queries (and the join where it applies), always clean up."""
+    """Start one system, measure the 22 queries and the joins (where they apply), then M4 at each
+    stream count, always clean up."""
     host_facts = plan.host()
-    pending = _pending(adapter, plan)
-    if not pending:
+    if not _pending(adapter, plan):
         return []
+    pending = _pending(adapter, plan, "M1")
     adapter.remove_data()
     try:
         try:
-            _start(adapter, plan)
+            _start(adapter, plan, any(item in JOINS_BY_ITEM for item in pending))
         except Exception as exc:  # noqa: BLE001 - a system that cannot start is a result
             records = _failed_records(adapter, plan, exc, host_facts)
             for rec in records:
                 write(rec, plan.root)
             return records
-        joins = [(JOIN_ITEM, JOIN_VILLAGESQL, plan.join_reference)] \
-            if adapter.name == "villagesql" and JOIN_ITEM in pending else []
+        statement = JOIN_STATEMENT.get(adapter.name)
+        joins = [(item, statement(JOINS_BY_ITEM[item]), plan.join_references.get(item))
+                 for item in HYBRID_ITEMS if item in pending] if statement else []
         queries = [n for n in plan.queries if f"q{n:02d}" in pending]
         try:
             records = run_power(
@@ -182,24 +185,43 @@ def _run_system(adapter: SystemAdapter, plan: _Plan) -> list[ResultRecord]:
             for rec in records:
                 write(rec, plan.root)
             return records
-        if not joins and JOIN_ITEM in pending and adapter.name != "villagesql":
-            rec = _na_join_record(adapter, plan, host_facts)
+        na_items = [item for item in HYBRID_ITEMS if item in pending] if not statement else []
+        for rec in _na_join_records(adapter, plan, host_facts, na_items):
             write(rec, plan.root)
             records.append(rec)
-        return records
+        return records + _run_streams(adapter, plan, host_facts)
     finally:
         adapter.remove_data()
 
 
+def _run_streams(adapter: SystemAdapter, plan: _Plan, host_facts: dict) -> list[ResultRecord]:
+    """M4 over Parquet: the 22 Track B queries at each pending stream count (the hybrid joins
+    are M1 only). A system that fails here keeps its M1 records."""
+    records: list[ResultRecord] = []
+    for item in _pending(adapter, plan, "M4"):
+        streams = int(item.removeprefix("streams="))
+        try:
+            records.append(run_throughput(
+                adapter, plan.sf, streams, plan.run_id, plan.root, clock=plan.clock,
+                host=plan.host, timeout_s=plan.timeout_s, query_text=plan.text))
+        except Exception as exc:  # noqa: BLE001 - one system must not end the Track B run
+            failed = _failed_records(adapter, plan, exc, host_facts)
+            for rec in failed:
+                write(rec, plan.root)
+            return records + failed
+    return records
+
+
 def _reference(adapter, sf, run_id, root, queries, timeout_s, text):
-    """Plain DuckDB rows for the numbered queries and the join (cached per run)."""
+    """Plain DuckDB rows for the numbered queries and the hybrid joins (cached per run)."""
     ref = build_reference(adapter, sf, run_id, root, queries, timeout_s, query_text=text)
-    res = adapter.execute(JOIN_REFERENCE, timeout_s)
-    join = None
-    if res.status == "ok":
-        join = {"rows": list(res.rows or []), "numeric_cols": set(res.numeric_cols),
-                "columns": list(res.columns)}
-    return ref, join
+    joins: dict[str, dict | None] = {}
+    for j in HYBRID_JOINS:
+        res = adapter.execute(j.reference, timeout_s)
+        joins[j.item] = None if res.status != "ok" else {
+            "rows": list(res.rows or []), "numeric_cols": set(res.numeric_cols),
+            "columns": list(res.columns)}
+    return ref, joins
 
 
 def run_track_b(
@@ -217,21 +239,23 @@ def run_track_b(
     clock: Callable[[], datetime] = _utcnow,
     host: Callable[[], dict] = hostinfo.host_info,
     adapter_factory: Callable[[str, Path], SystemAdapter] = make_adapter,
+    streams: Iterable[int] = (),
 ) -> list[ResultRecord]:
     """Run Track B for ``systems`` one at a time and return all records (written under ``root``).
 
     The reference rows come from plain DuckDB 1.5.5 over the same Parquet files; every system's
-    ok result is compared with them (``wrong_result`` when it differs).
+    ok result is compared with them (``wrong_result`` when it differs). With ``streams`` each
+    system also runs M4 (the 22 queries, concurrently) at each stream count.
     """
     plan = _Plan(sf, run_id, root, limits or Limits(), data, list(queries),
                  lambda n: trackb_query(n, default_globs()), timeout_s, warm_runs, drop_caches,
-                 clock, host)
+                 clock, host, streams=tuple(streams))
     ref_adapter = adapter_factory(REFERENCE_SYSTEM, data.root)
     try:
         ref_adapter.remove_data()
         ref_adapter.start(plan.limits)
         try:
-            plan.reference, plan.join_reference = _reference(
+            plan.reference, plan.join_references = _reference(
                 ref_adapter, sf, run_id, root, plan.queries, timeout_s, plan.text)
         finally:
             ref_adapter.remove_data()

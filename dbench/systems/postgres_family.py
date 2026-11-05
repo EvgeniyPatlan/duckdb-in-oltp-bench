@@ -15,7 +15,7 @@ from psycopg import errors as pgerrors
 from psycopg import pq
 
 from dbench.datagen import DatasetPaths, expected_rows
-from dbench.schema import TABLES, render_schema, split_statements
+from dbench.schema import TABLES, render_schema, split_statements, table_statements
 from dbench.systems._common import (
     PROBE_TIMEOUT_S,
     READ_MARGIN_S,
@@ -62,6 +62,8 @@ class PostgresFamilyAdapter(ContainerServerAdapter):
     dialect = "postgres"
     family = "postgres"
     engine_clause = ""
+    schema_dialect = "postgres"  # the DDL dialect (``dialect`` is the query dialect)
+    load_tables: tuple[str, ...] = TABLES  # what create_schema and load_bulk set up
     rowstore_clause = ""  # a heap table is the default access method
     version_key = "postgres"
     postgres_shm = True
@@ -170,9 +172,10 @@ class PostgresFamilyAdapter(ContainerServerAdapter):
             conn.close()
 
     def create_schema(self, sf: int, kind: Literal["engine", "rowstore"]) -> None:
-        self._run_statements([f"DROP TABLE IF EXISTS {t} CASCADE" for t in reversed(TABLES)])
-        ddl = render_schema(self.dialect, self.engine_clause, kind)
-        self._run_statements(split_statements(ddl))
+        tables = self.load_tables
+        self._run_statements([f"DROP TABLE IF EXISTS {t} CASCADE" for t in reversed(tables)])
+        ddl = render_schema(self.schema_dialect, self.engine_clause, kind)
+        self._run_statements(table_statements(split_statements(ddl), tables))
 
     # loading
     def load_bulk(self, data: DatasetPaths) -> LoadOutcome:
@@ -192,7 +195,7 @@ class PostgresFamilyAdapter(ContainerServerAdapter):
 
     def _load_parts(self, conn, data: DatasetPaths) -> None:
         """Load every CSV part: ``COPY`` here; engines without a working COPY override it."""
-        for table in TABLES:
+        for table in self.load_tables:
             for part in data.tables[table]:
                 path = container_data_path(self.data_dir, part)
                 conn.execute(COPY_SQL.format(table=table, path=path))
@@ -207,13 +210,14 @@ class PostgresFamilyAdapter(ContainerServerAdapter):
         conn.execute("SET statement_timeout = 0")
         self._load_parts(conn, data)
         loaded_s = time.perf_counter() - started
-        expected = expected_rows(data)
-        actual = {t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in TABLES}
+        expected = {t: n for t, n in expected_rows(data).items() if t in self.load_tables}
+        actual = {t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+                  for t in self.load_tables}
         if actual != expected:
             return LoadOutcome("error", loaded_s, "row count does not match the manifest",
                                {"kind": "row_count", "expected": expected, "actual": actual})
         analyze_start = time.perf_counter()
-        for table in TABLES:
+        for table in self.load_tables:
             conn.execute(self._finalize_sql(table))
         elapsed = loaded_s + (time.perf_counter() - analyze_start)
         return LoadOutcome("ok", elapsed, None, {"rows": actual})

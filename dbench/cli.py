@@ -59,6 +59,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="default: duckdb-1.5.5 villagesql pg_duckdb-trackb mariadb-trackb")
     trackb.add_argument("--timeout", type=int, default=QUERY_TIMEOUT_S,
                         help="per-query timeout in seconds (default: %(default)s)")
+    trackb.add_argument("--streams", nargs="+", type=int, default=[], metavar="N",
+                        help="also run M4 over Parquet at these stream counts (default: none)")
     trackb.add_argument("--run-id")
     trackb.add_argument("--results", type=Path, help="default: $DBENCH_RESULTS or <repo>/results")
     trackb.add_argument("--data", type=Path, help="dataset parent (default: $DBENCH_DATA/tpch)")
@@ -74,6 +76,12 @@ def build_parser() -> argparse.ArgumentParser:
     over.add_argument("--reference-version",
                       help="reference DuckDB version for version_gap (default: the system the "
                            "run's cached reference came from)")
+
+    man = sub.add_parser(
+        "lock-manifest", help="check a run's records against the version lock and archive the "
+                              "lock with the run (for records without versions.lock)")
+    man.add_argument("run_id")
+    man.add_argument("--results", type=Path, help="default: $DBENCH_RESULTS or <repo>/results")
 
     lk = sub.add_parser("lock", help="write systems/versions.lock.json from the local images")
     lk.add_argument("--force", action="store_true",
@@ -152,6 +160,16 @@ def _dataset(args: argparse.Namespace):
     return paths
 
 
+def _archive_lock(run_dir: Path) -> None:
+    """Keep the lock the records name (``versions.lock.archived_as``) with the run."""
+    from dbench import lock
+
+    try:
+        lock.archive(run_dir)
+    except (OSError, ValueError) as exc:  # the measurement goes on; records carry the error
+        print(f"warning: could not archive the version lock in {run_dir}: {exc}")
+
+
 def _trackb(args: argparse.Namespace) -> int:
     from dbench.config import Limits
     from dbench.measures.villagesql import TRACK_B_SYSTEMS, run_track_b
@@ -159,16 +177,18 @@ def _trackb(args: argparse.Namespace) -> int:
     paths = _dataset(args)
     run_id = args.run_id or datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     limits = Limits(SMOKE_DB_CPUSET, SMOKE_RUNNER_CPUSET, SMOKE_MEM_GB)
+    _archive_lock((args.results or results_root()) / run_id)
     records = run_track_b(args.sf, run_id, args.results or results_root(),
                           args.systems or TRACK_B_SYSTEMS, data=paths, limits=limits,
-                          timeout_s=args.timeout)
+                          timeout_s=args.timeout, streams=args.streams)
     for r in records:
         match = ""
         if r.status in ("ok", "wrong_result") and r.extra.get("compared"):
             match = " match" if r.status == "ok" else " MISMATCH"
         detail = r.error or r.reason or ""
         note = f" ({detail[:200]})" if detail else ""
-        print(f"  {r.system} {r.item}: {r.status}{match}{note}")
+        value = f" {r.value:.1f} qph" if r.measure == "M4" and r.value is not None else ""
+        print(f"  {r.system} {r.item}: {r.status}{value}{match}{note}")
     print(f"run {run_id}: {len(records)} Track B records")
     return 0
 
@@ -181,6 +201,7 @@ def _power(args: argparse.Namespace) -> int:
     run_id = args.run_id or datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     results = args.results or results_root()
     limits = Limits(SMOKE_DB_CPUSET, SMOKE_RUNNER_CPUSET, SMOKE_MEM_GB)
+    _archive_lock(results / run_id)
     reference = _reference(args, paths, limits, results, run_id) if args.compare_with else None
     adapter = _loaded_adapter(args.system, paths, limits, args.sf)
     try:
@@ -312,9 +333,41 @@ def _mark_failed(args: argparse.Namespace) -> int:
     return 0
 
 
+def _lock_manifest(args: argparse.Namespace) -> int:
+    from dbench import lock
+
+    run_dir = (args.results or results_root()) / args.run_id
+    if not run_dir.is_dir():
+        print(f"lock-manifest: no results at {run_dir}")
+        return 2
+    doc = lock.manifest(run_dir)
+    print(f"lock {doc['lock_sha256'][:12]} (git {doc['git_commit'][:12]}, committed lock: "
+          f"{doc['lock_is_committed']}), archived as {run_dir / doc['archived_as']}")
+    bad = 0
+    for system, row in sorted(doc["systems"].items()):
+        differ = f", DIFFERENT digest: {', '.join(row['differ'])}" if row["differ"] else ""
+        bad += bool(row["differ"])
+        print(f"  {system}: {row['match']} match, {row['no_digest']} without a digest{differ}")
+    return 1 if bad else 0
+
+
+# Commands that write measurement records: each record names the lock it ran against.
+MEASURING = {"power", "trackb", "campaign", "mark-failed"}
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.command in MEASURING:
+        from dbench import lock
+        from dbench.results import stamp_lock
+
+        with stamp_lock(lock.provenance):
+            return _dispatch(args)
+    return _dispatch(args)
+
+
+def _dispatch(args: argparse.Namespace) -> int:
     if args.command == "datagen":
         return _datagen(args)
     if args.command == "power":
@@ -329,6 +382,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _lock(args)
     if args.command == "mark-failed":
         return _mark_failed(args)
+    if args.command == "lock-manifest":
+        return _lock_manifest(args)
     return 0
 
 

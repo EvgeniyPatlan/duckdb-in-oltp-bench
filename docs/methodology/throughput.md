@@ -36,3 +36,9 @@ timed out or crashed are counted (`counts_by_status`) and do not count in the nu
 - **Host suspend.** If the host slept more than 1 s during a run, the run is discarded and repeated
   (up to 2 retries, recorded in `discarded_attempts`); if every attempt slept the campaign records
   an automatic failure that a resume retries.
+- **Track B (over Parquet).** With `track_b.measures: [M1, M4]` in the campaign, each Track B
+  system (plain DuckDB 1.5.5, VillageSQL, pg_duckdb `duckdb.query()`, MariaDB `run_in_duckdb()`)
+  runs the same M4 at the campaign's stream counts, sending the 22 Track B query texts (DuckDB SQL
+  over Parquet) through its raw entry point, under the run id `<run_id>-trackb`. Everything above
+  applies unchanged. The hybrid joins are M1 only. Track B throughput is shown in its own chart
+  and never compared with the table-based throughput.

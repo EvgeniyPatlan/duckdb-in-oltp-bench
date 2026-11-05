@@ -160,7 +160,7 @@ def test_parquet_section_explains_villagesql_on_the_charts_page(built):
     _, out = built
     html = text(out, "track_a.html")
     assert 'id="parquet"' in html and "duckdb_query" in html
-    assert 'data-chart="trackb_query"' in html
+    assert 'data-chart="trackb_query"' in html and 'data-chart="trackb_curve"' in html
     assert "url=track_a.html#parquet" in text(out, "track_b.html")
 
 
