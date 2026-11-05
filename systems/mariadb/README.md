@@ -24,6 +24,15 @@ empties the datadir the RPM pre-creates), creates `root@'%'` with an empty passw
 database, creates the DuckDB spill directory, then `exec`s `mariadbd --user=root`. No port is
 published; the server is reachable only over the benchmark's docker network.
 
+## Resource limits
+
+The container is capped by Docker, the same way as every database container
+(`dbench/dockerctl.py`): `cpuset_cpus` pins it to the campaign's `db_cpuset` (16 cores, `0-15`),
+and `mem_limit` = `memswap_limit` caps it at `mem_gb` (64 GB) with no swap. Inside that cap the
+server settings below size DuckDB (`duckdb_max_threads`, `duckdb_memory_limit`) and InnoDB. DuckDB
+spills to `duckdb_temp_directory` when a query needs more than `duckdb_memory_limit`; at SF100 and
+above under 64 GB that can happen, and M9 (SF300) is the bigger-than-memory test.
+
 ## How settings are applied
 
 `duckdb.cnf` is a jinja template rendered from the container limits (`dbench/systems/mariadb.py`,
