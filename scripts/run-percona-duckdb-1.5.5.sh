@@ -62,7 +62,7 @@ cd "$ENGINE_DIR"
 if [ ! -d vendor/mysql-server/.git ]; then
     git clone --depth 1 --branch "$MYSQL_TAG" https://github.com/mysql/mysql-server.git vendor/mysql-server
 fi
-[ "$(git -C vendor/mysql-server rev-parse HEAD)" = "$MYSQL_COMMIT" ] \
+[ "$(git -c safe.directory='*' -C vendor/mysql-server rev-parse HEAD)" = "$MYSQL_COMMIT" ] \
     || die "vendor/mysql-server is not $MYSQL_TAG ($MYSQL_COMMIT)"
 [ -L vendor/mysql-server/storage/duckdb ] || ln -s ../../../engine vendor/mysql-server/storage/duckdb
 if ! docker image inspect ducksdb-builder:latest >/dev/null 2>&1; then
@@ -75,7 +75,8 @@ if [ ! -f "$PREFIX_REL/lib/libduckdb.a" ]; then
         | tail -3
 fi
 [ -f "$PREFIX_REL/lib/libduckdb.a" ] || die "no $PREFIX_REL/lib/libduckdb.a"
-got=$(git -C "vendor/duckdb-src-${DUCKDB_TAG#v}" rev-parse --short=10 HEAD)
+# cloned as root inside the builder: read it without trusting it in the global git config
+got=$(git -c safe.directory='*' -C "vendor/duckdb-src-${DUCKDB_TAG#v}" rev-parse --short=10 HEAD)
 [ "$got" = "$DUCKDB_SHA" ] || die "DuckDB source is $got, expected the $DUCKDB_TAG release $DUCKDB_SHA"
 
 step "3. server on DuckDB $DUCKDB_TAG in $BUILD_REL (RelWithDebInfo)"
