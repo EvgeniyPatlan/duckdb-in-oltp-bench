@@ -65,6 +65,8 @@ class PerconaEngine(ConvertToDuckDBMixin, MySQLFamilyAdapter):
     pushdown_counter_scope = "global"
     config_dir = "percona"
     image = IMAGE
+    engine_version = ENGINE_VERSION
+    build_inputs: dict = {}  # a registry image: its digest pins it
     engine_clause = "ENGINE=DuckDB"
     version_key = "mysql"
     datadir = "/var/lib/mysql"
@@ -118,8 +120,8 @@ class PerconaEngine(ConvertToDuckDBMixin, MySQLFamilyAdapter):
     def versions(self) -> dict:
         info = super().versions()
         duck, source_id = self._duckdb_status()
-        return {**info, "engine": ENGINE_VERSION, "duckdb": duck, "duckdb_source_id": source_id,
-                "duckdb_source": DUCKDB_SOURCE,
+        return {**info, "engine": self.engine_version, "duckdb": duck,
+                "duckdb_source_id": source_id, "duckdb_source": DUCKDB_SOURCE,
                 "duckdb_threads": "auto-detected; no setting or status variable exposes it"}
 
     def _duckdb_status(self) -> tuple[str, str | None]:
@@ -160,3 +162,29 @@ class PerconaEngine(ConvertToDuckDBMixin, MySQLFamilyAdapter):
                 return pushed_from_counts(before, read_status_counter(cur, COUNTER_SQL))
         finally:
             conn.close()
+
+
+# The same engine release rebuilt by the benchmark author on DuckDB 1.5.5, the DuckDB the other
+# MySQL-family engines embed (MariaDB 1.5.5, AliSQL 1.5.2-dev736), for a comparison at the same
+# DuckDB version. Not a Percona release; built locally by the recipe in ``build_inputs``.
+VARIANT_1_5_5_IMAGE = "dbench/percona-duckdb:9.7-v0.2.4-duckdb-1.5.5"
+VARIANT_1_5_5_ENGINE_COMMIT = "4033a7a52736418f13f879ce8c9f83911cf1d3a1"
+
+
+class PerconaEngineDuckDB155(PerconaEngine):
+    """Percona's engine v0.2.4 on DuckDB 1.5.5 instead of 2.0.0; settings as ``percona``."""
+
+    name = "percona-duckdb-1.5.5"
+    image = VARIANT_1_5_5_IMAGE
+    engine_version = (f"{ENGINE_VERSION} rebuilt on DuckDB 1.5.5 "
+                      f"(engine commit {VARIANT_1_5_5_ENGINE_COMMIT[:12]}; not a Percona release)")
+    build_inputs = {
+        "engine_repo": "github.com/EvgeniyPatlan/ducksdb-mysql-engine",
+        "engine_commit": VARIANT_1_5_5_ENGINE_COMMIT,
+        "duckdb_tag": "v1.5.5",
+        "mysql_source": "github.com/mysql/mysql-server mysql-9.7.0 "
+                        "(845d525d49c8027a4d0cdcc43372c96ba295c857) with server-patches/",
+        "recipe": "DUCKDB_TAG=v1.5.5 scripts/build-duckdb-prefix.sh; "
+                  "BUILD_TYPE=RelWithDebInfo scripts/build-server.sh; "
+                  f"scripts/release-image.sh {VARIANT_1_5_5_IMAGE}",
+    }

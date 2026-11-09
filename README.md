@@ -75,6 +75,12 @@ page. Scale factors 1, 10, 100 and 300 are supported; the conference campaign us
   against the DuckDB it actually contains. One exception: MariaDB runs its newest long-term
   support release, 12.3.3, which MariaDB's developers asked to be tested, not the newest release
   (13.0.2, measured in the gate-sf10 test run). Both bundle DuckDB 1.5.5.
+- **One engine on two DuckDB versions.** Percona's engine (maintained by the benchmark author)
+  embeds DuckDB 2.0.0, which the other MySQL-family engines had not released by the cutoff. It
+  also runs as `percona-duckdb-1.5.5`: the same engine release rebuilt by the author on DuckDB
+  1.5.5, the version MariaDB embeds, so raw times can be compared at the same DuckDB version. It
+  is not a Percona release, it is labelled as such everywhere, and it never replaces `percona`.
+  An engine that releases a build on another DuckDB version can be added the same way.
 - **Pinned versions and digests.** Every image is pinned in the lock file: registry images by
   digest, locally built images by pinned base-image digests, package versions, checksums and git
   commits. A campaign refuses to start when an image or its build inputs differ from the lock.

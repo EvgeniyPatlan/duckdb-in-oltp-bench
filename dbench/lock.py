@@ -34,6 +34,8 @@ LOCKED_SYSTEMS = (
     "innodb", "postgres",
     "percona", "mariadb", "alisql", "pg_duckdb", "pg_ducklake", "villagesql",
 )
+# Locked on demand (``dbench lock --system``) because only the bench host builds its image.
+LOCAL_VARIANTS = ("percona-duckdb-1.5.5",)
 
 # Plain DuckDB versions built from source instead of installed from PyPI: extra build args of
 # systems/duckdb/Dockerfile (keep in step with scripts/build-images.sh).
@@ -72,6 +74,8 @@ def _versions(system: str) -> tuple[str, str | None]:
         "innodb": ("MySQL 9.7 (InnoDB)", None),
         "postgres": ("PostgreSQL 18", None),
         "percona": ("MySQL 9.7.0 + Percona ducksdb-mysql-engine v0.2.4", percona.DUCKDB_VERSION),
+        "percona-duckdb-1.5.5": ("MySQL 9.7.0 + Percona ducksdb-mysql-engine v0.2.4 rebuilt on "
+                                 "DuckDB 1.5.5 (not a Percona release)", "1.5.5"),
         "mariadb": ("MariaDB 12.3.3 + MariaDB-duckdb-engine", "bundled; see versions in records"),
         "alisql": ("AliSQL 8.0.44-3 (MySQL 8.0.44)", alisql.DUCKDB_VERSION),
         "pg_duckdb": ("PostgreSQL 18 + pg_duckdb v1.1.1", "bundled; see versions in records"),
@@ -114,7 +118,10 @@ def build_inputs(system: str) -> dict:
         else:
             inputs["pip"] = f"duckdb=={version}"
         return inputs
-    directory = SYSTEMS_DIR / get_adapter(name, None).config_dir
+    adapter = get_adapter(name, None)
+    if getattr(adapter, "build_inputs", None):
+        return dict(adapter.build_inputs)
+    directory = SYSTEMS_DIR / adapter.config_dir
     if (directory / "Dockerfile").is_file():
         return _dockerfile_inputs(directory / "Dockerfile")
     script = directory / "build.sh"

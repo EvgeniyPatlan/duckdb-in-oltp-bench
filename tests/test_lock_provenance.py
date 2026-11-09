@@ -193,3 +193,19 @@ def test_campaign_archives_the_lock(tmp_path):
     deps.archive_lock = archived.append
     run_campaign(write_yaml(tmp_path), tmp_path / "res", deps)
     assert archived == [tmp_path / "res" / "r1"]
+
+
+def test_the_percona_variant_is_locked_alone_with_its_recipe(tmp_path):
+    path = lock_file(tmp_path)
+    before = json.loads(path.read_text(encoding="utf-8"))
+    doc = lock.write_lock(path, systems=["percona-duckdb-1.5.5"],
+                          identity=lambda image: ("local", (LOCAL_ID,)))
+    entry = doc["percona-duckdb-1.5.5"]
+    assert {k: doc[k] for k in before} == before  # every other entry stays as it was
+    assert entry["digest_kind"] == "local" and entry["duckdb_version"] == "1.5.5"
+    assert entry["build_inputs"]["duckdb_tag"] == "v1.5.5"
+    assert entry["build_inputs"]["engine_commit"] == lock.build_inputs("percona-duckdb-1.5.5")[
+        "engine_commit"]
+    assert "not a Percona release" in entry["server_version"]
+    assert lock.build_inputs("percona") == {}  # the registry image is pinned by its digest
+    assert "percona-duckdb-1.5.5" not in lock.LOCKED_SYSTEMS

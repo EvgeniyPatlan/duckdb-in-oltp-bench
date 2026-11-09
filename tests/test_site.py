@@ -174,7 +174,7 @@ def test_system_labels_follow_one_rule():
     """Short labels name who provides the integration, never a product line or engine jargon;
     the full product with versions comes from the lock file on each system page."""
     from sitegen.methodology import DIR_LABELS
-    from sitegen.model import LABELS, config_dir
+    from sitegen.model import LABELS, VARIANTS, config_dir
 
     assert {k: LABELS[k] for k in ("alisql", "mariadb", "percona", "pg_duckdb", "pg_ducklake",
                                    "villagesql", "innodb", "postgres")} == {
@@ -182,7 +182,7 @@ def test_system_labels_follow_one_rule():
         "pg_duckdb": "pg_duckdb", "pg_ducklake": "pg_ducklake", "villagesql": "VillageSQL",
         "innodb": "MySQL InnoDB", "postgres": "PostgreSQL"}
     for name, label in LABELS.items():
-        if not name.endswith("-trackb"):
+        if not name.endswith("-trackb") and name not in VARIANTS:
             assert DIR_LABELS[config_dir(name)] == label, name
 
 

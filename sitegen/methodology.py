@@ -11,13 +11,14 @@ from dbench.correctness import compare
 from dbench.queries.dialect import dialect_diff
 from dbench.results import ResultRecord
 from sitegen import md, settings
-from sitegen.model import LABELS
+from sitegen.model import LABELS, VARIANTS
 from sitegen.model import config_dir as _config_dir
 
 REPO = Path(__file__).resolve().parents[1]
 DIALECTS = ("mysql", "postgres")
 DIR_LABELS = {"duckdb": "Plain DuckDB",
-              **{_config_dir(n): label for n, label in LABELS.items() if not n.endswith("-trackb")}}
+              **{_config_dir(n): label for n, label in LABELS.items()
+                 if not n.endswith("-trackb") and n not in VARIANTS}}
 
 
 def tolerances() -> dict:

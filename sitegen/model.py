@@ -25,8 +25,11 @@ LABELS = {
     "innodb": "MySQL InnoDB", "postgres": "PostgreSQL",
     "pg_duckdb-trackb": "pg_duckdb (duckdb.query)",
     "mariadb-trackb": "MariaDB (run_in_duckdb)",
+    "percona-duckdb-1.5.5": "Percona (rebuilt on DuckDB 1.5.5)",
 }
-CONFIG_DIRS = {"pg_duckdb": "pgduckdb", "pg_ducklake": "pgducklake"}
+# Variants of an engine built for a comparison: they share its settings directory.
+VARIANTS = {"percona-duckdb-1.5.5": "percona"}
+CONFIG_DIRS = {"pg_duckdb": "pgduckdb", "pg_ducklake": "pgducklake", **VARIANTS}
 SYNTHETIC_KEY = "synthetic"
 
 

@@ -13,7 +13,7 @@ def _factories() -> dict[str, Callable[[Path | str | None], SystemAdapter]]:
     from dbench.systems.alisql import AliSQLDuckDB
     from dbench.systems.innodb import InnoDB
     from dbench.systems.mariadb import MariaDBDuckDB
-    from dbench.systems.percona import PerconaEngine
+    from dbench.systems.percona import PerconaEngine, PerconaEngineDuckDB155
     from dbench.systems.pgduckdb import PgDuckDB
     from dbench.systems.pgducklake import PgDuckLake
     from dbench.systems.postgres import Postgres
@@ -21,7 +21,8 @@ def _factories() -> dict[str, Callable[[Path | str | None], SystemAdapter]]:
     from dbench.systems.villagesql import VillageSQL
 
     return {"alisql": AliSQLDuckDB, "innodb": InnoDB, "mariadb": MariaDBDuckDB,
-            "mariadb-trackb": MariaDBTrackB, "percona": PerconaEngine, "pg_duckdb": PgDuckDB,
+            "mariadb-trackb": MariaDBTrackB, "percona": PerconaEngine,
+            "percona-duckdb-1.5.5": PerconaEngineDuckDB155, "pg_duckdb": PgDuckDB,
             "pg_duckdb-trackb": PgDuckDBTrackB, "pg_ducklake": PgDuckLake, "postgres": Postgres,
             "villagesql": VillageSQL}
 

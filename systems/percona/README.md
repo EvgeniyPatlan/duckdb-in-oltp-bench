@@ -1,9 +1,23 @@
 # MySQL 9.7.0 + Percona ducksdb-mysql-engine v0.2.4 (`ENGINE=DuckDB`)
 
 Image `perconalab/ducksdb-mysql-engine:9.7-duckdb-v0.2.4`, pinned by digest
-`sha256:5e4af8b2bede83db7b296be977a9c22fb30e8a05a565e3b3b0fe08fea9a96640` (the image reference
+`sha256:222a06f9b717eefded72e21681e2c45f343cafc1b66655ffcf9c90745117a566` (the image reference
 in `dbench/systems/percona.py` carries it; the resolved digest is also recorded in every result as
 `versions.image_digest`). Track A. The dataset is mounted read-only at `/data`.
+
+## The same engine on DuckDB 1.5.5 (`percona-duckdb-1.5.5`)
+
+v0.2.4 embeds DuckDB 2.0.0, while MariaDB embeds 1.5.5 and AliSQL a 1.5.2 snapshot, so raw
+query times mix the engine with its DuckDB version. For a comparison at the same DuckDB version,
+the benchmark author (who maintains this engine) rebuilt the same engine release on DuckDB 1.5.5.
+It is **not a Percona release**: an image built locally on the bench host,
+`dbench/percona-duckdb:9.7-v0.2.4-duckdb-1.5.5`, from the engine commit and recipe recorded in its
+lock entry (`build_inputs`). The only change from v0.2.4 is a compatibility header
+(`common/duckdb_compat.h`) that selects the three DuckDB C++ calls that differ between 1.5 and
+2.0; settings, schema and loading are those of `percona` below. The server reports the embedded
+DuckDB version and source id, recorded as `versions.duckdb` and `versions.duckdb_source_id`, and
+its overhead (M7) is measured against plain DuckDB 1.5.5. It was added to the talk-sf100 run
+after the other systems had been measured.
 
 ## How settings are applied
 
