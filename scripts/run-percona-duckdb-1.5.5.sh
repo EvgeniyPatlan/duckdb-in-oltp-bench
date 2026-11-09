@@ -106,7 +106,11 @@ version=$(q "SHOW GLOBAL STATUS LIKE 'Ducksdb_duckdb_version'" | cut -f2)
 source_id=$(q "SHOW GLOBAL STATUS LIKE 'Ducksdb_duckdb_source_id'" | cut -f2)
 echo "  embedded DuckDB: $version ($source_id)"
 [ "$version" = "$DUCKDB_TAG" ] || die "the server reports DuckDB $version, expected $DUCKDB_TAG"
-case "$source_id" in "$DUCKDB_SHA"*) ;; *) die "source id $source_id is not the $DUCKDB_TAG release $DUCKDB_SHA";; esac
+# DuckDB reports a short commit hash (7 characters here): it must agree with the release commit
+# for as many characters as both have, at least 7.
+n=$(( ${#source_id} < ${#DUCKDB_SHA} ? ${#source_id} : ${#DUCKDB_SHA} ))
+{ [ "$n" -ge 7 ] && [ "${source_id:0:n}" = "${DUCKDB_SHA:0:n}" ]; } \
+    || die "source id $source_id is not the $DUCKDB_TAG release commit $DUCKDB_SHA"
 q "CREATE DATABASE t; CREATE TABLE t.x (id INT PRIMARY KEY, v INT) ENGINE=DuckDB;
    INSERT INTO t.x VALUES (1,10),(2,20),(3,30)"
 before=$(q "SHOW GLOBAL STATUS LIKE 'Ducksdb_pushdown_count'" | cut -f2)
