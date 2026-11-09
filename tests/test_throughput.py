@@ -4,6 +4,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import threading
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
@@ -13,11 +14,13 @@ from dbench.config import STREAMS, Limits
 from dbench.measures import registry as measures
 from dbench.measures.power import HostSuspended
 from dbench.measures.throughput import (
+    level_status,
     queries_per_hour,
+    restate,
     run_throughput,
     stream_order,
 )
-from dbench.results import iter_records
+from dbench.results import ResultRecord, iter_records, read, write
 from dbench.systems.base import QueryOutcome, SystemAdapter
 from dbench.systems.registry import get_adapter
 from tests.fakes import FakeAdapter, timeout
@@ -126,9 +129,10 @@ def test_qph_math(tmp_path):
 
 
 def test_only_ok_queries_count_in_the_numerator(tmp_path):
-    a = StreamFake({3: QueryOutcome("error", 0.1, None, set(), "boom", "n/a")})
+    a = StreamFake({3: timeout()})
     rec = throughput(a, tmp_path, streams=2)
-    assert rec.value == 42 * 3600 / 100.0 and rec.extra["total_queries"] == 44
+    assert rec.status == "ok" and rec.value == 42 * 3600 / 100.0
+    assert rec.extra["total_queries"] == 44
 
 
 # ---- errors are counted, never raised ------------------------------------------------------
@@ -141,7 +145,11 @@ def test_errors_counted_not_raised(tmp_path):
         4: QueryOutcome("crashed", None, None, set(), "gone", "n/a"),
     })
     rec = throughput(a, tmp_path, streams=2)
-    assert rec.status == "ok"
+    assert rec.status == "crashed" and rec.value is None
+    assert rec.extra["ok_queries_qph"] == 36 * 3600 / 100.0
+    assert rec.error.startswith("the container was killed by its memory limit during the run "
+                                "(OOMKilled, exit 137) (2 crashed, 4 error, 2 timeout, 36 ok "
+                                "of 44 queries)")  # the fake's crash_info reports OOMKilled
     assert rec.extra["counts_by_status"] == {"ok": 36, "error": 4, "timeout": 2, "crashed": 2}
     lat = {q: (s, st) for q, s, st in rec.extra["per_query_latency"][0]}
     assert lat["q02"][1] == "error" and lat["q03"] == (None, "timeout")
@@ -153,6 +161,83 @@ def test_all_queries_failing_records_an_error_without_a_value(tmp_path):
     a = StreamFake({n: QueryOutcome("error", 0.1, None, set(), "x", "n/a") for n in range(1, 23)})
     rec = throughput(a, tmp_path, streams=1)
     assert rec.status == "error" and rec.value is None and rec.error
+
+
+@pytest.mark.parametrize("counts, status", [
+    ({"ok": 704}, "ok"),
+    ({"ok": 687, "timeout": 17}, "ok"),  # timeouts are measured outcomes
+    ({"ok": 151, "error": 15, "timeout": 10}, "error"),
+    ({"ok": 24, "crashed": 323, "timeout": 5}, "crashed"),
+    ({"ok": 36, "crashed": 86, "error": 551}, "crashed"),
+    ({"timeout": 22}, "error"),
+])
+def test_level_status_comes_from_the_query_outcomes_only(counts, status):
+    got, error = level_status(counts)
+    assert got == status and (error is None) == (status == "ok")
+
+
+def test_an_error_level_has_no_value_and_contamination_never_sets_the_status(tmp_path,
+                                                                               monkeypatch):
+    rec = throughput(StreamFake({3: QueryOutcome("error", 0.1, None, set(), "boom", "n/a")}),
+                     tmp_path, streams=2)
+    assert rec.status == "error" and rec.value is None and "2 error, 42 ok" in rec.error
+    monkeypatch.setattr("dbench.measures.power.LINGER_WAIT_S", 0.05)
+    monkeypatch.setattr("dbench.measures.power.LINGER_POLL_S", 0.01)
+    rec = throughput(StreamFake({5: timeout()}, lingering=[1] * 100), tmp_path, streams=2)
+    assert rec.extra["contaminated"] and rec.extra["restarted_after_run"]
+    assert rec.status == "ok" and rec.value is not None
+
+
+def test_a_crash_is_called_a_memory_kill_only_when_the_container_says_so():
+    counts = {"ok": 24, "crashed": 323}
+    _, plain = level_status(counts)
+    _, oom = level_status(counts, {"OOMKilled": "True", "ExitCode": "137", "status": "exited"})
+    _, other = level_status(counts, {"OOMKilled": "False", "ExitCode": "139"})
+    assert plain.startswith("the server stopped") and other.startswith("the server stopped")
+    assert oom.startswith("the container was killed by its memory limit during the run "
+                          "(OOMKilled, exit 137) (323 crashed, 24 ok of 347 queries)")
+
+
+def _m4(tmp_path, system, n, counts, value):
+    rec = ResultRecord(system=system, track="A", measure="M4", sf=100, item=f"streams={n}",
+                       status="ok", value=value, unit="qph", config_ref="systems/x/",
+                       run_id="r1", started_at="2026-11-06T00:00:00+00:00",
+                       extra={"counts_by_status": counts, "errors": [["q01", "crashed", "gone"]]},
+                       versions={"image": "x"})
+    return write(rec, tmp_path)
+
+
+def test_restate_rewrites_only_failed_levels_and_keeps_the_original(tmp_path):
+    crashed = _m4(tmp_path, "alisql", 16, {"ok": 24, "crashed": 323, "timeout": 5}, 90.7)
+    timeouts = _m4(tmp_path, "mariadb", 32, {"ok": 687, "timeout": 17}, 550.3)
+    clean = _m4(tmp_path, "percona", 32, {"ok": 704}, 1134.0)
+    untouched = {p: p.read_bytes() for p in (timeouts, clean)}
+    original = crashed.read_bytes()
+
+    listed = restate(tmp_path, "r1", None)  # without a backup nothing is written
+    assert [(r.system, s) for r, s in listed] == [("alisql", "crashed")]
+    assert crashed.read_bytes() == original
+
+    restate(tmp_path, "r1", tmp_path / "bak")
+    rec = read(crashed)
+    assert (rec.status, rec.value, rec.extra["ok_queries_qph"]) == ("crashed", None, 90.7)
+    assert "lock" not in rec.versions  # an unstamped record is not given the current lock
+    assert (tmp_path / "bak" / "r1" / "alisql" / crashed.name).read_bytes() == original
+    assert {p: p.read_bytes() for p in untouched} == untouched
+    assert restate(tmp_path, "r1", tmp_path / "bak") == []  # a second pass changes nothing
+    assert (tmp_path / "bak" / "r1" / "alisql" / crashed.name).read_bytes() == original
+
+
+def test_restate_refreshes_the_error_of_an_earlier_restate_and_keeps_its_value(tmp_path):
+    path = _m4(tmp_path, "alisql", 8, {"ok": 67, "crashed": 102}, 208.8)
+    restate(tmp_path, "r1", tmp_path / "bak")
+    rec = read(path)
+    oom = {"OOMKilled": "True", "ExitCode": "137"}
+    write(replace(rec, extra={**rec.extra, "container": oom}), tmp_path)  # as in the records
+    assert [s for _, s in restate(tmp_path, "r1", tmp_path / "bak")] == ["crashed"]
+    rec = read(path)
+    assert rec.error.startswith("the container was killed by its memory limit")
+    assert rec.extra["ok_queries_qph"] == 208.8 and rec.value is None
 
 
 # ---- timeouts, contamination -----------------------------------------------------------------

@@ -83,7 +83,17 @@ def build_parser() -> argparse.ArgumentParser:
     man.add_argument("run_id")
     man.add_argument("--results", type=Path, help="default: $DBENCH_RESULTS or <repo>/results")
 
+    rs = sub.add_parser(
+        "m4-restate", help="give M4 records written before the status rule the status their own "
+                           "per-query counts imply (crashed or error, without a value)")
+    rs.add_argument("run_id")
+    rs.add_argument("--results", type=Path, help="default: $DBENCH_RESULTS or <repo>/results")
+    rs.add_argument("--backup", type=Path,
+                    help="copy each original here and rewrite it; without it, only list changes")
+
     lk = sub.add_parser("lock", help="write systems/versions.lock.json from the local images")
+    lk.add_argument("--system", action="append", dest="systems",
+                    help="lock only this system (repeatable); every other entry stays as it is")
     lk.add_argument("--force", action="store_true",
                     help="also change registry digests and build inputs (default: only refresh "
                          "local image ids)")
@@ -310,7 +320,7 @@ def _lock(args: argparse.Namespace) -> int:
     from dbench import lock
 
     try:
-        doc = lock.write_lock(force=args.force)
+        doc = lock.write_lock(systems=args.systems or lock.LOCKED_SYSTEMS, force=args.force)
     except lock.LockError as exc:
         print(f"lock failed: {exc}")
         return 2
@@ -330,6 +340,21 @@ def _mark_failed(args: argparse.Namespace) -> int:
         print(f"mark-failed: {exc}")
         return 2
     print(f"{args.system}: {n} cells recorded as failed")
+    return 0
+
+
+def _m4_restate(args: argparse.Namespace) -> int:
+    from dbench.measures.throughput import restate
+
+    root = args.results or results_root()
+    if not (root / args.run_id).is_dir():
+        print(f"m4-restate: no results for run {args.run_id!r} under {root}")
+        return 2
+    changes = restate(root, args.run_id, args.backup)
+    for rec, status in changes:
+        print(f"  {rec.system} {rec.item}: ok -> {status} ({rec.extra['counts_by_status']})")
+    done = f"rewritten, originals in {args.backup}" if args.backup else "not written (no --backup)"
+    print(f"m4-restate {args.run_id}: {len(changes)} records {done}")
     return 0
 
 
@@ -384,6 +409,8 @@ def _dispatch(args: argparse.Namespace) -> int:
         return _mark_failed(args)
     if args.command == "lock-manifest":
         return _lock_manifest(args)
+    if args.command == "m4-restate":
+        return _m4_restate(args)
     return 0
 
 

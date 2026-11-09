@@ -33,6 +33,16 @@ timed out or crashed are counted (`counts_by_status`) and do not count in the nu
   shows queries after all streams are done. The server is restarted after the record is written,
   never mid-run. After a timeout without a server-confirmed stop, that stream's poll (up to 10 s)
   is inside the timed region.
+- **Status.** Only the per-query outcomes decide it. A run in which any query `crashed` (its
+  server's container had stopped) is `crashed`; otherwise one in which any query failed with an
+  `error` is `error`. Neither has a value: a failed query frees its stream early, so the
+  queries per hour of the rest would read as throughput. That figure is kept as
+  `extra.ok_queries_qph` and the error names the counts. A crash is named a memory kill
+  ("killed by its memory limit", OOMKilled) only when Docker reports it for the container. A run of `ok` and `timeout` queries only
+  is `ok` with its value, since a timeout is a measured outcome. `contaminated` and
+  `restarted_after_run` record what the harness did after the run and never change the status.
+  Records written before this rule were given it with `dbench m4-restate <run_id>`, which reads
+  only their stored counts (`extra.restated` marks them).
 - **Host suspend.** If the host slept more than 1 s during a run, the run is discarded and repeated
   (up to 2 retries, recorded in `discarded_attempts`); if every attempt slept the campaign records
   an automatic failure that a resume retries.

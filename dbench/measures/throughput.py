@@ -45,10 +45,19 @@ than SUSPEND_TOLERANCE_S the run is discarded and repeated, up to SUSPEND_RETRIE
 attempt slept, ``HostSuspended`` is raised and nothing is written.
 
 Errors, timeouts and crashes are counted in ``extra["counts_by_status"]``, never raised.
+
+Status. Only the per-query outcomes decide it (``level_status``): a run in which any query
+``crashed`` (its server's container had stopped) is ``crashed``, else one in which any query
+failed with an ``error`` is ``error``; neither has a value, because a failed query frees its
+stream early and the queries-per-hour of the rest would read as throughput. The figure is kept
+as ``extra["ok_queries_qph"]``. A run of ``ok`` and ``timeout`` queries only is ``ok`` with its
+value: a timeout is a measured outcome. ``contaminated`` and ``restarted_after_run`` describe what
+the harness did after the run and never change the status.
 """
 from __future__ import annotations
 
 import random
+import shutil
 import threading
 import time
 from collections import Counter
@@ -70,7 +79,7 @@ from dbench.measures.power import (
     _restart,
 )
 from dbench.queries.dialect import load_query, translate
-from dbench.results import ResultRecord, write
+from dbench.results import ResultRecord, _path, iter_records, write
 from dbench.systems.base import QueryOutcome, SystemAdapter
 
 DEFAULT_SEED = 20261027
@@ -89,6 +98,30 @@ def stream_order(stream_id: int, seed: int = DEFAULT_SEED) -> list[int]:
 
 def queries_per_hour(ok_queries: int, elapsed_s: float) -> float:
     return ok_queries * 3600 / elapsed_s
+
+
+def _oom_killed(container: dict | None) -> bool:
+    return str((container or {}).get("OOMKilled", "")).lower() == "true"
+
+
+def level_status(counts: dict[str, int],
+                 container: dict | None = None) -> tuple[str, str | None]:
+    """``(status, error)`` of a run from its ``counts_by_status`` (see Status above); a crash
+    is named a memory kill only when ``container`` (``extra["container"]``) says OOMKilled."""
+    total = sum(counts.values())
+    if not counts.get("ok"):
+        return "error", f"no query succeeded: {counts}"
+    parts = ", ".join(f"{counts[k]} {k}" for k in ("crashed", "error", "timeout", "ok")
+                      if counts.get(k))
+    if counts.get("crashed"):
+        what = ("the container was killed by its memory limit during the run (OOMKilled, exit "
+                f"{container.get('ExitCode')})" if _oom_killed(container)
+                else "the server stopped during the run")
+        return "crashed", f"{what} ({parts} of {total} queries); no throughput is reported"
+    if counts.get("error"):
+        return "error", (f"queries failed during the run ({parts} of {total} queries); "
+                         "no throughput is reported")
+    return "ok", None
 
 
 def percentile(values: list[float], p: float) -> float | None:
@@ -377,15 +410,17 @@ def run_throughput(
         extra["restarted_after_run"] = True
 
     ok_queries = extra["ok_queries"]
-    failed = ok_queries == 0
+    status, error = level_status(extra["counts_by_status"], extra.get("container"))
+    qph = queries_per_hour(ok_queries, attempt.elapsed_s) if ok_queries else None
+    if status != "ok" and qph is not None:
+        extra["ok_queries_qph"] = qph
+    if error:
+        error = f"{error}; first errors: {extra.get('errors', [])[:3]}"
     rec = ResultRecord(
         system=adapter.name, track=adapter.track, measure="M4", sf=sf, item=item,
-        status="error" if failed else "ok",
-        value=None if failed else queries_per_hour(ok_queries, attempt.elapsed_s),
+        status=status, value=qph if status == "ok" else None,
         unit="qph", config_ref=f"systems/{adapter.config_dir}/", run_id=run_id,
-        started_at=started_at, extra=extra,
-        error=(f"no query succeeded: {extra['counts_by_status']}; first errors: "
-               f"{extra.get('errors', [])[:3]}") if failed else None,
+        started_at=started_at, extra=extra, error=error,
         versions=versions, host=host_facts)
     write(rec, root)
     if restart:
@@ -394,3 +429,36 @@ def run_throughput(
             rec = replace(rec, extra={**rec.extra, "restart_error": error})
             write(rec, root)
     return rec
+
+
+def restate(root: Path, run_id: str, backup: Path | None) -> list[tuple[ResultRecord, str]]:
+    """Apply ``level_status`` to the M4 records of ``run_id`` that were written ``ok`` before it
+    existed, and refresh the error of records an earlier pass restated. Only the stored
+    per-query counts and ``extra["container"]`` are read: nothing is measured or estimated. The
+    value moves to ``extra["ok_queries_qph"]``; the lock, versions and every other field stay.
+    Returns ``(record, new status)`` for each record that changes; with ``backup`` set, each
+    original file is copied under ``backup/<run_id>/<system>/`` and the record is rewritten."""
+    changes = []
+    for rec in iter_records(Path(root) / run_id):
+        counts = rec.extra.get("counts_by_status")
+        restated = "restated" in rec.extra
+        if rec.measure != "M4" or not counts or (rec.status != "ok" and not restated):
+            continue
+        status, error = level_status(counts, rec.extra.get("container"))
+        error = f"{error}; first errors: {rec.extra.get('errors', [])[:3]}" if error else None
+        if status != rec.status or (restated and error != rec.error):
+            changes.append((rec, status, error))
+    if backup is None:
+        return [(rec, status) for rec, status, _ in changes]
+    for rec, status, error in changes:
+        src = _path(root, rec.system, rec.measure, rec.sf, rec.item, rec.run_id)
+        dest = Path(backup) / run_id / src.parent.name / src.name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if not dest.exists():  # a second pass must not replace the original with a rewrite
+            shutil.copy2(src, dest)
+        extra = {**rec.extra,
+                 "restated": {"from": "ok", "rule": "dbench.measures.throughput.level_status"}}
+        if "ok_queries_qph" not in extra:
+            extra["ok_queries_qph"] = rec.value
+        write(replace(rec, status=status, value=None, extra=extra, error=error), root)
+    return [(rec, status) for rec, status, _ in changes]
