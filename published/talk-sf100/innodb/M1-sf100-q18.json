@@ -1,0 +1,31 @@
+{
+  "config_ref": "systems/innodb/",
+  "error": "OperationalError: (3024, 'Query execution was interrupted, maximum statement execution time exceeded')",
+  "extra": {
+    "cold_s": 900.0023767575622,
+    "pushed": "n/a",
+    "warm_s": []
+  },
+  "host": {
+    "cpus": 80,
+    "docker_version": "29.1.3",
+    "kernel": "6.8.0-60-generic",
+    "mem_gb": 187
+  },
+  "item": "q18",
+  "measure": "M1",
+  "reason": null,
+  "run_id": "talk-sf100",
+  "sf": 100,
+  "started_at": "2026-11-04T08:36:22.451386+00:00",
+  "status": "timeout",
+  "system": "innodb",
+  "track": "baseline",
+  "unit": "s",
+  "value": null,
+  "versions": {
+    "image": "mysql:9.7",
+    "image_digest": "mysql@sha256:8fb11c38b3551e22d50adbb688f027f8ff4ea2d2445aa277c1cc97b4af85ec54",
+    "mysql": "9.7.4"
+  }
+}

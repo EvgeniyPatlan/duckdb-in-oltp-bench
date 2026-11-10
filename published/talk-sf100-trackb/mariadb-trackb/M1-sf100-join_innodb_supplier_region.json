@@ -1,0 +1,34 @@
+{
+  "config_ref": "systems/mariadb/",
+  "error": null,
+  "extra": {},
+  "host": {
+    "cpus": 80,
+    "docker_version": "29.1.3",
+    "kernel": "6.8.0-60-generic",
+    "mem_gb": 187
+  },
+  "item": "join_innodb_supplier_region",
+  "measure": "M1",
+  "reason": "run_in_duckdb returns text with no way to join it to an InnoDB table in SQL",
+  "run_id": "talk-sf100-trackb",
+  "sf": 100,
+  "started_at": "2026-11-09T08:10:11.388940+00:00",
+  "status": "n/a",
+  "system": "mariadb-trackb",
+  "track": "B",
+  "unit": "s",
+  "value": null,
+  "versions": {
+    "lock": {
+      "archived_as": "_lock/versions.lock.d1cef229972c.json",
+      "digest": "sha256:74f116a3c80938cdd74f8025cfa996798892727ddd6d27e5bd04bbf13ae13ce8",
+      "digest_kind": "local",
+      "file": "systems/versions.lock.json",
+      "git_commit": "aa54336fc7bd0599cc39da0058ad2189bacf8fbc",
+      "harness_dirty": false,
+      "lock_is_committed": false,
+      "sha256": "d1cef229972cd318f2739638baf216abdc145ca72feae369c842db7dd7dbd7d1"
+    }
+  }
+}

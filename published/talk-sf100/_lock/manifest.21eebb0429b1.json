@@ -1,0 +1,74 @@
+{
+  "archived_as": "_lock/versions.lock.21eebb0429b1.json",
+  "git_commit": "336e890775d86dec76d18c1baf5c09edb399dbf8",
+  "harness_dirty": false,
+  "lock_is_committed": false,
+  "lock_sha256": "21eebb0429b1ec90bcd65c6bffcf13a4bc0a7a68066335ee70eb04e09bb3b938",
+  "systems": {
+    "alisql": {
+      "differ": [],
+      "match": 178,
+      "no_digest": 0
+    },
+    "duckdb-1.4.3": {
+      "differ": [],
+      "match": 0,
+      "no_digest": 27
+    },
+    "duckdb-1.5.2-dev736": {
+      "differ": [],
+      "match": 0,
+      "no_digest": 27
+    },
+    "duckdb-1.5.3": {
+      "differ": [],
+      "match": 0,
+      "no_digest": 27
+    },
+    "duckdb-1.5.5": {
+      "differ": [],
+      "match": 0,
+      "no_digest": 27
+    },
+    "duckdb-2.0.0": {
+      "differ": [],
+      "match": 0,
+      "no_digest": 27
+    },
+    "innodb": {
+      "differ": [],
+      "match": 146,
+      "no_digest": 0
+    },
+    "mariadb": {
+      "differ": [],
+      "match": 178,
+      "no_digest": 0
+    },
+    "percona": {
+      "differ": [],
+      "match": 178,
+      "no_digest": 0
+    },
+    "percona-duckdb-1.5.5": {
+      "differ": [],
+      "match": 51,
+      "no_digest": 0
+    },
+    "pg_duckdb": {
+      "differ": [],
+      "match": 178,
+      "no_digest": 0
+    },
+    "pg_ducklake": {
+      "differ": [],
+      "match": 178,
+      "no_digest": 0
+    },
+    "postgres": {
+      "differ": [],
+      "match": 146,
+      "no_digest": 0
+    }
+  }
+}

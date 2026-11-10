@@ -1,0 +1,42 @@
+{
+  "config_ref": "systems/mariadb/",
+  "error": null,
+  "extra": {
+    "rows": {
+      "customer": 15000000,
+      "lineitem": 600037902,
+      "nation": 25,
+      "orders": 150000000,
+      "part": 20000000,
+      "partsupp": 80000000,
+      "region": 5,
+      "supplier": 1000000
+    },
+    "rowstore_load_s": 7365.5175432842225
+  },
+  "host": {
+    "cpus": 80,
+    "docker_version": "29.1.3",
+    "kernel": "6.8.0-60-generic",
+    "mem_gb": 187
+  },
+  "item": "load_convert",
+  "measure": "M2",
+  "reason": null,
+  "run_id": "talk-sf100",
+  "sf": 100,
+  "started_at": "2026-11-04T22:57:18.498884+00:00",
+  "status": "ok",
+  "system": "mariadb",
+  "track": "A",
+  "unit": "s",
+  "value": 5182.903439279646,
+  "versions": {
+    "duckdb": "1.5.5",
+    "duckdb_source": "status variable Duckdb_version",
+    "engine": "MariaDB-duckdb-engine 12.3.3-1.el9 (gamma)",
+    "image": "dbench/mariadb-duckdb:12.3.3",
+    "image_digest": "sha256:74f116a3c80938cdd74f8025cfa996798892727ddd6d27e5bd04bbf13ae13ce8",
+    "mariadb": "12.3.3-MariaDB"
+  }
+}

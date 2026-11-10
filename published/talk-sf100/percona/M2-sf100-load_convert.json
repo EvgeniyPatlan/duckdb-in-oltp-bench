@@ -1,0 +1,44 @@
+{
+  "config_ref": "systems/percona/",
+  "error": null,
+  "extra": {
+    "rows": {
+      "customer": 15000000,
+      "lineitem": 600037902,
+      "nation": 25,
+      "orders": 150000000,
+      "part": 20000000,
+      "partsupp": 80000000,
+      "region": 5,
+      "supplier": 1000000
+    },
+    "rowstore_load_s": 8753.00567491725
+  },
+  "host": {
+    "cpus": 80,
+    "docker_version": "29.1.3",
+    "kernel": "6.8.0-60-generic",
+    "mem_gb": 187
+  },
+  "item": "load_convert",
+  "measure": "M2",
+  "reason": null,
+  "run_id": "talk-sf100",
+  "sf": 100,
+  "started_at": "2026-11-05T04:17:09.944608+00:00",
+  "status": "ok",
+  "system": "percona",
+  "track": "A",
+  "unit": "s",
+  "value": 9998.277798175812,
+  "versions": {
+    "duckdb": "2.0.0",
+    "duckdb_source": "status variables Ducksdb_duckdb_version and Ducksdb_duckdb_source_id",
+    "duckdb_source_id": "d54cbbe3df",
+    "duckdb_threads": "auto-detected; no setting or status variable exposes it",
+    "engine": "ducksdb-mysql-engine v0.2.4",
+    "image": "perconalab/ducksdb-mysql-engine:9.7-duckdb-v0.2.4@sha256:222a06f9b717eefded72e21681e2c45f343cafc1b66655ffcf9c90745117a566",
+    "image_digest": "perconalab/ducksdb-mysql-engine@sha256:222a06f9b717eefded72e21681e2c45f343cafc1b66655ffcf9c90745117a566",
+    "mysql": "9.7.0"
+  }
+}

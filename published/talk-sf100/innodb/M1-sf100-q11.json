@@ -1,0 +1,37 @@
+{
+  "config_ref": "systems/innodb/",
+  "error": null,
+  "extra": {
+    "checksum": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "cold_s": 180.4816081840545,
+    "compared": true,
+    "pushed": "n/a",
+    "warm_s": [
+      32.67614220455289,
+      32.75996715389192,
+      32.77921195887029
+    ]
+  },
+  "host": {
+    "cpus": 80,
+    "docker_version": "29.1.3",
+    "kernel": "6.8.0-60-generic",
+    "mem_gb": 187
+  },
+  "item": "q11",
+  "measure": "M1",
+  "reason": null,
+  "run_id": "talk-sf100",
+  "sf": 100,
+  "started_at": "2026-11-04T06:39:01.278674+00:00",
+  "status": "ok",
+  "system": "innodb",
+  "track": "baseline",
+  "unit": "s",
+  "value": 32.75996715389192,
+  "versions": {
+    "image": "mysql:9.7",
+    "image_digest": "mysql@sha256:8fb11c38b3551e22d50adbb688f027f8ff4ea2d2445aa277c1cc97b4af85ec54",
+    "mysql": "9.7.4"
+  }
+}

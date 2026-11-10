@@ -1,0 +1,37 @@
+{
+  "config_ref": "systems/postgres/",
+  "error": null,
+  "extra": {
+    "checksum": "3c5b8cd52761ae0cd7fec15cbaba6c9996011526233f982bb734f0a20ecf1af8",
+    "cold_s": 112.09255235642195,
+    "compared": true,
+    "pushed": "n/a",
+    "warm_s": [
+      109.613349981606,
+      109.84376403875649,
+      109.50481195189059
+    ]
+  },
+  "host": {
+    "cpus": 80,
+    "docker_version": "29.1.3",
+    "kernel": "6.8.0-60-generic",
+    "mem_gb": 187
+  },
+  "item": "q16",
+  "measure": "M1",
+  "reason": null,
+  "run_id": "talk-sf100",
+  "sf": 100,
+  "started_at": "2026-11-04T14:52:15.324587+00:00",
+  "status": "ok",
+  "system": "postgres",
+  "track": "baseline",
+  "unit": "s",
+  "value": 109.613349981606,
+  "versions": {
+    "image": "postgres:18",
+    "image_digest": "postgres@sha256:edb0c08dc33befd0262ab3b5cf1c4f3f8cfd8b09e88c05b45adee29d6761ddb6",
+    "postgres": "18.6 (Debian 18.6-1.pgdg13+2)"
+  }
+}

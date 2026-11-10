@@ -1,0 +1,40 @@
+{
+  "config_ref": "systems/alisql/",
+  "error": null,
+  "extra": {
+    "checksum": "0cfe5b43cec28f8241699eb2f7e2f69070ee390098c53ac50ea2f16e1e6295fb",
+    "cold_s": 0.9718685690313578,
+    "compared": true,
+    "pushed": "duckdb",
+    "warm_s": [
+      0.9483491983264685,
+      0.9939235467463732,
+      0.9505059830844402
+    ]
+  },
+  "host": {
+    "cpus": 80,
+    "docker_version": "29.1.3",
+    "kernel": "6.8.0-60-generic",
+    "mem_gb": 187
+  },
+  "item": "q22",
+  "measure": "M1",
+  "reason": null,
+  "run_id": "talk-sf100",
+  "sf": 100,
+  "started_at": "2026-11-04T17:35:56.044479+00:00",
+  "status": "ok",
+  "system": "alisql",
+  "track": "A",
+  "unit": "s",
+  "value": 0.9505059830844402,
+  "versions": {
+    "duckdb": "1.5.2-dev736",
+    "duckdb_source": "AliSQL 8.0.44-3 release notes (bundled snapshot v1.5.2-dev736, also the only such string in the mysqld binary); no DuckDB version is exposed at runtime",
+    "engine": "AliSQL 8.0.44-3",
+    "image": "dbench/alisql:8.0.44-3",
+    "image_digest": "sha256:750530032aec307932da7cc5cc9757b49764cbf803a007069fb8b34a40b4d904",
+    "mysql": "8.0.44-3-alisql-dev"
+  }
+}

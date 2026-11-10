@@ -1,0 +1,42 @@
+{
+  "config_ref": "systems/pgduckdb/",
+  "error": null,
+  "extra": {
+    "rows": {
+      "customer": 15000000,
+      "lineitem": 600037902,
+      "nation": 25,
+      "orders": 150000000,
+      "part": 20000000,
+      "partsupp": 80000000,
+      "region": 5,
+      "supplier": 1000000
+    },
+    "rows_checked": true
+  },
+  "host": {
+    "cpus": 80,
+    "docker_version": "29.1.3",
+    "kernel": "6.8.0-60-generic",
+    "mem_gb": 187
+  },
+  "item": "load_bulk",
+  "measure": "M2",
+  "reason": null,
+  "run_id": "talk-sf100",
+  "sf": 100,
+  "started_at": "2026-11-05T09:32:19.490395+00:00",
+  "status": "ok",
+  "system": "pg_duckdb",
+  "track": "A",
+  "unit": "s",
+  "value": 12735.898219186813,
+  "versions": {
+    "duckdb": "1.4.3",
+    "duckdb_source": "SELECT * FROM duckdb.query('SELECT version()')",
+    "extension": "pg_duckdb 1.1.0",
+    "image": "pgduckdb/pgduckdb:18-v1.1.1",
+    "image_digest": "pgduckdb/pgduckdb@sha256:44c88eb9207971af1d7f9804a37429b1bb36f413cd8d7118c81e1288ddde85d1",
+    "postgres": "18.1 (Debian 18.1-1.pgdg12+2)"
+  }
+}

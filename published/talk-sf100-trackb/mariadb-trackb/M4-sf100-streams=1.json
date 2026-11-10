@@ -1,0 +1,172 @@
+{
+  "config_ref": "systems/mariadb/",
+  "error": null,
+  "extra": {
+    "contaminated": false,
+    "counts_by_status": {
+      "ok": 22
+    },
+    "elapsed_s": 83.39345997944474,
+    "ok_queries": 22,
+    "p50": 3.393123,
+    "p95": 9.662043,
+    "per_query_latency": [
+      [
+        [
+          "q21",
+          11.740456,
+          "ok"
+        ],
+        [
+          "q02",
+          0.914358,
+          "ok"
+        ],
+        [
+          "q06",
+          1.49794,
+          "ok"
+        ],
+        [
+          "q07",
+          4.034711,
+          "ok"
+        ],
+        [
+          "q22",
+          1.249326,
+          "ok"
+        ],
+        [
+          "q12",
+          2.101737,
+          "ok"
+        ],
+        [
+          "q20",
+          3.140797,
+          "ok"
+        ],
+        [
+          "q04",
+          2.400725,
+          "ok"
+        ],
+        [
+          "q08",
+          4.521992,
+          "ok"
+        ],
+        [
+          "q05",
+          4.143155,
+          "ok"
+        ],
+        [
+          "q03",
+          3.68526,
+          "ok"
+        ],
+        [
+          "q16",
+          1.220131,
+          "ok"
+        ],
+        [
+          "q01",
+          4.724896,
+          "ok"
+        ],
+        [
+          "q18",
+          5.858396,
+          "ok"
+        ],
+        [
+          "q13",
+          5.479865,
+          "ok"
+        ],
+        [
+          "q19",
+          3.393123,
+          "ok"
+        ],
+        [
+          "q10",
+          4.143021,
+          "ok"
+        ],
+        [
+          "q17",
+          3.778148,
+          "ok"
+        ],
+        [
+          "q15",
+          2.429659,
+          "ok"
+        ],
+        [
+          "q09",
+          9.662043,
+          "ok"
+        ],
+        [
+          "q11",
+          0.505542,
+          "ok"
+        ],
+        [
+          "q14",
+          2.688087,
+          "ok"
+        ]
+      ]
+    ],
+    "pushdown_counter_scope": "none",
+    "pushed_counts": [
+      {
+        "not_measured": 22
+      }
+    ],
+    "streams": 1,
+    "total_queries": 22
+  },
+  "host": {
+    "cpus": 80,
+    "docker_version": "29.1.3",
+    "kernel": "6.8.0-60-generic",
+    "mem_gb": 187
+  },
+  "item": "streams=1",
+  "measure": "M4",
+  "reason": null,
+  "run_id": "talk-sf100-trackb",
+  "sf": 100,
+  "started_at": "2026-11-09T08:11:34.074738+00:00",
+  "status": "ok",
+  "system": "mariadb-trackb",
+  "track": "B",
+  "unit": "qph",
+  "value": 949.7147620391531,
+  "versions": {
+    "duckdb": "1.5.5",
+    "duckdb_source": "status variable Duckdb_version",
+    "engine": "MariaDB-duckdb-engine 12.3.3-1.el9 (gamma)",
+    "entry_point": "run_in_duckdb()",
+    "image": "dbench/mariadb-duckdb:12.3.3",
+    "image_digest": "sha256:74f116a3c80938cdd74f8025cfa996798892727ddd6d27e5bd04bbf13ae13ce8",
+    "lock": {
+      "archived_as": "_lock/versions.lock.d1cef229972c.json",
+      "digest": "sha256:74f116a3c80938cdd74f8025cfa996798892727ddd6d27e5bd04bbf13ae13ce8",
+      "digest_kind": "local",
+      "file": "systems/versions.lock.json",
+      "git_commit": "aa54336fc7bd0599cc39da0058ad2189bacf8fbc",
+      "harness_dirty": false,
+      "lock_is_committed": false,
+      "sha256": "d1cef229972cd318f2739638baf216abdc145ca72feae369c842db7dd7dbd7d1"
+    },
+    "mariadb": "12.3.3-MariaDB"
+  }
+}

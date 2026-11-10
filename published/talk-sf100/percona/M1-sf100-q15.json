@@ -1,0 +1,42 @@
+{
+  "config_ref": "systems/percona/",
+  "error": null,
+  "extra": {
+    "checksum": "f754a8ade147a1f2cf3eb199906f3d2e47ebb3cc58bbe136f0ecaf2e1f5acd9f",
+    "cold_s": 0.8307031244039536,
+    "compared": true,
+    "pushed": "duckdb",
+    "warm_s": [
+      0.8106243684887886,
+      0.8106268085539341,
+      0.8180970139801502
+    ]
+  },
+  "host": {
+    "cpus": 80,
+    "docker_version": "29.1.3",
+    "kernel": "6.8.0-60-generic",
+    "mem_gb": 187
+  },
+  "item": "q15",
+  "measure": "M1",
+  "reason": null,
+  "run_id": "talk-sf100",
+  "sf": 100,
+  "started_at": "2026-11-05T03:07:41.742149+00:00",
+  "status": "ok",
+  "system": "percona",
+  "track": "A",
+  "unit": "s",
+  "value": 0.8106268085539341,
+  "versions": {
+    "duckdb": "2.0.0",
+    "duckdb_source": "status variables Ducksdb_duckdb_version and Ducksdb_duckdb_source_id",
+    "duckdb_source_id": "d54cbbe3df",
+    "duckdb_threads": "auto-detected; no setting or status variable exposes it",
+    "engine": "ducksdb-mysql-engine v0.2.4",
+    "image": "perconalab/ducksdb-mysql-engine:9.7-duckdb-v0.2.4@sha256:222a06f9b717eefded72e21681e2c45f343cafc1b66655ffcf9c90745117a566",
+    "image_digest": "perconalab/ducksdb-mysql-engine@sha256:222a06f9b717eefded72e21681e2c45f343cafc1b66655ffcf9c90745117a566",
+    "mysql": "9.7.0"
+  }
+}

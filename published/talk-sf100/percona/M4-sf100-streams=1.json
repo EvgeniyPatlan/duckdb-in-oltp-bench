@@ -1,0 +1,163 @@
+{
+  "config_ref": "systems/percona/",
+  "error": null,
+  "extra": {
+    "contaminated": false,
+    "counts_by_status": {
+      "ok": 22
+    },
+    "elapsed_s": 50.16840806044638,
+    "ok_queries": 22,
+    "p50": 1.255443,
+    "p95": 6.68996,
+    "per_query_latency": [
+      [
+        [
+          "q21",
+          5.40995,
+          "ok"
+        ],
+        [
+          "q02",
+          0.208036,
+          "ok"
+        ],
+        [
+          "q06",
+          0.397098,
+          "ok"
+        ],
+        [
+          "q07",
+          1.255443,
+          "ok"
+        ],
+        [
+          "q22",
+          1.278948,
+          "ok"
+        ],
+        [
+          "q12",
+          1.174796,
+          "ok"
+        ],
+        [
+          "q20",
+          1.09614,
+          "ok"
+        ],
+        [
+          "q04",
+          7.375988,
+          "ok"
+        ],
+        [
+          "q08",
+          1.147462,
+          "ok"
+        ],
+        [
+          "q05",
+          1.534606,
+          "ok"
+        ],
+        [
+          "q03",
+          1.548887,
+          "ok"
+        ],
+        [
+          "q16",
+          1.381853,
+          "ok"
+        ],
+        [
+          "q01",
+          3.408371,
+          "ok"
+        ],
+        [
+          "q18",
+          4.631219,
+          "ok"
+        ],
+        [
+          "q13",
+          6.68996,
+          "ok"
+        ],
+        [
+          "q19",
+          0.976767,
+          "ok"
+        ],
+        [
+          "q10",
+          2.81498,
+          "ok"
+        ],
+        [
+          "q17",
+          1.010852,
+          "ok"
+        ],
+        [
+          "q15",
+          1.165201,
+          "ok"
+        ],
+        [
+          "q09",
+          4.703259,
+          "ok"
+        ],
+        [
+          "q11",
+          0.162515,
+          "ok"
+        ],
+        [
+          "q14",
+          0.788072,
+          "ok"
+        ]
+      ]
+    ],
+    "pushdown_counter_scope": "global",
+    "pushed_counts": [
+      {
+        "not_measured": 22
+      }
+    ],
+    "streams": 1,
+    "total_queries": 22
+  },
+  "host": {
+    "cpus": 80,
+    "docker_version": "29.1.3",
+    "kernel": "6.8.0-60-generic",
+    "mem_gb": 187
+  },
+  "item": "streams=1",
+  "measure": "M4",
+  "reason": null,
+  "run_id": "talk-sf100",
+  "sf": 100,
+  "started_at": "2026-11-05T03:09:44.589218+00:00",
+  "status": "ok",
+  "system": "percona",
+  "track": "A",
+  "unit": "qph",
+  "value": 1578.6827420271009,
+  "versions": {
+    "duckdb": "2.0.0",
+    "duckdb_source": "status variables Ducksdb_duckdb_version and Ducksdb_duckdb_source_id",
+    "duckdb_source_id": "d54cbbe3df",
+    "duckdb_threads": "auto-detected; no setting or status variable exposes it",
+    "engine": "ducksdb-mysql-engine v0.2.4",
+    "image": "perconalab/ducksdb-mysql-engine:9.7-duckdb-v0.2.4@sha256:222a06f9b717eefded72e21681e2c45f343cafc1b66655ffcf9c90745117a566",
+    "image_digest": "perconalab/ducksdb-mysql-engine@sha256:222a06f9b717eefded72e21681e2c45f343cafc1b66655ffcf9c90745117a566",
+    "mysql": "9.7.0"
+  }
+}

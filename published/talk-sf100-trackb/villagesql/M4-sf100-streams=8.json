@@ -1,0 +1,1246 @@
+{
+  "config_ref": "systems/villagesql/",
+  "error": "the container was killed by its memory limit during the run (OOMKilled, exit 137) (145 crashed, 8 timeout, 23 ok of 176 queries); no throughput is reported; first errors: [['q21', 'timeout', \"OperationalError: (2013, 'Lost connection to MySQL server during query (The read operation timed out)')\"], ['q02', 'crashed', \"OperationalError: (2013, 'Lost connection to MySQL server during query')\"], ['q06', 'crashed', 'StopIteration: ']]",
+  "extra": {
+    "cancel_unavailable": true,
+    "container": {
+      "ExitCode": 137,
+      "OOMKilled": true,
+      "logs": "2026-11-06 17:38:50+00:00 [Note] [Entrypoint]: Entrypoint script for MySQL Server  started.\n2026-11-06 17:38:51+00:00 [Note] [Entrypoint]: Initializing database files\n2026-11-06T17:38:51.314149Z 0 [System] [MY-015017] [Server] MySQL Server Initialization - start.\n2026-11-06T17:38:51.315902Z 0 [System] [MY-013169] [Server] /usr/bin/mysqld (mysqld 8.4.11-villagesql-0.0.7) initializing of server in progress as process 41\n2026-11-06T17:38:51.325455Z 1 [System] [MY-013576] [InnoDB] InnoDB initialization has started.\n2026-11-06T17:38:51.687755Z 1 [System] [MY-013577] [InnoDB] InnoDB initialization has ended.\n2026-11-06T17:38:53.587934Z 6 [Warning] [MY-010453] [Server] root@localhost is created with an empty password ! Please consider switching off the --initialize-insecure option.\n2026-11-06T17:38:54.447371Z 6 [System] [MY-010666] [Server] VillageSQL: 'Validating system schema...'\n2026-11-06T17:38:54.454145Z 6 [System] [MY-010666] [Server] VillageSQL: 'System schema verification completed successfully'\n2026-11-06T17:38:55.463689Z 0 [System] [MY-015018] [Server] MySQL Server Initialization - end.\n2026-11-06 17:38:55+00:00 [Note] [Entrypoint]: Database files initialized\n2026-11-06 17:38:55+00:00 [Note] [Entrypoint]: Starting temporary server\n2026-11-06T17:38:55.531965Z 0 [System] [MY-015015] [Server] MySQL Server - start.\n2026-11-06T17:38:55.913304Z 0 [Warning] [MY-010101] [Server] Insecure configuration for --secure-file-priv: Location is accessible to all OS users. Consider choosing a different directory.\n2026-11-06T17:38:55.913380Z 0 [System] [MY-010116] [Server] /usr/bin/mysqld (mysqld 8.4.11-villagesql-0.0.7) starting as process 153\n2026-11-06T17:38:55.921517Z 1 [System] [MY-013576] [InnoDB] InnoDB initialization has started.\n2026-11-06T17:38:56.513234Z 1 [System] [MY-013577] [InnoDB] InnoDB initialization has ended.\n2026-11-06T17:38:56.730241Z 6 [System] [MY-010666] [Server] VillageSQL: 'Validating system schema...'\n2026-11-06T17:38:56.737692Z 6 [System] [MY-010666] [Server] VillageSQL: 'System schema verification completed successfully'\n2026-11-06T17:38:56.848446Z 0 [Warning] [MY-010068] [Server] CA certificate ca.pem is self signed.\n2026-11-06T17:38:56.848482Z 0 [System] [MY-013602] [Server] Channel mysql_main configured to support TLS. Encrypted connections are now supported for this channel.\n2026-11-06T17:38:56.853879Z 0 [Warning] [MY-011810] [Server] Insecure configuration for --pid-file: Location '/var/lib/mysql' in the path is accessible to all OS users. Consider choosing a different directory.\n2026-11-06T17:38:56.874557Z 0 [System] [MY-010931] [Server] /usr/bin/mysqld: ready for connections. Version: '8.4.11-villagesql-0.0.7'  socket: '/var/run/mysqld/mysqld.sock'  port: 0  Source distribution.\n2026-11-06 17:38:57+00:00 [Note] [Entrypoint]: Temporary server started.\n2026-11-06 17:38:57+00:00 [Note] [Entrypoint]: Creating database tpch\n\n2026-11-06 17:38:57+00:00 [Note] [Entrypoint]: /usr/local/bin/docker-entrypoint.sh: running /docker-entrypoint-initdb.d/10-install-extension.sql\n\n\n2026-11-06 17:38:58+00:00 [Note] [Entrypoint]: /usr/local/bin/docker-entrypoint.sh: running /docker-entrypoint-initdb.d/20-vsql-duckdb-settings.sql\n\n\n2026-11-06 17:38:58+00:00 [Note] [Entrypoint]: Stopping temporary server\n2026-11-06 17:38:59+00:00 [Note] [Entrypoint]: Temporary server stopped\n\n2026-11-06 17:38:59+00:00 [Note] [Entrypoint]: MySQL init process done. Ready for start up.\n\n2026-11-06T17:38:59.466225Z 0 [System] [MY-015015] [Server] MySQL Server - start.\n2026-11-06T17:38:59.840547Z 0 [Warning] [MY-010101] [Server] Insecure configuration for --secure-file-priv: Location is accessible to all OS users. Consider choosing a different directory.\n2026-11-06T17:38:59.840618Z 0 [System] [MY-010116] [Server] /usr/bin/mysqld (mysqld 8.4.11-villagesql-0.0.7) starting as process 1\n2026-11-06T17:38:59.847868Z 1 [System] [MY-013576] [InnoDB] InnoDB initialization has started.\n2026-11-06T17:39:00.436354Z 1 [System] [MY-013577] [InnoDB] InnoDB initialization has ended.\n2026-11-06T17:39:00.606029Z 6 [System] [MY-010666] [Server] VillageSQL: 'Validating system schema...'\n2026-11-06T17:39:00.613361Z 6 [System] [MY-010666] [Server] VillageSQL: 'System schema verification completed successfully'\n2026-11-06T17:39:00.705393Z 0 [Warning] [MY-010068] [Server] CA certificate ca.pem is self signed.\n2026-11-06T17:39:00.705421Z 0 [System] [MY-013602] [Server] Channel mysql_main configured to support TLS. Encrypted connections are now supported for this channel.\n2026-11-06T17:39:00.710510Z 0 [Warning] [MY-011810] [Server] Insecure configuration for --pid-file: Location '/var/lib/mysql' in the path is accessible to all OS users. Consider choosing a different directory.\n2026-11-06T17:39:00.734721Z 0 [System] [MY-011323] [Server] X Plugin ready for connections. Bind-address: '::' port: 33060, socket: /var/run/mysqld/mysqlx.sock\n2026-11-06T17:39:00.734809Z 0 [System] [MY-010931] [Server] /usr/bin/mysqld: ready for connections. Version: '8.4.11-villagesql-0.0.7'  socket: '/var/run/mysqld/mysqld.sock'  port: 3306  Source distribution.\n2026-11-06T17:39:01.377550Z 10 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n2026-11-06T17:39:01.463669Z 11 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n2026-11-06T17:39:01.561143Z 12 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n2026-11-06T17:39:01.669548Z 13 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n2026-11-06T17:42:14.074779Z 14 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n2026-11-06T17:42:14.164069Z 15 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n2026-11-06T17:42:40.403645Z 16 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n2026-11-06T17:42:44.998913Z 17 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n2026-11-06T17:42:47.737671Z 18 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n2026-11-06T17:42:50.498137Z 19 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n2026-11-06T17:42:55.047727Z 20 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n2026-11-06T17:43:02.196455Z 21 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n2026-11-06T17:43:07.321502Z 22 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n2026-11-06T17:43:12.530813Z 23 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n2026-11-06T17:43:19.938180Z 24 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n2026-11-06T17:43:27.292015Z 25 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n2026-11-06T17:43:27.468794Z 26 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n2026-11-06T17:43:27.558130Z 27 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n2026-11-06T17:43:27.641609Z 28 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n2026-11-06T17:44:42.473847Z 29 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n2026-11-06T17:45:55.581670Z 30 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n2026-11-06T17:45:55.669542Z 31 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n2026-11-06T17:45:55.748565Z 32 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n2026-11-06T17:47:09.679833Z 36 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n2026-11-06T17:47:09.679859Z 33 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n2026-11-06T17:47:09.682560Z 34 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n2026-11-06T17:47:09.709692Z 35 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n2026-11-06T17:51:56.430125Z 37 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n2026-11-06T17:51:56.518677Z 38 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n2026-11-06T17:51:56.598754Z 39 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n2026-11-06T17:53:11.043856Z 42 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n2026-11-06T17:53:11.043906Z 44 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n2026-11-06T17:53:11.044004Z 45 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n2026-11-06T17:53:11.044015Z 47 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n2026-11-06T17:53:11.044033Z 43 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n2026-11-06T17:53:11.044084Z 41 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n2026-11-06T17:53:11.044146Z 40 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n2026-11-06T17:53:11.044161Z 46 [Warning] [MY-010055] [Server] IP address '172.17.0.2' could not be resolved: Temporary failure in name resolution\n",
+      "status": "exited"
+    },
+    "contaminated": true,
+    "counts_by_status": {
+      "crashed": 145,
+      "ok": 23,
+      "timeout": 8
+    },
+    "elapsed_s": 1052.124683510512,
+    "errors": [
+      [
+        "q21",
+        "timeout",
+        "OperationalError: (2013, 'Lost connection to MySQL server during query (The read operation timed out)')"
+      ],
+      [
+        "q02",
+        "crashed",
+        "OperationalError: (2013, 'Lost connection to MySQL server during query')"
+      ],
+      [
+        "q06",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q07",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q22",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q12",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q20",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q04",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q08",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q05",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q03",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q16",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q01",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q18",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q13",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q19",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q10",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q17",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q15",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q09",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q11",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q14",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q21",
+        "timeout",
+        "OperationalError: (2013, 'Lost connection to MySQL server during query (The read operation timed out)')"
+      ],
+      [
+        "q14",
+        "crashed",
+        "OperationalError: (2013, 'Lost connection to MySQL server during query')"
+      ],
+      [
+        "q04",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q09",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q01",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q12",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q18",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q19",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q06",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q08",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q20",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q05",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q22",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q02",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q10",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q03",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q17",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q18",
+        "timeout",
+        "OperationalError: (2013, 'Lost connection to MySQL server during query (The read operation timed out)')"
+      ],
+      [
+        "q21",
+        "crashed",
+        "OperationalError: (2013, 'Lost connection to MySQL server during query')"
+      ],
+      [
+        "q08",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q04",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q09",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q06",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q16",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q15",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q01",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q14",
+        "crashed",
+        "StopIteration: "
+      ],
+      [
+        "q12",
+        "crashed",
+        "StopIteration: "
+      ]
+    ],
+    "linger_probe_failed": true,
+    "ok_queries": 23,
+    "ok_queries_qph": 78.69789702464739,
+    "p50": 10.360364,
+    "p95": 54.141475,
+    "per_query_latency": [
+      [
+        [
+          "q21",
+          930.100322,
+          "timeout"
+        ],
+        [
+          "q02",
+          null,
+          "crashed"
+        ],
+        [
+          "q06",
+          null,
+          "crashed"
+        ],
+        [
+          "q07",
+          null,
+          "crashed"
+        ],
+        [
+          "q22",
+          null,
+          "crashed"
+        ],
+        [
+          "q12",
+          null,
+          "crashed"
+        ],
+        [
+          "q20",
+          null,
+          "crashed"
+        ],
+        [
+          "q04",
+          null,
+          "crashed"
+        ],
+        [
+          "q08",
+          null,
+          "crashed"
+        ],
+        [
+          "q05",
+          null,
+          "crashed"
+        ],
+        [
+          "q03",
+          null,
+          "crashed"
+        ],
+        [
+          "q16",
+          null,
+          "crashed"
+        ],
+        [
+          "q01",
+          null,
+          "crashed"
+        ],
+        [
+          "q18",
+          null,
+          "crashed"
+        ],
+        [
+          "q13",
+          null,
+          "crashed"
+        ],
+        [
+          "q19",
+          null,
+          "crashed"
+        ],
+        [
+          "q10",
+          null,
+          "crashed"
+        ],
+        [
+          "q17",
+          null,
+          "crashed"
+        ],
+        [
+          "q15",
+          null,
+          "crashed"
+        ],
+        [
+          "q09",
+          null,
+          "crashed"
+        ],
+        [
+          "q11",
+          null,
+          "crashed"
+        ],
+        [
+          "q14",
+          null,
+          "crashed"
+        ]
+      ],
+      [
+        [
+          "q16",
+          14.736437,
+          "ok"
+        ],
+        [
+          "q11",
+          3.900609,
+          "ok"
+        ],
+        [
+          "q07",
+          15.129131,
+          "ok"
+        ],
+        [
+          "q15",
+          7.800713,
+          "ok"
+        ],
+        [
+          "q13",
+          44.305539,
+          "ok"
+        ],
+        [
+          "q21",
+          930.100177,
+          "timeout"
+        ],
+        [
+          "q14",
+          null,
+          "crashed"
+        ],
+        [
+          "q04",
+          null,
+          "crashed"
+        ],
+        [
+          "q09",
+          null,
+          "crashed"
+        ],
+        [
+          "q01",
+          null,
+          "crashed"
+        ],
+        [
+          "q12",
+          null,
+          "crashed"
+        ],
+        [
+          "q18",
+          null,
+          "crashed"
+        ],
+        [
+          "q19",
+          null,
+          "crashed"
+        ],
+        [
+          "q06",
+          null,
+          "crashed"
+        ],
+        [
+          "q08",
+          null,
+          "crashed"
+        ],
+        [
+          "q20",
+          null,
+          "crashed"
+        ],
+        [
+          "q05",
+          null,
+          "crashed"
+        ],
+        [
+          "q22",
+          null,
+          "crashed"
+        ],
+        [
+          "q02",
+          null,
+          "crashed"
+        ],
+        [
+          "q10",
+          null,
+          "crashed"
+        ],
+        [
+          "q03",
+          null,
+          "crashed"
+        ],
+        [
+          "q17",
+          null,
+          "crashed"
+        ]
+      ],
+      [
+        [
+          "q03",
+          31.185424,
+          "ok"
+        ],
+        [
+          "q07",
+          14.676956,
+          "ok"
+        ],
+        [
+          "q17",
+          9.814126,
+          "ok"
+        ],
+        [
+          "q18",
+          930.09972,
+          "timeout"
+        ],
+        [
+          "q21",
+          null,
+          "crashed"
+        ],
+        [
+          "q08",
+          null,
+          "crashed"
+        ],
+        [
+          "q04",
+          null,
+          "crashed"
+        ],
+        [
+          "q09",
+          null,
+          "crashed"
+        ],
+        [
+          "q06",
+          null,
+          "crashed"
+        ],
+        [
+          "q16",
+          null,
+          "crashed"
+        ],
+        [
+          "q15",
+          null,
+          "crashed"
+        ],
+        [
+          "q01",
+          null,
+          "crashed"
+        ],
+        [
+          "q14",
+          null,
+          "crashed"
+        ],
+        [
+          "q12",
+          null,
+          "crashed"
+        ],
+        [
+          "q05",
+          null,
+          "crashed"
+        ],
+        [
+          "q19",
+          null,
+          "crashed"
+        ],
+        [
+          "q22",
+          null,
+          "crashed"
+        ],
+        [
+          "q02",
+          null,
+          "crashed"
+        ],
+        [
+          "q10",
+          null,
+          "crashed"
+        ],
+        [
+          "q13",
+          null,
+          "crashed"
+        ],
+        [
+          "q20",
+          null,
+          "crashed"
+        ],
+        [
+          "q11",
+          null,
+          "crashed"
+        ]
+      ],
+      [
+        [
+          "q17",
+          11.123047,
+          "ok"
+        ],
+        [
+          "q13",
+          55.931084,
+          "ok"
+        ],
+        [
+          "q11",
+          3.334563,
+          "ok"
+        ],
+        [
+          "q21",
+          930.099365,
+          "timeout"
+        ],
+        [
+          "q07",
+          null,
+          "crashed"
+        ],
+        [
+          "q09",
+          null,
+          "crashed"
+        ],
+        [
+          "q20",
+          null,
+          "crashed"
+        ],
+        [
+          "q10",
+          null,
+          "crashed"
+        ],
+        [
+          "q06",
+          null,
+          "crashed"
+        ],
+        [
+          "q15",
+          null,
+          "crashed"
+        ],
+        [
+          "q08",
+          null,
+          "crashed"
+        ],
+        [
+          "q03",
+          null,
+          "crashed"
+        ],
+        [
+          "q02",
+          null,
+          "crashed"
+        ],
+        [
+          "q22",
+          null,
+          "crashed"
+        ],
+        [
+          "q05",
+          null,
+          "crashed"
+        ],
+        [
+          "q12",
+          null,
+          "crashed"
+        ],
+        [
+          "q18",
+          null,
+          "crashed"
+        ],
+        [
+          "q16",
+          null,
+          "crashed"
+        ],
+        [
+          "q01",
+          null,
+          "crashed"
+        ],
+        [
+          "q04",
+          null,
+          "crashed"
+        ],
+        [
+          "q19",
+          null,
+          "crashed"
+        ],
+        [
+          "q14",
+          null,
+          "crashed"
+        ]
+      ],
+      [
+        [
+          "q21",
+          930.099834,
+          "timeout"
+        ],
+        [
+          "q17",
+          null,
+          "crashed"
+        ],
+        [
+          "q05",
+          null,
+          "crashed"
+        ],
+        [
+          "q07",
+          null,
+          "crashed"
+        ],
+        [
+          "q10",
+          null,
+          "crashed"
+        ],
+        [
+          "q03",
+          null,
+          "crashed"
+        ],
+        [
+          "q06",
+          null,
+          "crashed"
+        ],
+        [
+          "q16",
+          null,
+          "crashed"
+        ],
+        [
+          "q09",
+          null,
+          "crashed"
+        ],
+        [
+          "q14",
+          null,
+          "crashed"
+        ],
+        [
+          "q11",
+          null,
+          "crashed"
+        ],
+        [
+          "q22",
+          null,
+          "crashed"
+        ],
+        [
+          "q20",
+          null,
+          "crashed"
+        ],
+        [
+          "q15",
+          null,
+          "crashed"
+        ],
+        [
+          "q12",
+          null,
+          "crashed"
+        ],
+        [
+          "q18",
+          null,
+          "crashed"
+        ],
+        [
+          "q02",
+          null,
+          "crashed"
+        ],
+        [
+          "q08",
+          null,
+          "crashed"
+        ],
+        [
+          "q13",
+          null,
+          "crashed"
+        ],
+        [
+          "q19",
+          null,
+          "crashed"
+        ],
+        [
+          "q04",
+          null,
+          "crashed"
+        ],
+        [
+          "q01",
+          null,
+          "crashed"
+        ]
+      ],
+      [
+        [
+          "q02",
+          9.190168,
+          "ok"
+        ],
+        [
+          "q15",
+          10.360364,
+          "ok"
+        ],
+        [
+          "q18",
+          54.141475,
+          "ok"
+        ],
+        [
+          "q11",
+          2.457333,
+          "ok"
+        ],
+        [
+          "q13",
+          930.09945,
+          "timeout"
+        ],
+        [
+          "q20",
+          null,
+          "crashed"
+        ],
+        [
+          "q03",
+          null,
+          "crashed"
+        ],
+        [
+          "q09",
+          null,
+          "crashed"
+        ],
+        [
+          "q16",
+          null,
+          "crashed"
+        ],
+        [
+          "q19",
+          null,
+          "crashed"
+        ],
+        [
+          "q04",
+          null,
+          "crashed"
+        ],
+        [
+          "q14",
+          null,
+          "crashed"
+        ],
+        [
+          "q08",
+          null,
+          "crashed"
+        ],
+        [
+          "q12",
+          null,
+          "crashed"
+        ],
+        [
+          "q07",
+          null,
+          "crashed"
+        ],
+        [
+          "q01",
+          null,
+          "crashed"
+        ],
+        [
+          "q22",
+          null,
+          "crashed"
+        ],
+        [
+          "q10",
+          null,
+          "crashed"
+        ],
+        [
+          "q06",
+          null,
+          "crashed"
+        ],
+        [
+          "q21",
+          null,
+          "crashed"
+        ],
+        [
+          "q05",
+          null,
+          "crashed"
+        ],
+        [
+          "q17",
+          null,
+          "crashed"
+        ]
+      ],
+      [
+        [
+          "q20",
+          8.984768,
+          "ok"
+        ],
+        [
+          "q15",
+          10.263206,
+          "ok"
+        ],
+        [
+          "q07",
+          19.016612,
+          "ok"
+        ],
+        [
+          "q17",
+          7.269676,
+          "ok"
+        ],
+        [
+          "q21",
+          930.100278,
+          "timeout"
+        ],
+        [
+          "q10",
+          null,
+          "crashed"
+        ],
+        [
+          "q09",
+          null,
+          "crashed"
+        ],
+        [
+          "q08",
+          null,
+          "crashed"
+        ],
+        [
+          "q16",
+          null,
+          "crashed"
+        ],
+        [
+          "q03",
+          null,
+          "crashed"
+        ],
+        [
+          "q19",
+          null,
+          "crashed"
+        ],
+        [
+          "q13",
+          null,
+          "crashed"
+        ],
+        [
+          "q18",
+          null,
+          "crashed"
+        ],
+        [
+          "q04",
+          null,
+          "crashed"
+        ],
+        [
+          "q02",
+          null,
+          "crashed"
+        ],
+        [
+          "q11",
+          null,
+          "crashed"
+        ],
+        [
+          "q05",
+          null,
+          "crashed"
+        ],
+        [
+          "q06",
+          null,
+          "crashed"
+        ],
+        [
+          "q12",
+          null,
+          "crashed"
+        ],
+        [
+          "q01",
+          null,
+          "crashed"
+        ],
+        [
+          "q22",
+          null,
+          "crashed"
+        ],
+        [
+          "q14",
+          null,
+          "crashed"
+        ]
+      ],
+      [
+        [
+          "q20",
+          24.662766,
+          "ok"
+        ],
+        [
+          "q16",
+          36.124876,
+          "ok"
+        ],
+        [
+          "q02",
+          5.07488,
+          "ok"
+        ],
+        [
+          "q12",
+          10.190049,
+          "ok"
+        ],
+        [
+          "q05",
+          930.099764,
+          "timeout"
+        ],
+        [
+          "q01",
+          null,
+          "crashed"
+        ],
+        [
+          "q04",
+          null,
+          "crashed"
+        ],
+        [
+          "q08",
+          null,
+          "crashed"
+        ],
+        [
+          "q19",
+          null,
+          "crashed"
+        ],
+        [
+          "q18",
+          null,
+          "crashed"
+        ],
+        [
+          "q14",
+          null,
+          "crashed"
+        ],
+        [
+          "q21",
+          null,
+          "crashed"
+        ],
+        [
+          "q03",
+          null,
+          "crashed"
+        ],
+        [
+          "q11",
+          null,
+          "crashed"
+        ],
+        [
+          "q22",
+          null,
+          "crashed"
+        ],
+        [
+          "q09",
+          null,
+          "crashed"
+        ],
+        [
+          "q17",
+          null,
+          "crashed"
+        ],
+        [
+          "q15",
+          null,
+          "crashed"
+        ],
+        [
+          "q06",
+          null,
+          "crashed"
+        ],
+        [
+          "q13",
+          null,
+          "crashed"
+        ],
+        [
+          "q10",
+          null,
+          "crashed"
+        ],
+        [
+          "q07",
+          null,
+          "crashed"
+        ]
+      ]
+    ],
+    "pushdown_counter_scope": "none",
+    "pushed_counts": [
+      {
+        "not_measured": 0
+      },
+      {
+        "not_measured": 5
+      },
+      {
+        "not_measured": 3
+      },
+      {
+        "not_measured": 3
+      },
+      {
+        "not_measured": 0
+      },
+      {
+        "not_measured": 4
+      },
+      {
+        "not_measured": 4
+      },
+      {
+        "not_measured": 4
+      }
+    ],
+    "restarted_after_run": true,
+    "restated": {
+      "from": "ok",
+      "rule": "dbench.measures.throughput.level_status"
+    },
+    "streams": 8,
+    "total_queries": 176
+  },
+  "host": {
+    "cpus": 80,
+    "docker_version": "29.1.3",
+    "kernel": "6.8.0-60-generic",
+    "mem_gb": 187
+  },
+  "item": "streams=8",
+  "measure": "M4",
+  "reason": null,
+  "run_id": "talk-sf100-trackb",
+  "sf": 100,
+  "started_at": "2026-11-06T17:53:10.934513+00:00",
+  "status": "crashed",
+  "system": "villagesql",
+  "track": "B",
+  "unit": "qph",
+  "value": null,
+  "versions": {
+    "abi": "development",
+    "duckdb": "1.5.5",
+    "duckdb_source": "SELECT duckdb_status()",
+    "entry_point": "duckdb_query()",
+    "extension": "vsql_duckdb 0.0.3",
+    "image": "dbench/villagesql:0.0.7-duckdb-0.0.3",
+    "image_digest": "sha256:19d420e5d207afaca0b6bd355a9aa5dcd5327d3feef209ec696b0eaced99e68c",
+    "lock": {
+      "archived_as": "_lock/versions.lock.d1cef229972c.json",
+      "digest": "sha256:19d420e5d207afaca0b6bd355a9aa5dcd5327d3feef209ec696b0eaced99e68c",
+      "digest_kind": "local",
+      "file": "systems/versions.lock.json",
+      "git_commit": "aa54336fc7bd0599cc39da0058ad2189bacf8fbc",
+      "harness_dirty": false,
+      "lock_is_committed": false,
+      "sha256": "d1cef229972cd318f2739638baf216abdc145ca72feae369c842db7dd7dbd7d1"
+    },
+    "villagesql": "8.4.11-villagesql-0.0.7"
+  }
+}

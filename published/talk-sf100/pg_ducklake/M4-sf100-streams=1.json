@@ -1,0 +1,162 @@
+{
+  "config_ref": "systems/pgducklake/",
+  "error": null,
+  "extra": {
+    "contaminated": false,
+    "counts_by_status": {
+      "ok": 22
+    },
+    "elapsed_s": 73.76451283507049,
+    "memory_per_backend": "49152MiB",
+    "ok_queries": 22,
+    "p50": 2.216339,
+    "p95": 8.573821,
+    "per_query_latency": [
+      [
+        [
+          "q21",
+          9.517743,
+          "ok"
+        ],
+        [
+          "q02",
+          0.630793,
+          "ok"
+        ],
+        [
+          "q06",
+          1.222627,
+          "ok"
+        ],
+        [
+          "q07",
+          2.826591,
+          "ok"
+        ],
+        [
+          "q22",
+          1.040541,
+          "ok"
+        ],
+        [
+          "q12",
+          1.918374,
+          "ok"
+        ],
+        [
+          "q20",
+          1.546475,
+          "ok"
+        ],
+        [
+          "q04",
+          2.216339,
+          "ok"
+        ],
+        [
+          "q08",
+          2.585619,
+          "ok"
+        ],
+        [
+          "q05",
+          2.891104,
+          "ok"
+        ],
+        [
+          "q03",
+          3.119278,
+          "ok"
+        ],
+        [
+          "q16",
+          1.025529,
+          "ok"
+        ],
+        [
+          "q01",
+          4.629763,
+          "ok"
+        ],
+        [
+          "q18",
+          5.680679,
+          "ok"
+        ],
+        [
+          "q13",
+          8.573821,
+          "ok"
+        ],
+        [
+          "q19",
+          7.267005,
+          "ok"
+        ],
+        [
+          "q10",
+          3.610689,
+          "ok"
+        ],
+        [
+          "q17",
+          2.128822,
+          "ok"
+        ],
+        [
+          "q15",
+          1.564229,
+          "ok"
+        ],
+        [
+          "q09",
+          7.613923,
+          "ok"
+        ],
+        [
+          "q11",
+          0.402324,
+          "ok"
+        ],
+        [
+          "q14",
+          1.738389,
+          "ok"
+        ]
+      ]
+    ],
+    "pushdown_counter_scope": "explain",
+    "pushed_counts": [
+      {
+        "not_measured": 22
+      }
+    ],
+    "streams": 1,
+    "total_queries": 22
+  },
+  "host": {
+    "cpus": 80,
+    "docker_version": "29.1.3",
+    "kernel": "6.8.0-60-generic",
+    "mem_gb": 187
+  },
+  "item": "streams=1",
+  "measure": "M4",
+  "reason": null,
+  "run_id": "talk-sf100",
+  "sf": 100,
+  "started_at": "2026-11-06T03:16:19.997098+00:00",
+  "status": "ok",
+  "system": "pg_ducklake",
+  "track": "A",
+  "unit": "qph",
+  "value": 1073.6870204387126,
+  "versions": {
+    "duckdb": "1.5.3",
+    "duckdb_source": "SELECT * FROM ducklake.query('SELECT version() AS v')",
+    "extension": "pg_ducklake 1.0.3",
+    "image": "dbench/pgducklake:18-v1.0.3",
+    "image_digest": "sha256:d60940feb73e59319ab15891f979c869e84e7bb3791b27952feed52fdb8751aa",
+    "postgres": "18.6 (Debian 18.6-1.pgdg12+2)"
+  }
+}

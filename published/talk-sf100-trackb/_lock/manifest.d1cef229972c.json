@@ -1,0 +1,29 @@
+{
+  "archived_as": "_lock/versions.lock.d1cef229972c.json",
+  "git_commit": "aa54336fc7bd0599cc39da0058ad2189bacf8fbc",
+  "harness_dirty": false,
+  "lock_is_committed": false,
+  "lock_sha256": "d1cef229972cd318f2739638baf216abdc145ca72feae369c842db7dd7dbd7d1",
+  "systems": {
+    "duckdb-1.5.5": {
+      "differ": [],
+      "match": 5,
+      "no_digest": 26
+    },
+    "mariadb-trackb": {
+      "differ": [],
+      "match": 27,
+      "no_digest": 4
+    },
+    "pg_duckdb-trackb": {
+      "differ": [],
+      "match": 30,
+      "no_digest": 1
+    },
+    "villagesql": {
+      "differ": [],
+      "match": 31,
+      "no_digest": 0
+    }
+  }
+}

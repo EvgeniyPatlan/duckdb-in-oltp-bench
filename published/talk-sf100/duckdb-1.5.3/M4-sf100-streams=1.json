@@ -1,0 +1,158 @@
+{
+  "config_ref": "systems/duckdb/",
+  "error": null,
+  "extra": {
+    "contaminated": false,
+    "counts_by_status": {
+      "ok": 22
+    },
+    "elapsed_s": 37.726897060871124,
+    "ok_queries": 22,
+    "p50": 1.231914,
+    "p95": 4.329584,
+    "per_query_latency": [
+      [
+        [
+          "q21",
+          4.329584,
+          "ok"
+        ],
+        [
+          "q02",
+          0.33857,
+          "ok"
+        ],
+        [
+          "q06",
+          0.534205,
+          "ok"
+        ],
+        [
+          "q07",
+          1.231914,
+          "ok"
+        ],
+        [
+          "q22",
+          0.82586,
+          "ok"
+        ],
+        [
+          "q12",
+          1.114822,
+          "ok"
+        ],
+        [
+          "q20",
+          1.092008,
+          "ok"
+        ],
+        [
+          "q04",
+          1.32309,
+          "ok"
+        ],
+        [
+          "q08",
+          1.160449,
+          "ok"
+        ],
+        [
+          "q05",
+          1.512613,
+          "ok"
+        ],
+        [
+          "q03",
+          1.561457,
+          "ok"
+        ],
+        [
+          "q16",
+          0.883741,
+          "ok"
+        ],
+        [
+          "q01",
+          1.771515,
+          "ok"
+        ],
+        [
+          "q18",
+          3.753583,
+          "ok"
+        ],
+        [
+          "q13",
+          4.019073,
+          "ok"
+        ],
+        [
+          "q19",
+          1.818398,
+          "ok"
+        ],
+        [
+          "q10",
+          2.401139,
+          "ok"
+        ],
+        [
+          "q17",
+          1.359622,
+          "ok"
+        ],
+        [
+          "q15",
+          0.721439,
+          "ok"
+        ],
+        [
+          "q09",
+          4.55119,
+          "ok"
+        ],
+        [
+          "q11",
+          0.159393,
+          "ok"
+        ],
+        [
+          "q14",
+          1.010944,
+          "ok"
+        ]
+      ]
+    ],
+    "pushdown_counter_scope": "none",
+    "pushed_counts": [
+      {
+        "not_measured": 22
+      }
+    ],
+    "streams": 1,
+    "total_queries": 22
+  },
+  "host": {
+    "cpus": 80,
+    "docker_version": "29.1.3",
+    "kernel": "6.8.0-60-generic",
+    "mem_gb": 187
+  },
+  "item": "streams=1",
+  "measure": "M4",
+  "reason": null,
+  "run_id": "talk-sf100",
+  "sf": 100,
+  "started_at": "2026-11-03T19:47:52.455882+00:00",
+  "status": "ok",
+  "system": "duckdb-1.5.3",
+  "track": "baseline",
+  "unit": "qph",
+  "value": 2099.2980120313996,
+  "versions": {
+    "duckdb": "v1.5.3",
+    "image": "dbench/duckdb:1.5.3",
+    "requested": "1.5.3"
+  }
+}
