@@ -56,7 +56,7 @@
       <th>Throughput, 16 streams (qph)</th><th>Overhead, common</th><th>Overhead, own geomean (ok/total)</th><th>Plain baseline used</th></tr></thead>
     <tbody>
     {% for r in rows %}
-      <tr><th scope="row"><a href="{{ r.system.page }}">{{ r.system.label }}</a></th>
+      <tr><th scope="row"><a href="{{ root }}{{ r.system.page }}">{{ r.system.label }}</a></th>
         <td>{{ r.system.duckdb_version or "n/a" }}</td>
         <td class="num {{ 'mark' if r.total.mark }}" title="{{ r.total.title }}">{{ r.total.text }}</td>
         <td class="num">{{ r.own }}</td>
@@ -75,7 +75,7 @@
 {{ chart("trackb_total", "Total query time over Parquet, common queries (s)", "Sum of warm medians over the queries every entry point ran correctly. Lower is better.", 300) }}
 {% endif %}
 <p>Details: <a href="explore.html">explore the data</a>, <a href="track_a.html">all charts</a>,
-  <a href="methodology.html">methodology and every setting</a>.</p>
+  <a href="{{ root }}methodology.html">methodology and every setting</a>.</p>
 {% endif %}
 {% endblock %}
 {% block scripts %}{% if not empty %}{% include "_data.html.j2" %}{% endif %}{% endblock %}

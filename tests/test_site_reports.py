@@ -89,6 +89,16 @@ def test_report_pages_link_locally_and_to_shared_pages(tmp_path):
     assert 'href="../explore.html"' in system
 
 
+def test_every_local_link_resolves(tmp_path):
+    out = build(tmp_path, two_campaigns())
+    broken = []
+    for page in out.rglob("*.html"):
+        for link in re.findall(r'(?:href|src)="([^"#?]+)', page.read_text(encoding="utf-8")):
+            if not re.match(r"[a-z]+:", link) and not (page.parent / link).exists():
+                broken.append((str(page.relative_to(out)), link))
+    assert broken == []
+
+
 def test_reports_page_lists_and_compares_reports(tmp_path):
     out = build(tmp_path, two_campaigns())
     html = (out / "reports.html").read_text(encoding="utf-8")
