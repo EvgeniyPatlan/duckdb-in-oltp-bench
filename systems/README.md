@@ -40,6 +40,7 @@ scripts/dev.sh env PYTHONPATH=. python tests/test_docs.py
 | [`innodb`](innodb/README.md) | A | MySQL InnoDB | MySQL 9.7 (InnoDB) | none (row-store baseline) | none | `mysql:9.7` | registry digest |
 | [`mariadb`](mariadb/README.md) | A | MariaDB | MariaDB 12.3.3 | MariaDB-duckdb-engine | bundled; see versions in records | `dbench/mariadb-duckdb:12.3.3` | local build |
 | [`percona`](percona/README.md) | A | Percona | MySQL 9.7.0 | Percona ducksdb-mysql-engine v0.2.4 | 2.0.0 | `perconalab/ducksdb-mysql-engine:9.7-duckdb-v0.2.4` | registry digest |
+| [`percona-duckdb-1.5.5`](percona/README.md) | A | Percona (rebuilt on DuckDB 1.5.5) | MySQL 9.7.0 | Percona ducksdb-mysql-engine v0.2.4 rebuilt on DuckDB 1.5.5 (not a Percona release) | 1.5.5 | `dbench/percona-duckdb:9.7-v0.2.4-duckdb-1.5.5` | local build |
 | [`pg_duckdb`](pgduckdb/README.md) | A | pg_duckdb | PostgreSQL 18 | pg_duckdb v1.1.1 | bundled; see versions in records | `pgduckdb/pgduckdb:18-v1.1.1` | registry digest |
 | [`pg_ducklake`](pgducklake/README.md) | A | pg_ducklake | PostgreSQL 18 | pg_ducklake v1.0.3 | bundled; see versions in records | `dbench/pgducklake:18-v1.0.3` | local build |
 | [`postgres`](postgres/README.md) | A | PostgreSQL | PostgreSQL 18 | none (row-store baseline) | none | `postgres:18` | registry digest |

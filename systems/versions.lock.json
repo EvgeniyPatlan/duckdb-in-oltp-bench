@@ -12,7 +12,7 @@
         "ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c"
       ]
     },
-    "digest": "sha256:27d7706915646a2ce13a68aec32982760b588b1eefde9b2af6cd37b798ac78a2",
+    "digest": "sha256:750530032aec307932da7cc5cc9757b49764cbf803a007069fb8b34a40b4d904",
     "digest_kind": "local",
     "duckdb_version": "1.5.2-dev736",
     "image": "dbench/alisql:8.0.44-3",
@@ -28,7 +28,7 @@
       ],
       "pip": "duckdb==1.4.3"
     },
-    "digest": "sha256:0b1752821ad33d2b1dc9b22e042d4756b24fd4b293f4d90b36890dfe583c6d3b",
+    "digest": "sha256:ddf68226fc6361bcd0fdf4dde5d9d28ab686f9a9088dd2fb94a31611baa935ed",
     "digest_kind": "local",
     "duckdb_version": "1.4.3",
     "image": "dbench/duckdb:1.4.3",
@@ -47,7 +47,7 @@
       ],
       "source": "github.com/duckdb/duckdb-python at DUCKDB_PYTHON_TAG, DuckDB checked out at DUCKDB_SOURCE_COMMIT"
     },
-    "digest": "sha256:b5e6761b4f120938d414b06976f23e6709978daa4d22415dd1eac4df244ea718",
+    "digest": "sha256:efb098aaee0cd53609beef05736a7ca12adccba95d809269db9c7db3ec06c16b",
     "digest_kind": "local",
     "duckdb_version": "1.5.2-dev736",
     "image": "dbench/duckdb:1.5.2-dev736",
@@ -63,7 +63,7 @@
       ],
       "pip": "duckdb==1.5.3"
     },
-    "digest": "sha256:db62e0455880b5776e7db50d6463885ef9a9d6cfc2b855dc5d69cefef2709e56",
+    "digest": "sha256:697dc58e59ee554c9943c43367e0d03b562571019c1bb642727285f07ef35394",
     "digest_kind": "local",
     "duckdb_version": "1.5.3",
     "image": "dbench/duckdb:1.5.3",
@@ -79,7 +79,7 @@
       ],
       "pip": "duckdb==1.5.5"
     },
-    "digest": "sha256:be66e5a302356c72c3a54a3fcf481cad9cf2da7031614cbab350077fa060a799",
+    "digest": "sha256:fa9ddda0848b69773a2bf83efd4762061d19d422d1b609d4c710ab38cbb37c06",
     "digest_kind": "local",
     "duckdb_version": "1.5.5",
     "image": "dbench/duckdb:1.5.5",
@@ -95,7 +95,7 @@
       ],
       "pip": "duckdb==2.0.0"
     },
-    "digest": "sha256:83b34ac406d2670d4f55a22603d679f94b1920e3491458bf5163e76b644605a0",
+    "digest": "sha256:f2528d483b1fc8b08b446e6cb88f5f0e4eb13b74d305bdc4c12320553df57131",
     "digest_kind": "local",
     "duckdb_version": "2.0.0",
     "image": "dbench/duckdb:2.0.0",
@@ -118,7 +118,7 @@
         "rockylinux:9@sha256:d7be1c094cc5845ee815d4632fe377514ee6ebcf8efaed6892889657e5ddaaa6"
       ]
     },
-    "digest": "sha256:d15e355a65a81a6c321ccbd117edd2b0772200f47e67dfb5f63efc7280a7e27b",
+    "digest": "sha256:74f116a3c80938cdd74f8025cfa996798892727ddd6d27e5bd04bbf13ae13ce8",
     "digest_kind": "local",
     "duckdb_version": "bundled; see versions in records",
     "image": "dbench/mariadb-duckdb:12.3.3",
@@ -131,6 +131,20 @@
     "duckdb_version": "2.0.0",
     "image": "perconalab/ducksdb-mysql-engine:9.7-duckdb-v0.2.4@sha256:222a06f9b717eefded72e21681e2c45f343cafc1b66655ffcf9c90745117a566",
     "server_version": "MySQL 9.7.0 + Percona ducksdb-mysql-engine v0.2.4"
+  },
+  "percona-duckdb-1.5.5": {
+    "build_inputs": {
+      "duckdb_tag": "v1.5.5",
+      "engine_commit": "4033a7a52736418f13f879ce8c9f83911cf1d3a1",
+      "engine_repo": "github.com/EvgeniyPatlan/ducksdb-mysql-engine",
+      "mysql_source": "github.com/mysql/mysql-server mysql-9.7.0 (845d525d49c8027a4d0cdcc43372c96ba295c857) with server-patches/",
+      "recipe": "DUCKDB_TAG=v1.5.5 scripts/build-duckdb-prefix.sh; BUILD_TYPE=RelWithDebInfo scripts/build-server.sh; scripts/release-image.sh dbench/percona-duckdb:9.7-v0.2.4-duckdb-1.5.5"
+    },
+    "digest": "sha256:daf82527ec330d92477177ed4bc13badef772a2c67270d5076c8fa6ace9a0394",
+    "digest_kind": "local",
+    "duckdb_version": "1.5.5",
+    "image": "dbench/percona-duckdb:9.7-v0.2.4-duckdb-1.5.5",
+    "server_version": "MySQL 9.7.0 + Percona ducksdb-mysql-engine v0.2.4 rebuilt on DuckDB 1.5.5 (not a Percona release)"
   },
   "pg_duckdb": {
     "build_inputs": {},
@@ -146,7 +160,7 @@
       "TAG": "v1.0.3",
       "source": "github.com/relytcloud/pg_ducklake"
     },
-    "digest": "sha256:cccef06e3dc158086c7420b964f8a6dac7530bf588a820c3b7c6c4aa7ee3aa06",
+    "digest": "sha256:d60940feb73e59319ab15891f979c869e84e7bb3791b27952feed52fdb8751aa",
     "digest_kind": "local",
     "duckdb_version": "bundled; see versions in records",
     "image": "dbench/pgducklake:18-v1.0.3",
@@ -176,7 +190,7 @@
         "villagesql/server:mysql-8.4_0.0.7@sha256:a8326d3daeded00b147d47dc50d68a2ac4f8a750e51a7d1374e91aa7a97e88da"
       ]
     },
-    "digest": "sha256:06f8bb5974996f7a87a74bafb1fd437c128526ba2f3fd9dd8a7b4a88e0a8e913",
+    "digest": "sha256:19d420e5d207afaca0b6bd355a9aa5dcd5327d3feef209ec696b0eaced99e68c",
     "digest_kind": "local",
     "duckdb_version": "1.5.5",
     "image": "dbench/villagesql:0.0.7-duckdb-0.0.3",
